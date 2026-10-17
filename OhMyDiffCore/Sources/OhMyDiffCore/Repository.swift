@@ -77,12 +77,55 @@ public struct Repository: Sendable {
 
     /// Uncommitted changes grouped the way the project's kind presents them.
     public func changeGroups() async throws -> [ChangeGroup] {
-        switch kind {
+        let groups = switch kind {
         case .git:
             Self.gitChangeGroups(try await gitStatus())
         case .gitButler:
             Self.butChangeGroups(try await butStatus(), gitStatus: try await gitStatus())
         }
+        return try await addingStats(to: groups)
+    }
+
+    /// Fills in each file's line counts with one `--numstat` run per diff the groups draw from.
+    private func addingStats(to groups: [ChangeGroup]) async throws -> [ChangeGroup] {
+        var stats: [ChangeSource: [String: LineStats]] = [:]
+        for source in Set(groups.flatMap { $0.files.map(\.source) }) {
+            let base: [String]
+            switch source {
+            case .staged: base = ["diff", "--cached"]
+            case .unstaged: base = ["diff"]
+            case .workspace: base = ["diff", "HEAD"]
+            case .untracked, .conflicted: continue
+            }
+            let output = try await toolchain.git(base + Self.diffOptions + ["--numstat", "-z"], in: root)
+            stats[source] = NumstatParser.parse(output.stdout)
+        }
+
+        return groups.map { group in
+            var group = group
+            for index in group.files.indices {
+                let file = group.files[index]
+                // Untracked files are absent from every diff against the index or HEAD.
+                group.files[index].stats = stats[file.source]?[file.path]
+                    ?? (file.kind == .untracked || file.kind == .added ? Self.addedLineStats(root.appending(path: file.path)) : nil)
+            }
+            return group
+        }
+    }
+
+    /// Only files up to this size are read to count the lines of untracked files.
+    private static let lineCountLimit = 8 << 20
+
+    /// Counts a new file's lines; `nil` for binary, unreadable or very large files.
+    static func addedLineStats(_ url: URL) -> LineStats? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= lineCountLimit,
+              let data = try? Data(contentsOf: url)
+        else { return nil }
+        // Same heuristic as git: a NUL byte in the first 8000 bytes marks the file as binary.
+        guard !data.prefix(8000).contains(0) else { return nil }
+        var lines = data.count { $0 == UInt8(ascii: "\n") }
+        if let last = data.last, last != UInt8(ascii: "\n") { lines += 1 }
+        return LineStats(additions: lines, deletions: 0)
     }
 
     static func gitChangeGroups(_ entries: [StatusEntry]) -> [ChangeGroup] {

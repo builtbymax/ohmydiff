@@ -121,6 +121,12 @@ final class TestRepo {
         #expect(Set(groups[1].files.map(\.path)) == ["a.txt", "delete-me.txt"])
         #expect(groups[2].files.map(\.path) == ["new dir/untracked.txt"])
 
+        #expect(staged.first { $0.path == "a.txt" }?.stats == LineStats(additions: 1, deletions: 1))
+        #expect(groups[1].files.first { $0.path == "a.txt" }?.stats == LineStats(additions: 1, deletions: 0))
+        #expect(groups[1].files.first { $0.path == "delete-me.txt" }?.stats == LineStats(additions: 0, deletions: 1))
+        #expect(rename.stats == LineStats(additions: 0, deletions: 0))
+        #expect(groups[2].files[0].stats == LineStats(additions: 1, deletions: 0))
+
         // Staged a.txt: only the TWO change.
         let stagedA = try #require(try await repository.diff(for: staged.first { $0.path == "a.txt" }!))
         #expect(stagedA.hunks.flatMap(\.lines).filter { $0.kind != .context }.map(\.text) == ["two", "TWO"])
@@ -205,6 +211,8 @@ struct GitButlerRepositoryTests {
         let unassigned = try #require(groups.first).files
         #expect(Set(unassigned.map(\.path)) == ["feature.txt", "README.md", "brand new.txt"])
         #expect(unassigned.allSatisfy { $0.source == .workspace })
+        #expect(unassigned.first { $0.path == "feature.txt" }?.stats == LineStats(additions: 1, deletions: 0))
+        #expect(unassigned.first { $0.path == "brand new.txt" }?.stats == LineStats(additions: 1, deletions: 0))
 
         // Workspace diffs are against the workspace commit, so the branch's committed line is context.
         let feature = try #require(try await repository.diff(for: unassigned.first { $0.path == "feature.txt" }!))
