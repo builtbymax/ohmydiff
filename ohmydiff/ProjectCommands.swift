@@ -4,10 +4,20 @@ import SwiftUI
 struct ProjectCommands: Commands {
     let model: AppModel
 
+    @AppStorage(DiffSettings.layoutKey) private var diffLayout: DiffLayoutMode = .unified
+
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("Add Project…") { model.isImporterPresented = true }
                 .keyboardShortcut("o")
+        }
+
+        CommandGroup(before: .sidebar) {
+            Toggle("Side-by-Side Diff", isOn: Binding(
+                get: { diffLayout == .split },
+                set: { diffLayout = $0 ? .split : .unified }))
+                .keyboardShortcut("\\")
+            Divider()
         }
 
         CommandMenu("Go") {

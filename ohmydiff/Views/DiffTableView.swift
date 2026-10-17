@@ -2,13 +2,25 @@ import AppKit
 import OhMyDiffCore
 import SwiftUI
 
-/// A unified diff in a view-based `NSTableView`, so only visible lines are laid out.
+enum DiffLayoutMode: String {
+    case unified
+    case split
+}
+
+extension Notification.Name {
+    /// Posted with `object: 1` (next) or `-1` (previous) to scroll the visible diff to another hunk.
+    static let jumpToHunk = Notification.Name("ohmydiff.jumpToHunk")
+}
+
+/// A diff in a view-based `NSTableView`, so only visible lines are laid out.
 ///
-/// One row per hunk header or line, with old/new line-number gutters. Rows can be selected
-/// (⇧/⌘-click, ⌘A) and copied with ⌘C.
+/// Unified mode has one row per line with old/new gutters; split mode pairs deletions with additions
+/// in two columns. Hunk headers span the full width. Rows can be selected (⇧/⌘-click, ⌘A) and
+/// copied with ⌘C; `n` / `p` jump between hunks.
 struct DiffTableView: NSViewRepresentable {
     let fileID: ChangedFile.ID
     let diff: FileDiff
+    let mode: DiffLayoutMode
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -19,16 +31,14 @@ struct DiffTableView: NSViewRepresentable {
         tableView.intercellSpacing = .zero
         tableView.gridStyleMask = []
         tableView.allowsMultipleSelection = true
+        tableView.floatsGroupRows = false
         tableView.backgroundColor = .textBackgroundColor
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.rowHeight = DiffRowFormatter.rowHeight
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
         tableView.copyText = { [weak coordinator = context.coordinator] rows in coordinator?.text(for: rows) ?? "" }
-
-        let column = NSTableColumn(identifier: .init("diff"))
-        column.resizingMask = []
-        tableView.addTableColumn(column)
+        tableView.jumpToHunk = { [weak coordinator = context.coordinator] direction in coordinator?.jumpToHunk(direction) }
 
         let scrollView = NSScrollView()
         scrollView.documentView = tableView
@@ -37,31 +47,72 @@ struct DiffTableView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = true
         scrollView.backgroundColor = .textBackgroundColor
-        context.coordinator.tableView = tableView
+        context.coordinator.attach(tableView, scrollView: scrollView)
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.show(diff, fileID: fileID)
+        context.coordinator.show(diff, fileID: fileID, mode: mode)
     }
 
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
-        weak var tableView: NSTableView?
+        private weak var tableView: NSTableView?
+        private weak var scrollView: NSScrollView?
         private var fileID: ChangedFile.ID?
-        private var diff: FileDiff?
-        private var rows: [DiffRow] = []
-        private var formatter = DiffRowFormatter(gutterDigits: 1)
+        private var mode: DiffLayoutMode?
+        private var diff = FileDiff(oldPath: nil, newPath: nil, kind: .unknown)
+        private var unifiedRows: [DiffLayout.UnifiedRow] = []
+        private var splitRows: [DiffLayout.SplitRow] = []
+        private var hunkRows: [Int] = []
+        private var formatter = DiffRowFormatter()
+        private var observers: [NSObjectProtocol] = []
 
-        func show(_ diff: FileDiff, fileID: ChangedFile.ID) {
-            guard let tableView, diff != self.diff || fileID != self.fileID else { return }
-            let isNewFile = fileID != self.fileID
+        private static let oldColumn = NSUserInterfaceItemIdentifier("old")
+        private static let newColumn = NSUserInterfaceItemIdentifier("new")
+        private static let unifiedColumn = NSUserInterfaceItemIdentifier("unified")
+
+        func attach(_ tableView: NSTableView, scrollView: NSScrollView) {
+            self.tableView = tableView
+            self.scrollView = scrollView
+            scrollView.contentView.postsFrameChangedNotifications = true
+            observers = [
+                NotificationCenter.default.addObserver(
+                    forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main
+                ) { [weak self] _ in MainActor.assumeIsolated { self?.sizeColumns() } },
+                NotificationCenter.default.addObserver(forName: .jumpToHunk, object: nil, queue: .main) { [weak self] note in
+                    let direction = note.object as? Int ?? 1
+                    MainActor.assumeIsolated { self?.jumpToHunk(direction) }
+                },
+            ]
+        }
+
+        isolated deinit {
+            observers.forEach(NotificationCenter.default.removeObserver)
+        }
+
+        func show(_ diff: FileDiff, fileID: ChangedFile.ID, mode: DiffLayoutMode) {
+            guard let tableView, diff != self.diff || fileID != self.fileID || mode != self.mode else { return }
+            // Rows of the other layout do not line up with the current ones, so start over at the top.
+            let isNewFile = fileID != self.fileID || mode != self.mode
+            if mode != self.mode { configureColumns(for: mode) }
             self.diff = diff
             self.fileID = fileID
-            rows = DiffRow.rows(for: diff)
+            self.mode = mode
             formatter = DiffRowFormatter(diff: diff)
 
-            tableView.tableColumns.first?.width = formatter.contentWidth(for: rows)
+            switch mode {
+            case .unified:
+                unifiedRows = DiffLayout.unified(diff)
+                splitRows = []
+                hunkRows = unifiedRows.indices.filter { if case .hunkHeader = unifiedRows[$0] { true } else { false } }
+            case .split:
+                splitRows = DiffLayout.split(diff)
+                unifiedRows = []
+                hunkRows = splitRows.indices.filter { if case .hunkHeader = splitRows[$0] { true } else { false } }
+            }
+
+            sizeColumns()
             tableView.reloadData()
             if isNewFile {
                 tableView.deselectAll(nil)
@@ -69,135 +120,317 @@ struct DiffTableView: NSViewRepresentable {
             }
         }
 
-        func text(for rowIndexes: IndexSet) -> String {
-            rowIndexes.compactMap { rows.indices.contains($0) ? rows[$0].copyText : nil }.joined(separator: "\n")
+        private func configureColumns(for mode: DiffLayoutMode) {
+            guard let tableView else { return }
+            tableView.tableColumns.forEach(tableView.removeTableColumn)
+            let identifiers = mode == .unified ? [Self.unifiedColumn] : [Self.oldColumn, Self.newColumn]
+            for identifier in identifiers {
+                let column = NSTableColumn(identifier: identifier)
+                column.resizingMask = []
+                tableView.addTableColumn(column)
+            }
         }
 
-        func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+        /// Columns are as wide as their longest line; split columns also fill at least half the pane each.
+        private func sizeColumns() {
+            guard let tableView, let scrollView else { return }
+            let visible = scrollView.contentView.bounds.width
+            switch mode {
+            case .unified:
+                tableView.tableColumns.first?.width = formatter.unifiedWidth(unifiedRows)
+            case .split:
+                let (old, new) = formatter.splitWidths(splitRows)
+                tableView.tableColumns.first { $0.identifier == Self.oldColumn }?.width = max(old, floor(visible / 2))
+                tableView.tableColumns.first { $0.identifier == Self.newColumn }?.width = max(new, ceil(visible / 2))
+            case nil:
+                break
+            }
+        }
+
+        // MARK: Hunk navigation
+
+        func jumpToHunk(_ direction: Int) {
+            guard let tableView, let scrollView, !hunkRows.isEmpty else { return }
+            let topInset = scrollView.contentInsets.top
+            let top = scrollView.contentView.bounds.minY + topInset
+            let currentRow = max(tableView.row(at: NSPoint(x: 0, y: top + 1)), 0)
+
+            let target = direction > 0
+                ? hunkRows.first { $0 > currentRow }
+                : hunkRows.last { $0 < currentRow }
+            guard let target else { return }
+            let y = tableView.rect(ofRow: target).minY - topInset
+            scrollView.contentView.scroll(to: NSPoint(x: scrollView.contentView.bounds.minX, y: y))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+
+        // MARK: Copy
+
+        func text(for rowIndexes: IndexSet) -> String {
+            rowIndexes.compactMap { row -> String? in
+                switch mode {
+                case .unified:
+                    guard unifiedRows.indices.contains(row) else { return nil }
+                    switch unifiedRows[row] {
+                    case .hunkHeader(let h): return diff.hunks[h].header
+                    case .line(let h, let l): return diff.hunks[h].lines[l].text
+                    case .noNewlineAtEnd: return nil
+                    }
+                case .split:
+                    guard splitRows.indices.contains(row) else { return nil }
+                    switch splitRows[row] {
+                    case .hunkHeader(let h): return diff.hunks[h].header
+                    // The new side is what the file contains now; deletions alone copy the old text.
+                    case .pair(let h, let old, let new): return (new ?? old).map { diff.hunks[h].lines[$0].text }
+                    }
+                case nil:
+                    return nil
+                }
+            }
+            .joined(separator: "\n")
+        }
+
+        // MARK: Data source and delegate
+
+        func numberOfRows(in tableView: NSTableView) -> Int {
+            mode == .split ? splitRows.count : unifiedRows.count
+        }
+
+        func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
+            hunkIndex(ofHeaderRow: row) != nil
+        }
 
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-            let identifier = NSUserInterfaceItemIdentifier("DiffCell")
-            let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? DiffCellView ?? DiffCellView(identifier: identifier)
-            cell.label.attributedStringValue = formatter.attributedString(for: rows[row])
+            let cell = tableView.makeView(withIdentifier: DiffCellView.reuseIdentifier, owner: nil) as? DiffCellView ?? DiffCellView()
+            cell.tint = nil
+            cell.drawsTrailingSeparator = false
+
+            if let hunk = hunkIndex(ofHeaderRow: row) {
+                cell.label.attributedStringValue = formatter.hunkHeader(diff.hunks[hunk], mode: mode ?? .unified)
+                return cell
+            }
+
+            switch mode {
+            case .unified:
+                switch unifiedRows[row] {
+                case .line(let h, let l):
+                    cell.label.attributedStringValue = formatter.unifiedLine(hunk: h, line: l)
+                case .noNewlineAtEnd:
+                    cell.label.attributedStringValue = formatter.noNewlineAtEnd(mode: .unified)
+                case .hunkHeader:
+                    break
+                }
+            case .split:
+                guard case .pair(let h, let old, let new) = splitRows[row] else { break }
+                let isOld = tableColumn?.identifier == Self.oldColumn
+                let line = isOld ? old : new
+                cell.label.attributedStringValue = line.map { formatter.splitLine(hunk: h, line: $0, side: isOld ? .old : .new) }
+                    ?? NSAttributedString()
+                cell.drawsTrailingSeparator = isOld
+                if let line {
+                    cell.tint = DiffRowFormatter.tint(for: diff.hunks[h].lines[line].kind)
+                } else if old != new {
+                    // The other side changed; this side has no counterpart line.
+                    cell.tint = DiffRowFormatter.fillerTint
+                }
+            case nil:
+                break
+            }
             return cell
         }
 
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-            let identifier = NSUserInterfaceItemIdentifier("DiffRow")
-            let rowView = tableView.makeView(withIdentifier: identifier, owner: nil) as? DiffRowView ?? DiffRowView()
-            rowView.identifier = identifier
-            rowView.tint = rows[row].tint
+            let rowView = tableView.makeView(withIdentifier: DiffRowView.reuseIdentifier, owner: nil) as? DiffRowView ?? DiffRowView()
+            if hunkIndex(ofHeaderRow: row) != nil {
+                rowView.tint = DiffRowFormatter.hunkTint
+            } else if mode == .unified, case .line(let h, let l) = unifiedRows[row] {
+                rowView.tint = DiffRowFormatter.tint(for: diff.hunks[h].lines[l].kind)
+            } else {
+                rowView.tint = nil
+            }
             return rowView
         }
-    }
-}
 
-// MARK: - Rows
-
-enum DiffRow {
-    case hunkHeader(String)
-    case line(DiffLine)
-    case noNewlineAtEnd
-
-    static func rows(for diff: FileDiff) -> [DiffRow] {
-        var rows: [DiffRow] = []
-        rows.reserveCapacity(diff.hunks.reduce(0) { $0 + $1.lines.count + 1 })
-        for hunk in diff.hunks {
-            rows.append(.hunkHeader(hunk.header))
-            for line in hunk.lines {
-                rows.append(.line(line))
-                if line.noNewlineAtEnd { rows.append(.noNewlineAtEnd) }
+        private func hunkIndex(ofHeaderRow row: Int) -> Int? {
+            switch mode {
+            case .unified:
+                if unifiedRows.indices.contains(row), case .hunkHeader(let h) = unifiedRows[row] { return h }
+            case .split:
+                if splitRows.indices.contains(row), case .hunkHeader(let h) = splitRows[row] { return h }
+            case nil:
+                break
             }
-        }
-        return rows
-    }
-
-    /// What ⌘C puts on the pasteboard: the line's text without its marker.
-    var copyText: String? {
-        switch self {
-        case .hunkHeader(let header): header
-        case .line(let line): line.text
-        case .noNewlineAtEnd: nil
-        }
-    }
-
-    var tint: NSColor? {
-        switch self {
-        case .hunkHeader: .systemBlue.withAlphaComponent(0.08)
-        case .line(let line):
-            switch line.kind {
-            case .addition: .systemGreen.withAlphaComponent(0.14)
-            case .deletion: .systemRed.withAlphaComponent(0.14)
-            case .context: nil
-            }
-        case .noNewlineAtEnd: nil
+            return nil
         }
     }
 }
 
 // MARK: - Formatting
 
+/// Builds the attributed strings for diff rows. Word highlights are computed once per diff.
 struct DiffRowFormatter {
     static let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
     static let rowHeight = ceil(NSLayoutManager().defaultLineHeight(for: font)) + 3
-    private static let characterWidth = ("M" as NSString).size(withAttributes: [.font: font]).width
-    private static let tabWidth = 4
+    static let characterWidth = ("M" as NSString).size(withAttributes: [.font: font]).width
     static let horizontalPadding: CGFloat = 8
+    private static let tabWidth = 4
 
-    let gutterDigits: Int
+    static let hunkTint = NSColor.systemBlue.withAlphaComponent(0.08)
+    static let fillerTint = NSColor.secondaryLabelColor.withAlphaComponent(0.05)
+    private static let additionWordTint = NSColor.systemGreen.withAlphaComponent(0.32)
+    private static let deletionWordTint = NSColor.systemRed.withAlphaComponent(0.32)
 
-    init(gutterDigits: Int) {
-        self.gutterDigits = gutterDigits
+    static func tint(for kind: DiffLine.Kind) -> NSColor? {
+        switch kind {
+        case .addition: .systemGreen.withAlphaComponent(0.14)
+        case .deletion: .systemRed.withAlphaComponent(0.14)
+        case .context: nil
+        }
     }
+
+    enum Side { case old, new }
+
+    private var diff = FileDiff(oldPath: nil, newPath: nil, kind: .unknown)
+    private var gutterDigits = 3
+    /// Changed character ranges per hunk, keyed by line index.
+    private var wordHighlights: [[Int: [Range<Int>]]] = []
+
+    init() {}
 
     init(diff: FileDiff) {
+        self.diff = diff
         let largest = diff.hunks.map { max($0.oldStart + $0.oldCount, $0.newStart + $0.newCount) }.max() ?? 0
         gutterDigits = max(String(largest).count, 3)
+        wordHighlights = diff.hunks.map(WordDiff.highlights(for:))
     }
 
-    /// Old and new line numbers, a space each, then the marker and a space.
-    private var prefixLength: Int { gutterDigits * 2 + 2 + 2 }
+    /// Unified: two line numbers, a space after each, then the marker and a space.
+    private var unifiedPrefix: Int { gutterDigits * 2 + 2 + 2 }
+    /// Split: one line number and a space, then the marker and a space.
+    private var splitPrefix: Int { gutterDigits + 1 + 2 }
 
-    func attributedString(for row: DiffRow) -> NSAttributedString {
+    // MARK: Rows
+
+    func hunkHeader(_ hunk: Hunk, mode: DiffLayoutMode) -> NSAttributedString {
+        let indent = String(repeating: " ", count: mode == .unified ? unifiedPrefix : splitPrefix)
+        return NSAttributedString(string: indent + hunk.header, attributes: [.font: Self.font, .foregroundColor: NSColor.secondaryLabelColor])
+    }
+
+    func noNewlineAtEnd(mode: DiffLayoutMode) -> NSAttributedString {
+        let indent = String(repeating: " ", count: mode == .unified ? unifiedPrefix : splitPrefix)
+        return NSAttributedString(
+            string: indent + "No newline at end of file", attributes: [.font: Self.font, .foregroundColor: NSColor.tertiaryLabelColor])
+    }
+
+    func unifiedLine(hunk h: Int, line l: Int) -> NSAttributedString {
+        let line = diff.hunks[h].lines[l]
         let result = NSMutableAttributedString()
-        func append(_ string: String, _ color: NSColor) {
-            result.append(NSAttributedString(string: string, attributes: [.font: Self.font, .foregroundColor: color]))
-        }
-
-        switch row {
-        case .hunkHeader(let header):
-            append(String(repeating: " ", count: prefixLength) + header, .secondaryLabelColor)
-        case .noNewlineAtEnd:
-            append(String(repeating: " ", count: prefixLength) + "No newline at end of file", .tertiaryLabelColor)
-        case .line(let line):
-            append(number(line.oldLineNumber) + " " + number(line.newLineNumber) + " ", .tertiaryLabelColor)
-            switch line.kind {
-            case .addition: append("+ ", .systemGreen)
-            case .deletion: append("− ", .systemRed)
-            case .context: append("  ", .tertiaryLabelColor)
-            }
-            append(Self.expandingTabs(line.text), .labelColor)
-        }
+        append(number(line.oldLineNumber) + " " + number(line.newLineNumber) + " ", .tertiaryLabelColor, to: result)
+        appendBody(line, highlights: wordHighlights[h][l], to: result)
         return result
     }
 
-    /// Width of the widest row, so long lines scroll horizontally instead of being cut off.
-    func contentWidth(for rows: [DiffRow]) -> CGFloat {
-        var longest = 0
-        for row in rows {
-            let length = switch row {
-            case .hunkHeader(let header): header.count
-            case .line(let line): Self.expandedLength(line.text)
-            case .noNewlineAtEnd: 25
-            }
-            longest = max(longest, length)
+    func splitLine(hunk h: Int, line l: Int, side: Side) -> NSAttributedString {
+        let line = diff.hunks[h].lines[l]
+        let result = NSMutableAttributedString()
+        append(number(side == .old ? line.oldLineNumber : line.newLineNumber) + " ", .tertiaryLabelColor, to: result)
+        appendBody(line, highlights: wordHighlights[h][l], to: result)
+        if line.noNewlineAtEnd { append("  ⏎̸", .tertiaryLabelColor, to: result) }
+        return result
+    }
+
+    private func appendBody(_ line: DiffLine, highlights: [Range<Int>]?, to result: NSMutableAttributedString) {
+        let wordTint: NSColor?
+        switch line.kind {
+        case .addition:
+            append("+ ", .systemGreen, to: result)
+            wordTint = Self.additionWordTint
+        case .deletion:
+            append("− ", .systemRed, to: result)
+            wordTint = Self.deletionWordTint
+        case .context:
+            append("  ", .tertiaryLabelColor, to: result)
+            wordTint = nil
         }
-        return CGFloat(prefixLength + longest) * Self.characterWidth + Self.horizontalPadding * 2
+        appendText(line.text, highlights: highlights ?? [], tint: wordTint, to: result)
+    }
+
+    /// Appends `text` with tabs expanded, giving the highlighted character ranges a background.
+    private func appendText(_ text: String, highlights: [Range<Int>], tint: NSColor?, to result: NSMutableAttributedString) {
+        guard let tint, !highlights.isEmpty else {
+            append(Self.expandingTabs(text), .labelColor, to: result)
+            return
+        }
+        var column = 0
+        var offset = 0
+        var run = ""
+        var runIsHighlighted = false
+        var nextRange = 0
+
+        func flush() {
+            guard !run.isEmpty else { return }
+            append(run, .labelColor, background: runIsHighlighted ? tint : nil, to: result)
+            run = ""
+        }
+
+        for character in text {
+            while nextRange < highlights.count, highlights[nextRange].upperBound <= offset { nextRange += 1 }
+            let isHighlighted = nextRange < highlights.count && highlights[nextRange].contains(offset)
+            if isHighlighted != runIsHighlighted {
+                flush()
+                runIsHighlighted = isHighlighted
+            }
+            if character == "\t" {
+                let spaces = Self.tabWidth - column % Self.tabWidth
+                run += String(repeating: " ", count: spaces)
+                column += spaces
+            } else {
+                run.append(character)
+                column += 1
+            }
+            offset += 1
+        }
+        flush()
+    }
+
+    private func append(_ string: String, _ color: NSColor, background: NSColor? = nil, to result: NSMutableAttributedString) {
+        var attributes: [NSAttributedString.Key: Any] = [.font: Self.font, .foregroundColor: color]
+        if let background { attributes[.backgroundColor] = background }
+        result.append(NSAttributedString(string: string, attributes: attributes))
     }
 
     private func number(_ value: Int?) -> String {
         let text = value.map(String.init) ?? ""
         return String(repeating: " ", count: max(gutterDigits - text.count, 0)) + text
+    }
+
+    // MARK: Widths
+
+    /// Width of the widest unified row, so long lines scroll horizontally instead of being cut off.
+    func unifiedWidth(_ rows: [DiffLayout.UnifiedRow]) -> CGFloat {
+        var longest = 0
+        for row in rows {
+            switch row {
+            case .hunkHeader(let h): longest = max(longest, diff.hunks[h].header.count)
+            case .line(let h, let l): longest = max(longest, Self.expandedLength(diff.hunks[h].lines[l].text))
+            case .noNewlineAtEnd: longest = max(longest, 25)
+            }
+        }
+        return width(characters: unifiedPrefix + longest)
+    }
+
+    func splitWidths(_ rows: [DiffLayout.SplitRow]) -> (old: CGFloat, new: CGFloat) {
+        var old = 0
+        var new = 0
+        for case .pair(let h, let o, let n) in rows {
+            if let o { old = max(old, Self.expandedLength(diff.hunks[h].lines[o].text) + 3) }
+            if let n { new = max(new, Self.expandedLength(diff.hunks[h].lines[n].text) + 3) }
+        }
+        return (width(characters: splitPrefix + old), width(characters: splitPrefix + new))
+    }
+
+    private func width(characters: Int) -> CGFloat {
+        ceil(CGFloat(characters) * Self.characterWidth + Self.horizontalPadding * 2)
     }
 
     private static func expandingTabs(_ text: String) -> String {
@@ -227,6 +460,7 @@ struct DiffRowFormatter {
 
 private final class DiffNSTableView: NSTableView {
     var copyText: ((IndexSet) -> String)?
+    var jumpToHunk: ((Int) -> Void)?
 
     @objc func copy(_ sender: Any?) {
         guard !selectedRowIndexes.isEmpty, let text = copyText?(selectedRowIndexes) else { return }
@@ -238,11 +472,27 @@ private final class DiffNSTableView: NSTableView {
         if item.action == #selector(copy(_:)) { return !selectedRowIndexes.isEmpty }
         return super.validateUserInterfaceItem(item)
     }
+
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        switch (event.charactersIgnoringModifiers, modifiers.isEmpty) {
+        case ("n", true): jumpToHunk?(1)
+        case ("p", true): jumpToHunk?(-1)
+        default: super.keyDown(with: event)
+        }
+    }
 }
 
 private final class DiffRowView: NSTableRowView {
+    static let reuseIdentifier = NSUserInterfaceItemIdentifier("DiffRow")
+
     var tint: NSColor? {
         didSet { if tint != oldValue { needsDisplay = true } }
+    }
+
+    convenience init() {
+        self.init(frame: .zero)
+        identifier = Self.reuseIdentifier
     }
 
     override func drawBackground(in dirtyRect: NSRect) {
@@ -253,16 +503,26 @@ private final class DiffRowView: NSTableRowView {
 }
 
 private final class DiffCellView: NSTableCellView {
+    static let reuseIdentifier = NSUserInterfaceItemIdentifier("DiffCell")
+
     let label = NSTextField(labelWithString: "")
 
-    init(identifier: NSUserInterfaceItemIdentifier) {
+    /// Background for split-mode cells, where each side of a row is tinted separately.
+    var tint: NSColor? {
+        didSet { if tint != oldValue { needsDisplay = true } }
+    }
+
+    var drawsTrailingSeparator = false {
+        didSet { if drawsTrailingSeparator != oldValue { needsDisplay = true } }
+    }
+
+    init() {
         super.init(frame: .zero)
-        self.identifier = identifier
+        identifier = Self.reuseIdentifier
         label.lineBreakMode = .byClipping
         label.maximumNumberOfLines = 1
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
-        textField = label
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DiffRowFormatter.horizontalPadding),
             label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
@@ -272,4 +532,15 @@ private final class DiffCellView: NSTableCellView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if let tint {
+            tint.setFill()
+            dirtyRect.fill()
+        }
+        if drawsTrailingSeparator {
+            NSColor.separatorColor.setFill()
+            NSRect(x: bounds.maxX - 1, y: bounds.minY, width: 1, height: bounds.height).fill()
+        }
+    }
 }

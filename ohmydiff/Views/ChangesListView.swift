@@ -65,7 +65,14 @@ struct ChangesListView: View {
                     }
                 }
             }
+            .onKeyPress("n") { jumpToHunk(1) }
+            .onKeyPress("p") { jumpToHunk(-1) }
         }
+    }
+
+    private func jumpToHunk(_ direction: Int) -> KeyPress.Result {
+        NotificationCenter.default.post(name: .jumpToHunk, object: direction)
+        return .handled
     }
 
     /// Applied GitButler stacks are always listed; other groups only when they contain files.

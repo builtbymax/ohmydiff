@@ -167,6 +167,12 @@ final class ProjectSession {
 
     // MARK: - Selection and diff
 
+    /// One side of a changed file, e.g. for image previews; `nil` when it does not exist or cannot be read.
+    func contents(of file: ChangedFile, side: Repository.FileSide) async -> Data? {
+        guard let repository else { return nil }
+        return try? await repository.contents(of: file, side: side)
+    }
+
     /// Replaces the groups, keeping the selection on the same file where possible.
     private func apply(_ newGroups: [ChangeGroup]) {
         let previous = groups
