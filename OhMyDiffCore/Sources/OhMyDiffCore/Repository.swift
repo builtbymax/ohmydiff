@@ -247,6 +247,41 @@ public struct Repository: Sendable {
         return UnifiedDiffParser.parse(output.stdout)
     }
 
+    public enum FileSide: Sendable {
+        /// Before the change: HEAD for staged and workspace changes, the index for unstaged ones.
+        case old
+        /// After the change: the index for staged changes, the worktree otherwise.
+        case new
+    }
+
+    /// The full contents of one side of an uncommitted change, or `nil` when that side does not exist
+    /// (e.g. the old side of an added file) or is larger than `limit` bytes.
+    public func contents(of file: ChangedFile, side: FileSide, limit: Int = 16 << 20) async throws -> Data? {
+        let blob: String?
+        switch (file.source, side) {
+        case (.staged, .old), (.workspace, .old):
+            blob = "HEAD:" + (file.previousPath ?? file.path)
+        case (.unstaged, .old), (.conflicted, .old), (.staged, .new):
+            blob = ":" + file.path
+        case (.untracked, .old):
+            return nil
+        case (.unstaged, .new), (.conflicted, .new), (.untracked, .new), (.workspace, .new):
+            blob = nil
+        }
+
+        guard let blob else {
+            let url = root.appending(path: file.path)
+            guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= limit else { return nil }
+            return try? Data(contentsOf: url)
+        }
+        // `cat-file -s` fails with 128 when the object does not exist, e.g. for an added file.
+        let sizeOutput = try await toolchain.git(["cat-file", "-s", blob], in: root, allowedExitCodes: [0, 128])
+        guard sizeOutput.exitCode == 0,
+              let size = Int(sizeOutput.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)), size <= limit
+        else { return nil }
+        return try await toolchain.git(["cat-file", "blob", blob], in: root).stdout
+    }
+
     private func isUntracked(_ path: String) async throws -> Bool {
         let output = try await toolchain.git(["ls-files", "--others", "--exclude-standard", "-z", "--", path], in: root)
         return !output.stdout.isEmpty

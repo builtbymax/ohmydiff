@@ -142,6 +142,15 @@ final class TestRepo {
         let deleted = try #require(try await repository.diff(for: groups[1].files.first { $0.path == "delete-me.txt" }!))
         #expect(deleted.kind == .deleted)
 
+        let stagedFile = try #require(staged.first { $0.path == "a.txt" })
+        let unstagedFile = try #require(groups[1].files.first { $0.path == "a.txt" })
+        #expect(try await repository.contents(of: stagedFile, side: .old) == Data("one\ntwo\nthree\n".utf8))
+        #expect(try await repository.contents(of: stagedFile, side: .new) == Data("one\nTWO\nthree\n".utf8))
+        #expect(try await repository.contents(of: unstagedFile, side: .new) == Data("one\nTWO\nthree\nfour".utf8))
+        #expect(try await repository.contents(of: rename, side: .old) == Data("same content\nacross\nlines\n".utf8))
+        #expect(try await repository.contents(of: groups[2].files[0], side: .old) == nil)
+        #expect(try await repository.contents(of: groups[1].files.first { $0.path == "delete-me.txt" }!, side: .new) == nil)
+
         let untracked = try #require(try await repository.diff(for: groups[2].files[0]))
         #expect(untracked.kind == .added && untracked.newPath == "new dir/untracked.txt")
         #expect(untracked.hunks.first?.lines.map(\.text) == ["fresh"])
