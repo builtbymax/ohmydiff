@@ -70,3 +70,17 @@ import Testing
         #expect(toolchain.git.lastPathComponent == "git")
     }
 }
+
+@Suite struct ProcessRunnerInputTests {
+    @Test func feedsStandardInput() async throws {
+        let output = try await ProcessRunner().run(URL(fileURLWithPath: "/bin/cat"), arguments: [], input: Data("piped\0data".utf8))
+        #expect(output.stdout == Data("piped\0data".utf8))
+    }
+
+    @Test func survivesChildThatIgnoresInput() async throws {
+        // `true` exits without reading; writing must not raise SIGPIPE.
+        let input = Data(repeating: 0x61, count: 1_000_000)
+        let output = try await ProcessRunner().run(URL(fileURLWithPath: "/usr/bin/true"), arguments: [], input: input)
+        #expect(output.exitCode == 0)
+    }
+}

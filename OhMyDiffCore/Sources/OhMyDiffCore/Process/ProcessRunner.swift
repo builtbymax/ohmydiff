@@ -44,6 +44,7 @@ public struct ProcessRunner: Sendable {
         arguments: [String],
         currentDirectory: URL? = nil,
         environment: [String: String]? = nil,
+        input: Data? = nil,
         timeout: Duration = ProcessRunner.defaultTimeout
     ) async throws -> ProcessOutput {
         try Task.checkCancellation()
@@ -53,7 +54,8 @@ public struct ProcessRunner: Sendable {
         process.arguments = arguments
         process.currentDirectoryURL = currentDirectory
         if let environment { process.environment = environment }
-        process.standardInput = FileHandle.nullDevice
+        let stdinPipe = input.map { _ in Pipe() }
+        process.standardInput = stdinPipe ?? FileHandle.nullDevice
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -99,6 +101,17 @@ public struct ProcessRunner: Sendable {
                 try? stdoutPipe.fileHandleForWriting.close()
                 try? stderrPipe.fileHandleForWriting.close()
                 handle.didLaunch()
+
+                if let stdinPipe, let input {
+                    try? stdinPipe.fileHandleForReading.close()
+                    // Report EPIPE instead of raising SIGPIPE when the child exits before reading everything.
+                    _ = fcntl(stdinPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        // The child may exit without reading everything; a failed write is fine.
+                        try? stdinPipe.fileHandleForWriting.write(contentsOf: input)
+                        try? stdinPipe.fileHandleForWriting.close()
+                    }
+                }
 
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout.timeInterval) {
                     handle.terminate(reason: .timeout)

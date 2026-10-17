@@ -78,13 +78,14 @@ extension Toolchain {
         _ arguments: [String],
         in directory: URL,
         allowedExitCodes: Set<Int32> = [0],
+        input: Data? = nil,
         timeout: Duration = ProcessRunner.defaultTimeout
     ) async throws -> ProcessOutput {
         // Stable, machine-readable output regardless of the user's git config.
         let base = ["-c", "core.quotePath=false", "-c", "color.ui=false", "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false"]
         let output = try await runner.run(
             git, arguments: base + arguments, currentDirectory: directory,
-            environment: gitEnvironment, timeout: timeout)
+            environment: gitEnvironment, input: input, timeout: timeout)
         guard allowedExitCodes.contains(output.exitCode) else {
             throw ProcessError.nonZeroExit(
                 command: "git " + arguments.joined(separator: " "), exitCode: output.exitCode, stderr: output.stderrString)

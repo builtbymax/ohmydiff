@@ -1,6 +1,6 @@
 import Foundation
 
-public enum RepositoryKind: Sendable, Hashable {
+public enum RepositoryKind: String, Sendable, Hashable, Codable {
     case git
     case gitButler
 }
@@ -143,6 +143,27 @@ public struct Repository: Sendable {
                 files: files(stack.assignedChanges)))
         }
         return groups
+    }
+
+    // MARK: - Metadata
+
+    /// The worktree's git dir and the shared common dir; they differ for linked worktrees.
+    public func gitDirectories() async throws -> (gitDir: URL, commonDir: URL) {
+        let output = try await toolchain.git(
+            ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], in: root)
+        let lines = output.stdoutString.split(separator: "\n").map(String.init)
+        guard lines.count == 2 else { throw RepositoryError.notARepository(root.path) }
+        return (URL(fileURLWithPath: lines[0], isDirectory: true), URL(fileURLWithPath: lines[1], isDirectory: true))
+    }
+
+    /// The subset of worktree-relative `paths` that `.gitignore` rules exclude (tracked files never count as ignored).
+    public func ignoredPaths(_ paths: [String]) async throws -> Set<String> {
+        guard !paths.isEmpty else { return [] }
+        let input = Data(paths.joined(separator: "\0").utf8 + [0])
+        // Exits 0 when something matched and 1 when nothing did.
+        let output = try await toolchain.git(
+            ["check-ignore", "-z", "--stdin"], in: root, allowedExitCodes: [0, 1], input: input)
+        return Set(output.stdout.split(separator: 0).map { String(decoding: $0, as: UTF8.self) })
     }
 
     // MARK: - Diffs
