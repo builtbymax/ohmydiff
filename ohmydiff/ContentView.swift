@@ -1,5 +1,7 @@
+import AppKit
 import OhMyDiffCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum WorkspaceMode: String, CaseIterable, Identifiable {
     case changes = "Changes"
@@ -9,15 +11,16 @@ enum WorkspaceMode: String, CaseIterable, Identifiable {
 }
 
 struct ContentView: View {
+    @Bindable var model: AppModel
     @State private var mode: WorkspaceMode = .changes
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView()
+            SidebarView(model: model)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         } content: {
-            ListPaneView(mode: mode)
+            ListPaneView(model: model, mode: mode)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 480)
         } detail: {
             DetailPaneView()
@@ -34,30 +37,45 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 960, minHeight: 600)
-    }
-}
-
-private struct SidebarView: View {
-    var body: some View {
-        List {
-            Section("Branches") {}
+        .sheet(isPresented: $model.isSwitcherPresented) {
+            ProjectSwitcher(model: model)
         }
-        .listStyle(.sidebar)
-        .overlay {
-            ContentUnavailableView("No Repository", systemImage: "folder")
+        .fileImporter(isPresented: $model.isImporterPresented, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
+            guard case .success(let urls) = result else { return }
+            Task { await model.addProjects(urls) }
+        }
+        .alert(
+            "Something went wrong",
+            isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.errorMessage ?? "")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Catch up on anything the watcher cannot see, e.g. changes made while the Mac slept.
+            model.refreshSelected()
         }
     }
 }
 
 private struct ListPaneView: View {
+    let model: AppModel
     let mode: WorkspaceMode
 
     var body: some View {
-        ContentUnavailableView(
-            mode == .changes ? "No Changes" : "No History",
-            systemImage: mode == .changes ? "doc.badge.plus" : "clock"
-        )
-        .navigationTitle(mode.rawValue)
+        if let session = model.selectedSession {
+            switch mode {
+            case .changes:
+                ChangesListView(model: model, session: session)
+            case .history:
+                ContentUnavailableView("No History", systemImage: "clock")
+                    .navigationTitle(session.project.displayName)
+            }
+        } else {
+            ContentUnavailableView("No Project Selected", systemImage: "folder")
+                .navigationTitle(mode.rawValue)
+        }
     }
 }
 
@@ -69,5 +87,5 @@ private struct DetailPaneView: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(model: AppModel())
 }
