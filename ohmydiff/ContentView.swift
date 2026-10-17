@@ -23,7 +23,7 @@ struct ContentView: View {
             ListPaneView(model: model, mode: mode)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 480)
         } detail: {
-            DetailPaneView()
+            DetailPaneView(model: model, mode: mode)
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -80,9 +80,16 @@ private struct ListPaneView: View {
 }
 
 private struct DetailPaneView: View {
+    let model: AppModel
+    let mode: WorkspaceMode
+
     var body: some View {
-        ContentUnavailableView("No Selection", systemImage: "text.alignleft")
-            .backgroundExtensionEffect()
+        if let session = model.selectedSession, mode == .changes {
+            DiffDetailView(session: session)
+        } else {
+            ContentUnavailableView("No Selection", systemImage: "text.alignleft")
+                .backgroundExtensionEffect()
+        }
     }
 }
 

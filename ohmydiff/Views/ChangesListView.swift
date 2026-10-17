@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// The middle pane in Changes mode: the selected project's change groups.
 struct ChangesListView: View {
     let model: AppModel
-    let session: ProjectSession
+    @Bindable var session: ProjectSession
 
     @State private var isLocating = false
 
@@ -44,26 +44,35 @@ struct ChangesListView: View {
             } actions: {
                 Button("Try Again") { session.refresh() }
             }
-        case .ready where session.changeCount == 0:
+        case .ready where visibleGroups.isEmpty:
             ContentUnavailableView("No Changes", systemImage: "checkmark.circle", description: Text("The working tree is clean."))
         case .ready:
-            List {
-                ForEach(session.groups) { group in
+            List(selection: $session.selectedFileID) {
+                ForEach(visibleGroups) { group in
                     Section {
                         ForEach(group.files) { file in
                             ChangedFileRow(file: file)
+                                .tag(file.id)
+                        }
+                        if group.files.isEmpty {
+                            Text("No assigned changes")
+                                .font(.callout)
+                                .foregroundStyle(.tertiary)
+                                .selectionDisabled()
                         }
                     } header: {
-                        HStack {
-                            Text(group.title)
-                            Spacer()
-                            Text("\(group.files.count)")
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        }
+                        ChangeGroupHeader(group: group)
                     }
                 }
             }
+        }
+    }
+
+    /// Applied GitButler stacks are always listed; other groups only when they contain files.
+    private var visibleGroups: [ChangeGroup] {
+        session.groups.filter { group in
+            if case .stack = group.kind { return true }
+            return !group.files.isEmpty
         }
     }
 
@@ -71,6 +80,28 @@ struct ChangesListView: View {
         if session.phase == .missing { return "Missing" }
         let kind = session.project.kind == .gitButler ? "GitButler" : "Git"
         return session.isRefreshing ? "\(kind) · Refreshing…" : kind
+    }
+}
+
+private struct ChangeGroupHeader: View {
+    let group: ChangeGroup
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            if case .stack(_, let branches) = group.kind {
+                Image(systemName: branches.count > 1 ? "square.stack.3d.up" : "arrow.triangle.branch")
+                VStack(alignment: .leading, spacing: 1) {
+                    // Top of the stack first, like `but status`.
+                    ForEach(branches, id: \.self) { Text($0).lineLimit(1).truncationMode(.middle) }
+                }
+            } else {
+                Text(group.title)
+            }
+            Spacer()
+            Text("\(group.files.count)")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -94,6 +125,10 @@ private struct ChangedFileRow: View {
                         .truncationMode(.head)
                 }
             }
+            Spacer(minLength: 4)
+            if let stats = file.stats {
+                LineStatsLabel(stats: stats)
+            }
         }
         .help(file.previousPath.map { "\($0) → \(file.path)" } ?? file.path)
     }
@@ -113,5 +148,22 @@ private struct ChangedFileRow: View {
         case .conflicted: ("!", .red)
         case .unknown: ("?", .secondary)
         }
+    }
+}
+
+/// `+3 −1` in the usual diff colours; zero counts are left out.
+struct LineStatsLabel: View {
+    let stats: LineStats
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if stats.additions > 0 || stats.deletions == 0 {
+                Text("+\(stats.additions)").foregroundStyle(.green)
+            }
+            if stats.deletions > 0 {
+                Text("−\(stats.deletions)").foregroundStyle(.red)
+            }
+        }
+        .font(.caption.monospacedDigit())
     }
 }

@@ -15,11 +15,33 @@ final class ProjectSession {
         case failed(String)
     }
 
+    /// What the detail pane shows for the selected file.
+    struct DiffState: Equatable {
+        enum Content: Equatable {
+            case loading
+            case diff(FileDiff)
+            /// The file no longer differs, e.g. it was reverted between refreshes.
+            case noDifference
+            case failed(String)
+        }
+
+        var fileID: ChangedFile.ID
+        var content: Content
+    }
+
     private(set) var project: Project
     private(set) var phase: Phase = .idle
     private(set) var groups: [ChangeGroup] = []
     private(set) var isRefreshing = false
     private(set) var lastRefreshed: Date?
+    private(set) var diff: DiffState?
+
+    var selectedFileID: ChangedFile.ID? {
+        didSet {
+            guard oldValue != selectedFileID else { return }
+            loadDiff()
+        }
+    }
 
     /// Called when detection finds a different kind than the saved one.
     @ObservationIgnored var onKindChange: ((RepositoryKind) -> Void)?
@@ -31,6 +53,7 @@ final class ProjectSession {
     @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored private var watchTask: Task<Void, Never>?
     @ObservationIgnored private var isActive = false
+    @ObservationIgnored private var diffTask: Task<Void, Never>?
 
     init(project: Project, toolchain: @escaping () async -> Toolchain?) {
         self.project = project
@@ -38,6 +61,11 @@ final class ProjectSession {
     }
 
     var changeCount: Int { groups.reduce(0) { $0 + $1.files.count } }
+
+    var selectedFile: ChangedFile? {
+        guard let selectedFileID else { return nil }
+        return groups.lazy.flatMap(\.files).first { $0.id == selectedFileID }
+    }
 
     /// Starts live updates and refreshes; the cached state stays visible meanwhile.
     func activate() {
@@ -58,7 +86,7 @@ final class ProjectSession {
         self.project = project
         repository = nil
         stopWatching()
-        groups = []
+        apply([])
         phase = .idle
         refresh()
     }
@@ -66,6 +94,7 @@ final class ProjectSession {
     func close() {
         deactivate()
         refreshTask?.cancel()
+        diffTask?.cancel()
     }
 
     /// Coalesces requests: while a refresh runs, further requests schedule exactly one more.
@@ -98,14 +127,14 @@ final class ProjectSession {
 
         do {
             let repository = try await openRepository(toolchain)
-            groups = try await repository.changeGroups()
+            apply(try await repository.changeGroups())
             phase = .ready
             lastRefreshed = .now
             if isActive, watcher == nil { await startWatching(repository) }
         } catch is CancellationError {
             return
         } catch RepositoryError.notARepository {
-            groups = []
+            apply([])
             phase = project.exists ? .failed("This folder is no longer a git repository.") : .missing
         } catch {
             if !project.exists {
@@ -132,8 +161,49 @@ final class ProjectSession {
     private func markMissing() {
         stopWatching()
         repository = nil
-        groups = []
+        apply([])
         phase = .missing
+    }
+
+    // MARK: - Selection and diff
+
+    /// Replaces the groups, keeping the selection on the same file where possible.
+    private func apply(_ newGroups: [ChangeGroup]) {
+        let previous = groups
+        if newGroups != previous { groups = newGroups }
+        let reselected = newGroups.reselecting(selectedFileID, previous: previous)
+        if reselected != selectedFileID {
+            selectedFileID = reselected
+        } else {
+            // Same file, but its contents may have changed.
+            loadDiff()
+        }
+    }
+
+    private func loadDiff() {
+        diffTask?.cancel()
+        guard let file = selectedFile else {
+            diff = nil
+            return
+        }
+        // Keep showing the current diff while the same file reloads, so live refreshes do not flash.
+        if diff?.fileID != file.id { diff = DiffState(fileID: file.id, content: .loading) }
+        // Before the first refresh opens the repository; that refresh calls back here.
+        guard let repository else { return }
+
+        diffTask = Task {
+            let content: DiffState.Content
+            do {
+                content = try await repository.diff(for: file).map(DiffState.Content.diff) ?? .noDifference
+            } catch is CancellationError {
+                return
+            } catch {
+                content = .failed(String(describing: error))
+            }
+            guard !Task.isCancelled, selectedFileID == file.id else { return }
+            let state = DiffState(fileID: file.id, content: content)
+            if state != diff { diff = state }
+        }
     }
 
     // MARK: - Watching
