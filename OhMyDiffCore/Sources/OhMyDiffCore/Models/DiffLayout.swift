@@ -14,11 +14,12 @@ public enum DiffLayout {
         case pair(hunk: Int, old: Int?, new: Int?)
     }
 
-    public static func unified(_ diff: FileDiff) -> [UnifiedRow] {
+    /// `hunkHeaders: false` leaves out the header rows, e.g. for a diff expanded to the whole file.
+    public static func unified(_ diff: FileDiff, hunkHeaders: Bool = true) -> [UnifiedRow] {
         var rows: [UnifiedRow] = []
         rows.reserveCapacity(diff.hunks.reduce(0) { $0 + $1.lines.count + 1 })
         for (h, hunk) in diff.hunks.enumerated() {
-            rows.append(.hunkHeader(hunk: h))
+            if hunkHeaders { rows.append(.hunkHeader(hunk: h)) }
             for (l, line) in hunk.lines.enumerated() {
                 rows.append(.line(hunk: h, line: l))
                 if line.noNewlineAtEnd { rows.append(.noNewlineAtEnd(hunk: h, line: l)) }
@@ -28,10 +29,10 @@ public enum DiffLayout {
     }
 
     /// Pairs each run of deletions with the additions that follow it, line by line.
-    public static func split(_ diff: FileDiff) -> [SplitRow] {
+    public static func split(_ diff: FileDiff, hunkHeaders: Bool = true) -> [SplitRow] {
         var rows: [SplitRow] = []
         for (h, hunk) in diff.hunks.enumerated() {
-            rows.append(.hunkHeader(hunk: h))
+            if hunkHeaders { rows.append(.hunkHeader(hunk: h)) }
             var deletions: [Int] = []
             var additions: [Int] = []
 
