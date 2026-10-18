@@ -18,9 +18,9 @@ struct HistoryDetailView: View {
                 Divider()
                 files(for: selection)
             }
+            .padding(.top, Theme.toolbarInset - 8)
         } else {
             ContentUnavailableView("No Selection", systemImage: "clock")
-                .backgroundExtensionEffect()
         }
     }
 

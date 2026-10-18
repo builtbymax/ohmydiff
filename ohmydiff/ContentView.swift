@@ -13,30 +13,33 @@ enum WorkspaceMode: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @Bindable var model: AppModel
     @State private var mode: WorkspaceMode = .changes
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(model: model)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
-        } content: {
-            ListPaneView(model: model, mode: mode)
-                .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 480)
-        } detail: {
-            DetailPaneView(model: model, mode: mode)
-        }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Picker("Mode", selection: $mode) {
-                    ForEach(WorkspaceMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
+        ZStack(alignment: .topLeading) {
+            Backdrop()
+
+            HStack(spacing: 0) {
+                ListPaneView(model: model, mode: mode)
+                    .frame(width: 340)
+                    .background(Theme.column)
+                    .overlay(alignment: .trailing) { Rectangle().fill(Theme.hairline).frame(width: 1) }
+                DetailPaneView(model: model, mode: mode)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .overlay(alignment: .top) {
+                WorkspaceToolbar(model: model, mode: $mode)
+            }
+            .background(Theme.panel)
+            .clipShape(.rect(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Theme.hairline))
+            .padding(.leading, Theme.railWidth + Theme.inset + 8)
+            .padding([.top, .bottom, .trailing], 8)
+
+            RailView(model: model, mode: $mode)
+                .padding(Theme.inset)
         }
-        .frame(minWidth: 960, minHeight: 600)
+        .ignoresSafeArea()
+        .frame(minWidth: 1040, minHeight: 620)
         .sheet(isPresented: $model.isSwitcherPresented) {
             ProjectSwitcher(model: model)
         }
@@ -72,8 +75,13 @@ private struct ListPaneView: View {
                 HistoryListView(session: session)
             }
         } else {
-            ContentUnavailableView("No Project Selected", systemImage: "folder")
-                .navigationTitle(mode.rawValue)
+            ContentUnavailableView {
+                Label("No Projects", systemImage: "folder.badge.plus")
+            } description: {
+                Text("Add a git repository or drop a folder on the rail.")
+            } actions: {
+                Button("Add Project…") { model.isImporterPresented = true }
+            }
         }
     }
 }
@@ -90,7 +98,6 @@ private struct DetailPaneView: View {
             }
         } else {
             ContentUnavailableView("No Selection", systemImage: "text.alignleft")
-                .backgroundExtensionEffect()
         }
     }
 }

@@ -23,8 +23,12 @@ struct DiffTableView: NSViewRepresentable {
     let highlights: SyntaxHighlights?
     let mode: DiffLayoutMode
     let fontSize: CGFloat
+    /// Room below the last row, e.g. for a bar floating over the bottom of the diff.
+    var bottomInset: CGFloat = 0
     /// The file line the selection points at (or the first change without a selection), for opening in an editor.
     var onFocusLine: (Int?) -> Void = { _ in }
+    /// The hunk at the top of the visible rows, reported as the diff scrolls.
+    var onVisibleHunk: (Int?) -> Void = { _ in }
     /// Actions offered in the context menu of a hunk's rows, and what runs when one is picked (with the hunk index).
     var hunkActions: [ChangeAction] = []
     var onHunkAction: (ChangeAction, Int) -> Void = { _, _ in }
@@ -55,12 +59,18 @@ struct DiffTableView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = true
         scrollView.backgroundColor = .textBackgroundColor
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
         context.coordinator.attach(tableView, scrollView: scrollView)
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.onFocusLine = onFocusLine
+        context.coordinator.onVisibleHunk = onVisibleHunk
+        if scrollView.contentInsets.bottom != bottomInset {
+            scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
+        }
         context.coordinator.hunkActions = hunkActions
         context.coordinator.onHunkAction = onHunkAction
         context.coordinator.show(diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize)
@@ -80,6 +90,8 @@ struct DiffTableView: NSViewRepresentable {
         private var formatter = DiffRowFormatter()
         private var fontSize: CGFloat?
         var onFocusLine: (Int?) -> Void = { _ in }
+        var onVisibleHunk: (Int?) -> Void = { _ in }
+        private var visibleHunk: Int?
         var hunkActions: [ChangeAction] = []
         var onHunkAction: (ChangeAction, Int) -> Void = { _, _ in }
         private var observers: [NSObjectProtocol] = []
@@ -92,7 +104,11 @@ struct DiffTableView: NSViewRepresentable {
             self.tableView = tableView
             self.scrollView = scrollView
             scrollView.contentView.postsFrameChangedNotifications = true
+            scrollView.contentView.postsBoundsChangedNotifications = true
             observers = [
+                NotificationCenter.default.addObserver(
+                    forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main
+                ) { [weak self] _ in MainActor.assumeIsolated { self?.reportVisibleHunk() } },
                 NotificationCenter.default.addObserver(
                     forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main
                 ) { [weak self] _ in MainActor.assumeIsolated { self?.sizeColumns() } },
@@ -141,6 +157,18 @@ struct DiffTableView: NSViewRepresentable {
                 tableView.scrollRowToVisible(0)
             }
             reportFocusLine()
+            reportVisibleHunk()
+        }
+
+        /// Reports the hunk of the topmost visible row when it changes.
+        private func reportVisibleHunk() {
+            guard let tableView, let scrollView else { return }
+            let top = scrollView.contentView.bounds.minY + scrollView.contentInsets.top
+            let row = max(tableView.row(at: NSPoint(x: 0, y: top + 1)), 0)
+            let hunk = hunkIndex(atRow: row)
+            guard hunk != visibleHunk else { return }
+            visibleHunk = hunk
+            onVisibleHunk(hunk)
         }
 
         // MARK: Hunk actions
@@ -397,7 +425,7 @@ struct DiffRowFormatter {
     static let horizontalPadding: CGFloat = 8
     private static let tabWidth = 4
 
-    static let hunkTint = NSColor.systemBlue.withAlphaComponent(0.08)
+    static let hunkTint = NSColor.secondaryLabelColor.withAlphaComponent(0.07)
     static let fillerTint = NSColor.secondaryLabelColor.withAlphaComponent(0.05)
     private static let additionWordTint = NSColor.systemGreen.withAlphaComponent(0.32)
     private static let deletionWordTint = NSColor.systemRed.withAlphaComponent(0.32)

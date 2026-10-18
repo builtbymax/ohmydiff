@@ -12,8 +12,6 @@ struct ChangesListView: View {
     var body: some View {
         content
             .butCompatibilityBanner(session.butIncompatibility)
-            .navigationTitle(session.project.displayName)
-            .navigationSubtitle(subtitle)
             .fileImporter(isPresented: $isLocating, allowedContentTypes: [.folder]) { result in
                 guard case .success(let url) = result else { return }
                 Task { await model.relocate(session.project.id, to: url) }
@@ -35,7 +33,7 @@ struct ChangesListView: View {
                 Text("\(session.project.path) was moved or deleted.")
             } actions: {
                 Button("Locate…") { isLocating = true }
-                Button("Remove from Sidebar") { model.remove(session.project.id) }
+                Button("Remove Project") { model.remove(session.project.id) }
                 Button("Try Again") { session.refresh() }
             }
         case .failed(let message):
@@ -49,32 +47,36 @@ struct ChangesListView: View {
         case .ready where visibleGroups.isEmpty:
             ContentUnavailableView("No Changes", systemImage: "checkmark.circle", description: Text("The working tree is clean."))
         case .ready:
-            List(selection: $session.selectedFileID) {
-                ForEach(visibleGroups) { group in
-                    Section {
-                        ForEach(group.files) { file in
-                            FileRow(path: file.path, previousPath: file.previousPath, kind: file.kind, stats: file.stats)
-                                .tag(file.id)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 14) {
+                        ForEach(visibleGroups) { group in
+                            ChangeGroupCard(group: group, session: session)
                         }
-                        if group.files.isEmpty {
-                            Text("No assigned changes")
-                                .font(.callout)
-                                .foregroundStyle(.tertiary)
-                                .selectionDisabled()
-                        }
-                    } header: {
-                        ChangeGroupHeader(group: group)
-                            .contextMenu { ChangeActionMenu(session: session, targets: group.files.map { ChangeTarget(file: $0) }, isGroup: true) }
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.top, session.butIncompatibility == nil ? Theme.toolbarInset : 8)
+                    .padding(.bottom, 16)
                 }
+                .focusable()
+                .focusEffectDisabled()
+                .onKeyPress(.downArrow) { moveSelection(1, proxy: proxy) }
+                .onKeyPress(.upArrow) { moveSelection(-1, proxy: proxy) }
+                .onKeyPress("n") { jumpToHunk(1) }
+                .onKeyPress("p") { jumpToHunk(-1) }
             }
-            .contextMenu(forSelectionType: ChangedFile.ID.self) { ids in
-                let files = session.groups.allFiles.filter { ids.contains($0.id) }
-                ChangeActionMenu(session: session, targets: files.map { ChangeTarget(file: $0) }, isGroup: false)
-            }
-            .onKeyPress("n") { jumpToHunk(1) }
-            .onKeyPress("p") { jumpToHunk(-1) }
         }
+    }
+
+    /// Selects the next or previous file across all groups.
+    private func moveSelection(_ offset: Int, proxy: ScrollViewProxy) -> KeyPress.Result {
+        let files = visibleGroups.flatMap(\.files)
+        guard !files.isEmpty else { return .ignored }
+        let current = files.firstIndex { $0.id == session.selectedFileID }
+        let next = current.map { min(max($0 + offset, 0), files.count - 1) } ?? 0
+        session.selectedFileID = files[next].id
+        proxy.scrollTo(files[next].id)
+        return .handled
     }
 
     private func jumpToHunk(_ direction: Int) -> KeyPress.Result {
@@ -89,11 +91,43 @@ struct ChangesListView: View {
             return !group.files.isEmpty
         }
     }
+}
 
-    private var subtitle: String {
-        if session.phase == .missing { return "Missing" }
-        let kind = session.project.kind == .gitButler ? "GitButler" : "Git"
-        return session.isRefreshing ? "\(kind) · Refreshing…" : kind
+/// A change group as a card: the branch (or Staged, Unassigned…) on top, its files below.
+private struct ChangeGroupCard: View {
+    let group: ChangeGroup
+    @Bindable var session: ProjectSession
+
+    var body: some View {
+        Card {
+            ChangeGroupHeader(group: group)
+                .contextMenu { ChangeActionMenu(session: session, targets: group.files.map { ChangeTarget(file: $0) }, isGroup: true) }
+        } content: {
+            if group.files.isEmpty {
+                Text("No changes on this branch")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(group.files) { file in
+                        Button { session.selectedFileID = file.id } label: {
+                            FileRow(path: file.path, previousPath: file.previousPath, kind: file.kind, stats: file.stats,
+                                    isSelected: session.selectedFileID == file.id)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 7)
+                                .background(session.selectedFileID == file.id ? Theme.selectedRow : .clear, in: .rect(cornerRadius: 8))
+                                .contentShape(.rect(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                        .id(file.id)
+                        .contextMenu { ChangeActionMenu(session: session, targets: [ChangeTarget(file: file)], isGroup: false) }
+                    }
+                }
+                .padding(4)
+            }
+        }
     }
 }
 
@@ -101,20 +135,43 @@ private struct ChangeGroupHeader: View {
     let group: ChangeGroup
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            if case .stack(_, let branches) = group.kind {
-                Image(systemName: branches.count > 1 ? "square.stack.3d.up" : "arrow.triangle.branch")
-                VStack(alignment: .leading, spacing: 1) {
-                    // Top of the stack first, like `but status`.
-                    ForEach(branches, id: \.self) { Text($0).lineLimit(1).truncationMode(.middle) }
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if case .stack(_, let branches) = group.kind, let top = branches.first {
+                Text(top)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if branches.count > 1 {
+                    Text("+ \(branches.count - 1) below")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize()
+                        // Top of the stack first, like `but status`.
+                        .help(branches.joined(separator: "\n"))
                 }
             } else {
                 Text(group.title)
             }
-            Spacer()
+            Spacer(minLength: 4)
             Text("\(group.files.count)")
-                .monospacedDigit()
+                .font(.caption.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
+        }
+        .font(.callout.weight(.semibold))
+        .foregroundStyle(.primary.opacity(0.8))
+        .contentShape(.rect)
+    }
+
+    private var icon: String {
+        switch group.kind {
+        case .stack(_, let branches): branches.count > 1 ? "square.stack.3d.up" : "arrow.triangle.branch"
+        case .unassigned: "tray"
+        case .staged: "checkmark.circle"
+        case .unstaged: "pencil"
+        case .untracked: "questionmark.circle"
+        case .conflicted: "exclamationmark.triangle"
         }
     }
 }
@@ -126,15 +183,18 @@ struct FileRow: View {
     let previousPath: String?
     let kind: FileChangeKind
     let stats: LineStats?
+    var isSelected = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Text(badge.letter)
-                .font(.caption.monospaced().weight(.semibold))
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
                 .foregroundStyle(badge.color)
-                .frame(width: 14)
+                .frame(width: 22, height: 22)
+                .background(badge.color.opacity(0.14), in: .rect(cornerRadius: 6))
             VStack(alignment: .leading, spacing: 1) {
                 Text(name)
+                    .fontWeight(isSelected ? .semibold : .medium)
                     .lineLimit(1)
                 if !directory.isEmpty {
                     Text(directory)
@@ -167,22 +227,5 @@ struct FileRow: View {
         case .conflicted: ("!", .red)
         case .unknown: ("?", .secondary)
         }
-    }
-}
-
-/// `+3 −1` in the usual diff colours; zero counts are left out.
-struct LineStatsLabel: View {
-    let stats: LineStats
-
-    var body: some View {
-        HStack(spacing: 4) {
-            if stats.additions > 0 || stats.deletions == 0 {
-                Text("+\(stats.additions)").foregroundStyle(.green)
-            }
-            if stats.deletions > 0 {
-                Text("−\(stats.deletions)").foregroundStyle(.red)
-            }
-        }
-        .font(.caption.monospacedDigit())
     }
 }
