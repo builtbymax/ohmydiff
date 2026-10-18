@@ -284,8 +284,6 @@ private struct HunkBar: View {
     let claude: DiffPromptTarget?
     let perform: (ChangeAction) -> Void
 
-    @Environment(\.claudeCode) private var claudeCode
-
     var body: some View {
         HStack(spacing: 10) {
             HStack(spacing: 0) {
@@ -303,7 +301,7 @@ private struct HunkBar: View {
             }
             .frame(maxWidth: 260, alignment: .leading)
             if let claude {
-                claudeMenu(claude)
+                ClaudePromptMenu(target: claude)
             }
             if !actions.isEmpty {
                 Divider().frame(height: 22)
@@ -357,37 +355,6 @@ private struct HunkBar: View {
         case .commit: "checkmark"
         case .discard: "trash"
         }
-    }
-
-    private func claudeMenu(_ target: DiffPromptTarget) -> some View {
-        Menu {
-            Section(AppSettings.openClaudeCodeNote(scope: target.scope)) {
-                ForEach(PromptQuestion.asked) { question in
-                    Button(question.title) { claudeCode.open(target.prompt(question), target.root) }
-                }
-            }
-            Menu("Copy Prompt Instead") {
-                ForEach(PromptQuestion.allCases) { question in
-                    Button(question.title) { claudeCode.copy(target.prompt(question)) }
-                }
-            }
-        } label: {
-            HStack(spacing: 3) {
-                Image(systemName: "sparkles")
-                Image(systemName: "arrow.up.forward")
-                    .font(.system(size: 9, weight: .bold))
-            }
-            .font(.system(size: 13, weight: .semibold))
-            .padding(.horizontal, 10)
-            .frame(height: 32)
-                .contentShape(.capsule)
-        }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
-        .buttonStyle(.hoverCapsule())
-        .fixedSize()
-        .focusEffectDisabled()
-        .glassTooltip(AppSettings.openClaudeCodeTitle(), edge: .top)
     }
 
     private func jumpButton(_ title: String, systemImage: String, direction: Int) -> some View {
