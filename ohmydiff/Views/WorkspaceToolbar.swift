@@ -18,6 +18,7 @@ struct WorkspaceToolbar: View {
         GlassEffectContainer(spacing: 10) {
             HStack(spacing: 10) {
                 ProjectBreadcrumb(model: model, mode: mode)
+                UpdatingPill(isRefreshing: model.selectedSession?.isRefreshing == true)
                 // The empty stretch moves the window, like a title bar.
                 Color.clear
                     .frame(minWidth: 12, maxWidth: .infinity, maxHeight: 38)
@@ -71,9 +72,6 @@ private struct ProjectBreadcrumb: View {
                         .truncationMode(.middle)
                 }
                 KindPill(session: session)
-                if session.isRefreshing {
-                    ProgressView().controlSize(.mini)
-                }
             }
         }
         .lineLimit(1)
@@ -127,6 +125,46 @@ private struct ProjectMenu: View {
         .focusEffectDisabled()
         .fixedSize()
         .glassTooltip("Switch Project")
+    }
+}
+
+/// `Updating ◌` in its own pill, shown only once a refresh takes a moment so quick ones do not flash it,
+/// and then kept long enough to read.
+private struct UpdatingPill: View {
+    let isRefreshing: Bool
+    @State private var shownAt: Date?
+
+    private static let delay = Duration.milliseconds(400)
+    private static let minimumShown: TimeInterval = 0.6
+
+    var body: some View {
+        ZStack {
+            if shownAt != nil {
+                HStack(spacing: 7) {
+                    Text("Updating")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    ProgressView().controlSize(.mini)
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 38)
+                .glassEffect(.regular, in: .capsule)
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+        }
+        .task(id: isRefreshing) {
+            if isRefreshing {
+                guard shownAt == nil else { return }
+                try? await Task.sleep(for: Self.delay)
+                guard !Task.isCancelled else { return }
+                withAnimation(.snappy(duration: 0.2)) { shownAt = .now }
+            } else if let shownAt {
+                let remaining = Self.minimumShown - Date.now.timeIntervalSince(shownAt)
+                if remaining > 0 { try? await Task.sleep(for: .seconds(remaining)) }
+                guard !Task.isCancelled else { return }
+                withAnimation(.snappy(duration: 0.2)) { self.shownAt = nil }
+            }
+        }
     }
 }
 
