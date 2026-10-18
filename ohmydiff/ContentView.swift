@@ -86,7 +86,7 @@ private struct DetailPaneView: View {
         if let session = model.selectedSession {
             switch mode {
             case .changes: DiffDetailView(session: session)
-            case .history: HistoryDetailView(history: session.history)
+            case .history: HistoryDetailView(history: session.history, root: session.rootURL)
             }
         } else {
             ContentUnavailableView("No Selection", systemImage: "text.alignleft")

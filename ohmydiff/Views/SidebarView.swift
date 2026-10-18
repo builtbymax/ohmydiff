@@ -40,7 +40,7 @@ struct SidebarView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack {
                 Button("Add Project", systemImage: "plus") { model.isImporterPresented = true }
-                    .help("Add Project (⌘O)")
+                    .help("Add Project (⇧⌘O)")
                 Spacer()
             }
             .labelStyle(.iconOnly)

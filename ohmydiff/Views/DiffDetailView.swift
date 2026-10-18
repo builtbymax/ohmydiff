@@ -36,7 +36,7 @@ struct DiffDetailView: View {
                 Button("Try Again") { session.refresh() }
             }
         case .diff(let diff):
-            FileDiffView(fileID: file.id, diff: diff, highlights: session.diff?.highlights) { side in
+            FileDiffView(fileID: file.id, diff: diff, highlights: session.diff?.highlights, root: session.rootURL) { side in
                 await session.contents(of: file, side: side)
             }
         }
@@ -49,18 +49,24 @@ struct FileDiffView: View {
     let fileID: String
     let diff: FileDiff
     let highlights: SyntaxHighlights?
+    /// The repository root, to locate the file in the working tree.
+    let root: URL
     /// One side's contents, for image previews.
     let contents: (Repository.FileSide) async -> Data?
 
     @AppStorage(DiffSettings.layoutKey) private var preferredLayout: DiffLayoutMode = .unified
+    @AppStorage(AppSettings.fontSizeKey) private var fontSize = Double(DiffMetrics.defaultFontSize)
     /// Large diffs the user chose to show anyway.
     @State private var revealedFiles: Set<String> = []
+    @State private var focusLine: Int?
 
     var body: some View {
         content
             .safeAreaInset(edge: .top, spacing: 0) {
                 DiffHeader(diff: diff)
             }
+            .focusedSceneValue(\.diffFile, DiffFileTarget(
+                url: root.appending(path: diff.path), relativePath: diff.path, line: focusLine))
     }
 
     @ViewBuilder
@@ -85,7 +91,12 @@ struct FileDiffView: View {
             GeometryReader { proxy in
                 // Side by side needs room for two readable columns.
                 let mode: DiffLayoutMode = preferredLayout == .split && proxy.size.width >= DiffSettings.minimumSplitWidth ? .split : .unified
-                DiffTableView(fileID: fileID, diff: diff, highlights: highlights, mode: mode)
+                DiffTableView(
+                    fileID: fileID, diff: diff, highlights: highlights, mode: mode,
+                    fontSize: CGFloat(fontSize.clamped(to: AppSettings.fontSizes))
+                ) { line in
+                    if line != focusLine { focusLine = line }
+                }
             }
         }
     }
@@ -184,4 +195,8 @@ private struct ImageDiffView: View {
         }
         .frame(maxWidth: .infinity)
     }
+}
+
+extension Comparable {
+    func clamped(to range: ClosedRange<Self>) -> Self { min(max(self, range.lowerBound), range.upperBound) }
 }

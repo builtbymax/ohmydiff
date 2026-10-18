@@ -5,11 +5,22 @@ struct ProjectCommands: Commands {
     let model: AppModel
 
     @AppStorage(DiffSettings.layoutKey) private var diffLayout: DiffLayoutMode = .unified
+    @FocusedValue(\.diffFile) private var diffFile
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("Add Project…") { model.isImporterPresented = true }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+            Divider()
+            Button("Open in Editor") { diffFile.map(model.openInEditor) }
                 .keyboardShortcut("o")
+                .disabled(diffFile?.exists != true)
+        }
+
+        CommandGroup(after: .pasteboard) {
+            Button("Copy File Path") { diffFile.map(model.copyPath) }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+                .disabled(diffFile == nil)
         }
 
         CommandGroup(before: .sidebar) {

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import SwiftUI
@@ -161,6 +162,37 @@ final class AppModel {
 
     func refreshSelected() {
         selectedSession?.refresh()
+    }
+
+    // MARK: - Integration
+
+    /// Handles `ohmydiff://open?path=…` from the `ohmydiff` command: adds the folder's repository if it
+    /// is new and selects it.
+    func handle(_ url: URL) {
+        guard let path = CLILauncher.openRequestPath(url) else { return }
+        NSApp.activate()
+        Task { await addProjects([URL(fileURLWithPath: path, isDirectory: true)]) }
+    }
+
+    /// Opens the file at its line with the editor chosen in Settings.
+    func openInEditor(_ target: DiffFileTarget) {
+        guard let template = AppSettings.editorTemplate() else {
+            errorMessage = EditorError.emptyCommand.description
+            return
+        }
+        Task {
+            guard let toolchain = await toolchain() else { return }
+            do {
+                try await EditorCommand.open(template: template, file: target.url.path, line: target.line ?? 1, toolchain: toolchain)
+            } catch {
+                errorMessage = String(describing: error)
+            }
+        }
+    }
+
+    func copyPath(_ target: DiffFileTarget) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(target.relativePath, forType: .string)
     }
 
     private func update(_ id: Project.ID, _ change: (inout Project) -> Void) {

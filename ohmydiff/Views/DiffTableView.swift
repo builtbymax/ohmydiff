@@ -22,6 +22,9 @@ struct DiffTableView: NSViewRepresentable {
     let diff: FileDiff
     let highlights: SyntaxHighlights?
     let mode: DiffLayoutMode
+    let fontSize: CGFloat
+    /// The file line the selection points at (or the first change without a selection), for opening in an editor.
+    var onFocusLine: (Int?) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -35,7 +38,7 @@ struct DiffTableView: NSViewRepresentable {
         tableView.floatsGroupRows = false
         tableView.backgroundColor = .textBackgroundColor
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
-        tableView.rowHeight = DiffRowFormatter.rowHeight
+        tableView.rowHeight = DiffMetrics(fontSize: fontSize).rowHeight
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
         tableView.copyText = { [weak coordinator = context.coordinator] rows in coordinator?.text(for: rows) ?? "" }
@@ -53,7 +56,8 @@ struct DiffTableView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.show(diff, highlights: highlights, fileID: fileID, mode: mode)
+        context.coordinator.onFocusLine = onFocusLine
+        context.coordinator.show(diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize)
     }
 
     @MainActor
@@ -68,6 +72,8 @@ struct DiffTableView: NSViewRepresentable {
         private var splitRows: [DiffLayout.SplitRow] = []
         private var hunkRows: [Int] = []
         private var formatter = DiffRowFormatter()
+        private var fontSize: CGFloat?
+        var onFocusLine: (Int?) -> Void = { _ in }
         private var observers: [NSObjectProtocol] = []
 
         private static let oldColumn = NSUserInterfaceItemIdentifier("old")
@@ -93,9 +99,10 @@ struct DiffTableView: NSViewRepresentable {
             observers.forEach(NotificationCenter.default.removeObserver)
         }
 
-        func show(_ diff: FileDiff, highlights: SyntaxHighlights?, fileID: ChangedFile.ID, mode: DiffLayoutMode) {
+        func show(_ diff: FileDiff, highlights: SyntaxHighlights?, fileID: ChangedFile.ID, mode: DiffLayoutMode, fontSize: CGFloat) {
             guard let tableView,
                   diff != self.diff || highlights != self.highlights || fileID != self.fileID || mode != self.mode
+                    || fontSize != self.fontSize
             else { return }
             // Rows of the other layout do not line up with the current ones, so start over at the top.
             let isNewFile = fileID != self.fileID || mode != self.mode
@@ -104,7 +111,9 @@ struct DiffTableView: NSViewRepresentable {
             self.highlights = highlights
             self.fileID = fileID
             self.mode = mode
-            formatter = DiffRowFormatter(diff: diff, highlights: highlights)
+            self.fontSize = fontSize
+            formatter = DiffRowFormatter(diff: diff, highlights: highlights, metrics: DiffMetrics(fontSize: fontSize))
+            tableView.rowHeight = formatter.metrics.rowHeight
 
             switch mode {
             case .unified:
@@ -123,6 +132,56 @@ struct DiffTableView: NSViewRepresentable {
                 tableView.deselectAll(nil)
                 tableView.scrollRowToVisible(0)
             }
+            reportFocusLine()
+        }
+
+        // MARK: Editor line
+
+        func tableViewSelectionDidChange(_ notification: Notification) {
+            reportFocusLine()
+        }
+
+        private func reportFocusLine() {
+            let row = tableView?.selectedRowIndexes.first
+            onFocusLine(row.flatMap(fileLine(atRow:)) ?? firstChangedLine())
+        }
+
+        /// The new-file line a row shows. Deleted lines map to where they were, the next new line.
+        private func fileLine(atRow row: Int) -> Int? {
+            let position: (hunk: Int, line: Int)?
+            switch mode {
+            case .unified:
+                guard unifiedRows.indices.contains(row) else { return nil }
+                switch unifiedRows[row] {
+                case .hunkHeader(let h): return diff.hunks[h].newStart
+                case .line(let h, let l), .noNewlineAtEnd(let h, let l): position = (h, l)
+                }
+            case .split:
+                guard splitRows.indices.contains(row) else { return nil }
+                switch splitRows[row] {
+                case .hunkHeader(let h): return diff.hunks[h].newStart
+                case .pair(let h, let old, let new): position = (new ?? old).map { (h, $0) }
+                }
+            case nil:
+                return nil
+            }
+            guard let position else { return nil }
+            return Self.newLine(in: diff.hunks[position.hunk], from: position.line)
+        }
+
+        private func firstChangedLine() -> Int? {
+            for hunk in diff.hunks {
+                if let index = hunk.lines.firstIndex(where: { $0.kind != .context }) {
+                    return Self.newLine(in: hunk, from: index)
+                }
+            }
+            return diff.hunks.first?.newStart
+        }
+
+        private static func newLine(in hunk: Hunk, from index: Int) -> Int {
+            if let number = hunk.lines[index...].lazy.compactMap(\.newLineNumber).first { return number }
+            // Deletions at the end of a hunk: just after the last new line before them.
+            return (hunk.lines[..<index].lazy.compactMap(\.newLineNumber).last).map { $0 + 1 } ?? max(hunk.newStart, 1)
         }
 
         private func configureColumns(for mode: DiffLayoutMode) {
@@ -273,10 +332,22 @@ struct DiffTableView: NSViewRepresentable {
 // MARK: - Formatting
 
 /// Builds the attributed strings for diff rows. Word highlights are computed once per diff.
+/// Font and the sizes derived from it.
+struct DiffMetrics: Equatable {
+    static let defaultFontSize: CGFloat = 12
+
+    let font: NSFont
+    let rowHeight: CGFloat
+    let characterWidth: CGFloat
+
+    init(fontSize: CGFloat = defaultFontSize) {
+        font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        rowHeight = ceil(NSLayoutManager().defaultLineHeight(for: font)) + 3
+        characterWidth = ("M" as NSString).size(withAttributes: [.font: font]).width
+    }
+}
+
 struct DiffRowFormatter {
-    static let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-    static let rowHeight = ceil(NSLayoutManager().defaultLineHeight(for: font)) + 3
-    static let characterWidth = ("M" as NSString).size(withAttributes: [.font: font]).width
     static let horizontalPadding: CGFloat = 8
     private static let tabWidth = 4
 
@@ -301,10 +372,13 @@ struct DiffRowFormatter {
     private var wordHighlights: [[Int: [Range<Int>]]] = []
     private var syntax: SyntaxHighlights?
 
+    private(set) var metrics = DiffMetrics()
+
     init() {}
 
-    init(diff: FileDiff, highlights: SyntaxHighlights? = nil) {
+    init(diff: FileDiff, highlights: SyntaxHighlights? = nil, metrics: DiffMetrics = DiffMetrics()) {
         self.diff = diff
+        self.metrics = metrics
         self.syntax = highlights
         let largest = diff.hunks.map { max($0.oldStart + $0.oldCount, $0.newStart + $0.newCount) }.max() ?? 0
         gutterDigits = max(String(largest).count, 3)
@@ -320,13 +394,13 @@ struct DiffRowFormatter {
 
     func hunkHeader(_ hunk: Hunk, mode: DiffLayoutMode) -> NSAttributedString {
         let indent = String(repeating: " ", count: mode == .unified ? unifiedPrefix : splitPrefix)
-        return NSAttributedString(string: indent + hunk.header, attributes: [.font: Self.font, .foregroundColor: NSColor.secondaryLabelColor])
+        return NSAttributedString(string: indent + hunk.header, attributes: [.font: metrics.font, .foregroundColor: NSColor.secondaryLabelColor])
     }
 
     func noNewlineAtEnd(mode: DiffLayoutMode) -> NSAttributedString {
         let indent = String(repeating: " ", count: mode == .unified ? unifiedPrefix : splitPrefix)
         return NSAttributedString(
-            string: indent + "No newline at end of file", attributes: [.font: Self.font, .foregroundColor: NSColor.tertiaryLabelColor])
+            string: indent + "No newline at end of file", attributes: [.font: metrics.font, .foregroundColor: NSColor.tertiaryLabelColor])
     }
 
     func unifiedLine(hunk h: Int, line l: Int) -> NSAttributedString {
@@ -409,7 +483,7 @@ struct DiffRowFormatter {
     }
 
     private func append(_ string: String, _ color: NSColor, background: NSColor? = nil, to result: NSMutableAttributedString) {
-        var attributes: [NSAttributedString.Key: Any] = [.font: Self.font, .foregroundColor: color]
+        var attributes: [NSAttributedString.Key: Any] = [.font: metrics.font, .foregroundColor: color]
         if let background { attributes[.backgroundColor] = background }
         result.append(NSAttributedString(string: string, attributes: attributes))
     }
@@ -445,7 +519,7 @@ struct DiffRowFormatter {
     }
 
     private func width(characters: Int) -> CGFloat {
-        ceil(CGFloat(characters) * Self.characterWidth + Self.horizontalPadding * 2)
+        ceil(CGFloat(characters) * metrics.characterWidth + Self.horizontalPadding * 2)
     }
 
     private static func expandingTabs(_ text: String) -> String {

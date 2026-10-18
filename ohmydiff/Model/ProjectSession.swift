@@ -63,6 +63,9 @@ final class ProjectSession {
         self.toolchain = toolchain
     }
 
+    /// The repository root once opened; the project folder before that.
+    var rootURL: URL { repository?.root ?? project.url }
+
     var changeCount: Int { groups.reduce(0) { $0 + $1.files.count } }
 
     var selectedFile: ChangedFile? {

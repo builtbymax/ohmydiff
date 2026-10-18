@@ -5,6 +5,7 @@ import SwiftUI
 /// The detail pane in History mode: the selected commit or branch, its files and the selected file's diff.
 struct HistoryDetailView: View {
     @Bindable var history: HistoryModel
+    let root: URL
 
     var body: some View {
         if let selection = history.selection, let branch = history.selectedBranch {
@@ -51,7 +52,7 @@ struct HistoryDetailView: View {
 
                 Group {
                     if let file = history.selectedFile {
-                        FileDiffView(fileID: "\(selection):\(file.id)", diff: file, highlights: history.highlights[file.id]) { side in
+                        FileDiffView(fileID: "\(selection):\(file.id)", diff: file, highlights: history.highlights[file.id], root: root) { side in
                             await history.contents(of: file, side: side)
                         }
                     } else {
