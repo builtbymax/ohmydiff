@@ -372,8 +372,7 @@ struct SoftSegmented<Value: Hashable>: View {
     var body: some View {
         // Animated, so what the choice shows or hides around the control animates with it.
         let animated = Binding { selection } set: { value in withAnimation(.snappy(duration: 0.18)) { selection = value } }
-        MagneticSegments(selection: animated, options: options, disabled: disabled, font: .caption, horizontalPadding: 11,
-                         height: 22, hoverFill: Color.primary.opacity(0.05)) {
+        MagneticSegments(selection: animated, options: options, disabled: disabled, font: .caption, horizontalPadding: 11, height: 22) {
             Capsule()
                 .fill(Theme.cardRow)
                 .shadow(color: .black.opacity(0.08), radius: 1, y: 1)

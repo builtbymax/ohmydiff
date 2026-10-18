@@ -122,8 +122,7 @@ struct GlassSegmented<Value: Hashable>: View {
     let options: [(value: Value, title: String)]
 
     var body: some View {
-        MagneticSegments(selection: $selection, options: options, font: .callout, horizontalPadding: 13, height: 30,
-                         hoverFill: Color.primary.opacity(0.06)) {
+        MagneticSegments(selection: $selection, options: options, font: .callout, horizontalPadding: 13, height: 30) {
             Capsule().fill(Theme.glassSelection)
         }
         .padding(4)
@@ -131,7 +130,8 @@ struct GlassSegmented<Value: Hashable>: View {
     }
 }
 
-/// Text segments whose selection pill and hover highlight glide from one segment to the next.
+/// Text segments with one pill that is drawn to the hovered segment and springs back to the selected one
+/// when the pointer leaves: soft on hover, snappier with a little overshoot on selection.
 struct MagneticSegments<Value: Hashable, Pill: View>: View {
     @Binding var selection: Value
     let options: [(value: Value, title: String)]
@@ -139,44 +139,43 @@ struct MagneticSegments<Value: Hashable, Pill: View>: View {
     let font: Font
     let horizontalPadding: CGFloat
     let height: CGFloat
-    let hoverFill: Color
     @ViewBuilder var pill: Pill
 
     @Namespace private var namespace
     @State private var hovered: Value?
 
+    private static var hoverSpring: Animation { .interpolatingSpring(stiffness: 300, damping: 25) }
+    private static var selectSpring: Animation { .interpolatingSpring(stiffness: 500, damping: 22) }
+
     var body: some View {
         HStack(spacing: 0) {
             ForEach(options, id: \.value) { option in
-                let isSelected = option.value == selection
                 let isDisabled = disabled.contains(option.value)
                 Button { selection = option.value } label: {
+                    // One weight for all, so the segments keep their width as the selection moves.
                     Text(option.title)
-                        .font(font.weight(isSelected ? .semibold : .medium))
-                        .foregroundStyle(isSelected ? .primary : .secondary)
+                        .font(font.weight(.medium))
+                        .foregroundStyle(option.value == selection ? .primary : .secondary)
                         .padding(.horizontal, horizontalPadding)
                         .frame(height: height)
-                        .background {
-                            if isSelected { pill.matchedGeometryEffect(id: "selection", in: namespace) }
-                        }
-                        .background {
-                            if hovered == option.value {
-                                Capsule().fill(hoverFill).matchedGeometryEffect(id: "hover", in: namespace)
-                            }
-                        }
                         .contentShape(.capsule)
+                        .matchedGeometryEffect(id: option.value, in: namespace)
                 }
                 .buttonStyle(.plain)
                 .disabled(isDisabled)
                 .opacity(isDisabled ? 0.4 : 1)
-                // Only entering sets it, and leaving the whole control clears it, so the highlight
-                // moves between neighbors instead of fading out and in.
+                // Only entering sets it, and leaving the whole control clears it, so the pill glides
+                // between neighbors and then back to the selection.
                 .onHover { if $0, !isDisabled { hovered = option.value } }
             }
         }
+        .background {
+            pill.matchedGeometryEffect(id: hovered ?? selection, in: namespace, isSource: false)
+        }
         .onHover { if !$0 { hovered = nil } }
-        .animation(.snappy(duration: 0.28), value: selection)
-        .animation(.snappy(duration: 0.22), value: hovered)
+        .animation(Self.hoverSpring, value: hovered)
+        .animation(Self.selectSpring, value: selection)
+        .sensoryFeedback(.selection, trigger: selection)
         .focusEffectDisabled()
     }
 }
