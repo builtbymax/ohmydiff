@@ -660,24 +660,23 @@ private struct TicketSettings: View {
     @AppStorage(AppSettings.jiraEmailKey) private var jiraEmail = ""
     @AppStorage(AppSettings.githubTicketsKey) private var github = false
     @AppStorage(AppSettings.gitlabTicketsKey) private var gitlab = false
-    @State private var linearKey = Keychain.read(.linear) ?? ""
-    @State private var jiraToken = Keychain.read(.jira) ?? ""
+    /// Only whether the secrets are saved: reading them could ask for Keychain access on every visit.
+    @State private var hasLinearKey = Keychain.contains(.linear)
+    @State private var hasJiraToken = Keychain.contains(.jira)
     /// `gh` and `glab` found on the login shell PATH; `nil` until looked up.
     @State private var tools = SettingsLookups.forgeTools
 
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                SettingsCard(title: "Linear", badge: .connection(!linearKey.isEmpty)) {
-                    SettingsField(label: "API key", text: $linearKey, prompt: "lin_api_…", isSecure: true)
-                        .onChange(of: linearKey) { Keychain.write(linearKey.trimmingCharacters(in: .whitespaces), for: .linear) }
+                SettingsCard(title: "Linear", badge: .connection(hasLinearKey)) {
+                    SecretField(label: "API key", item: .linear, prompt: "lin_api_…", isSaved: $hasLinearKey)
                     note("Create a personal API key in Linear under Settings → Security & access. It is stored in your Keychain.")
                 }
                 SettingsCard(title: "Jira", badge: .connection(isJiraConnected)) {
                     SettingsField(label: "Site", text: $jiraSite, prompt: "example.atlassian.net")
                     SettingsField(label: "Email", text: $jiraEmail, prompt: "you@example.com")
-                    SettingsField(label: "API token", text: $jiraToken, prompt: "Token", isSecure: true)
-                        .onChange(of: jiraToken) { Keychain.write(jiraToken.trimmingCharacters(in: .whitespaces), for: .jira) }
+                    SecretField(label: "API token", item: .jira, prompt: "Token", isSaved: $hasJiraToken)
                     note("Create an API token at id.atlassian.com under Security. It is stored in your Keychain.")
                 }
                 SettingsCard(title: "GitHub & GitLab") {
@@ -704,7 +703,7 @@ private struct TicketSettings: View {
     }
 
     private var isJiraConnected: Bool {
-        JiraTickets.siteURL(jiraSite) != nil && !jiraEmail.isEmpty && !jiraToken.isEmpty
+        JiraTickets.siteURL(jiraSite) != nil && !jiraEmail.isEmpty && hasJiraToken
     }
 
     private func forgeRow(_ title: String, tool: String, isOn: Binding<Bool>) -> some View {
@@ -738,7 +737,6 @@ private struct SettingsField: View {
     let label: String
     @Binding var text: String
     var prompt = ""
-    var isSecure = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -746,8 +744,61 @@ private struct SettingsField: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .frame(width: 72, alignment: .leading)
-            DraftField(label: label, text: $text, prompt: prompt, isSecure: isSecure)
+            DraftField(label: label, text: $text, prompt: prompt)
         }
+    }
+}
+
+/// A Keychain secret that is replaced or removed but never shown, so opening Settings never reads it.
+private struct SecretField: View {
+    let label: String
+    let item: Keychain.Item
+    var prompt = ""
+    @Binding var isSaved: Bool
+    @State private var draft = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(label)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(width: 72, alignment: .leading)
+            HStack(spacing: 4) {
+                SecureField(label, text: $draft, prompt: Text(isSaved ? "Saved in Keychain" : prompt))
+                    .textFieldStyle(.plain)
+                    .font(.callout)
+                    .focused($isFocused)
+                    .onSubmit(save)
+                if isSaved, draft.isEmpty {
+                    Button(action: remove) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22, height: 22)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.hover(cornerRadius: 6, tint: .primary))
+                    .help("Remove from Keychain")
+                }
+                SaveButton(isSaved: draft.isEmpty, isEmpty: !isSaved, action: save)
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 4)
+            .frame(height: 30)
+            .fieldBackground(isFocused: isFocused)
+        }
+    }
+
+    private func save() {
+        let value = draft.trimmingCharacters(in: .whitespaces)
+        guard !value.isEmpty else { return }
+        if Keychain.write(value, for: item) { isSaved = true }
+        draft = ""
+    }
+
+    private func remove() {
+        if Keychain.write("", for: item) { isSaved = false }
     }
 }
 
@@ -757,33 +808,25 @@ private struct DraftField: View {
     /// The saved value, written only on save.
     @Binding var text: String
     var prompt = ""
-    var isSecure = false
     var font: Font = .callout
     @State private var draft: String
     @FocusState private var isFocused: Bool
 
-    init(label: String, text: Binding<String>, prompt: String = "", isSecure: Bool = false, font: Font = .callout) {
+    init(label: String, text: Binding<String>, prompt: String = "", font: Font = .callout) {
         self.label = label
         _text = text
         self.prompt = prompt
-        self.isSecure = isSecure
         self.font = font
         _draft = State(initialValue: text.wrappedValue)
     }
 
     var body: some View {
         HStack(spacing: 4) {
-            Group {
-                if isSecure {
-                    SecureField(label, text: $draft, prompt: Text(prompt))
-                } else {
-                    TextField(label, text: $draft, prompt: Text(prompt))
-                }
-            }
-            .textFieldStyle(.plain)
-            .font(font)
-            .focused($isFocused)
-            .onSubmit(save)
+            TextField(label, text: $draft, prompt: Text(prompt))
+                .textFieldStyle(.plain)
+                .font(font)
+                .focused($isFocused)
+                .onSubmit(save)
             SaveButton(isSaved: draft == text, isEmpty: text.isEmpty, action: save)
         }
         .padding(.leading, 10)
