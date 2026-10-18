@@ -96,7 +96,7 @@ struct ChangesListView: View {
 /// A change group as a card: the branch (or Staged, Unassigned…) on top, its files below.
 private struct ChangeGroupCard: View {
     let group: ChangeGroup
-    @Bindable var session: ProjectSession
+    let session: ProjectSession
 
     var body: some View {
         Card {
@@ -110,22 +110,34 @@ private struct ChangeGroupCard: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
             } else {
-                VStack(spacing: 0) {
+                // Lazy, so a group of thousands of untracked files only builds the rows on screen.
+                LazyVStack(spacing: 0) {
                     ForEach(group.files) { file in
-                        Button { session.selectedFileID = file.id } label: {
-                            FileRow(path: file.path, previousPath: file.previousPath, kind: file.kind, stats: file.stats,
-                                    isSelected: session.selectedFileID == file.id)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 7)
-                        }
-                        .buttonStyle(.row(isSelected: session.selectedFileID == file.id))
-                        .id(file.id)
-                        .contextMenu { ChangeActionMenu(session: session, targets: [ChangeTarget(file: file)], isGroup: false) }
+                        ChangeFileRow(file: file, session: session)
                     }
                 }
                 .padding(4)
             }
         }
+    }
+}
+
+/// A file of a group. It reads the selection itself, so selecting another file only updates the rows
+/// whose state changes instead of every card.
+private struct ChangeFileRow: View {
+    let file: ChangedFile
+    let session: ProjectSession
+
+    var body: some View {
+        let isSelected = session.selectedFileID == file.id
+        Button { session.selectedFileID = file.id } label: {
+            FileRow(path: file.path, previousPath: file.previousPath, kind: file.kind, stats: file.stats, isSelected: isSelected)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 7)
+        }
+        .buttonStyle(.row(isSelected: isSelected))
+        .id(file.id)
+        .contextMenu { ChangeActionMenu(session: session, targets: [ChangeTarget(file: file)], isGroup: false) }
     }
 }
 

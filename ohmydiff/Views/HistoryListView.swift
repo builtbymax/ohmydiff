@@ -97,36 +97,45 @@ struct HistoryListView: View {
 private struct BranchCard: View {
     let branch: HistoryBranch
     let showsCommits: Bool
-    @Bindable var history: HistoryModel
+    let history: HistoryModel
 
     var body: some View {
-        let branchSelection = HistoryModel.Selection.branch(branch.name)
         Card {
-            Button { history.selection = branchSelection } label: {
+            SelectableHistoryRow(selection: .branch(branch.name), history: history) {
                 BranchRow(branch: branch)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
             }
-            .buttonStyle(.row(isSelected: history.selection == branchSelection))
             .padding(-6)
-            .id(branchSelection)
         } content: {
             if showsCommits, !branch.commits.isEmpty {
-                VStack(spacing: 0) {
+                // Lazy, so a plain-git branch with hundreds of commits only builds the rows on screen.
+                LazyVStack(spacing: 0) {
                     ForEach(branch.commits) { commit in
-                        let selection = HistoryModel.Selection.commit(sha: commit.sha, branch: branch.name)
-                        Button { history.selection = selection } label: {
+                        SelectableHistoryRow(selection: .commit(sha: commit.sha, branch: branch.name), history: history) {
                             CommitRow(commit: commit)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 6)
                         }
-                        .buttonStyle(.row(isSelected: history.selection == selection))
-                        .id(selection)
                     }
                 }
                 .padding(4)
             }
         }
+    }
+}
+
+/// A branch or commit row. It reads the selection itself, so selecting another row only updates the
+/// rows whose state changes instead of every card.
+private struct SelectableHistoryRow<Label: View>: View {
+    let selection: HistoryModel.Selection
+    let history: HistoryModel
+    @ViewBuilder var label: Label
+
+    var body: some View {
+        Button { history.selection = selection } label: { label }
+            .buttonStyle(.row(isSelected: history.selection == selection))
+            .id(selection)
     }
 }
 

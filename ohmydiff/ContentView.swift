@@ -46,18 +46,24 @@ struct ContentView: View {
         .padding(Theme.inset)
         .background { WindowTranslucency().ignoresSafeArea() }
         .ignoresSafeArea()
+        // The animations apply to the overlays only: what a palette command changes while the palette
+        // closes, e.g. the mode or the list's visibility, must not animate the whole window with it.
         .overlay(alignment: .topLeading) {
-            if model.isProjectMenuPresented {
-                ProjectDropdown(model: model)
+            ZStack(alignment: .topLeading) {
+                if model.isProjectMenuPresented {
+                    ProjectDropdown(model: model)
+                }
             }
+            .animation(.snappy(duration: 0.2), value: model.isProjectMenuPresented)
         }
         .overlay {
-            if model.isSwitcherPresented {
-                CommandPalette(model: model)
+            ZStack {
+                if model.isSwitcherPresented {
+                    CommandPalette(model: model)
+                }
             }
+            .animation(.snappy(duration: 0.2), value: model.isSwitcherPresented)
         }
-        .animation(.snappy(duration: 0.2), value: model.isProjectMenuPresented)
-        .animation(.snappy(duration: 0.2), value: model.isSwitcherPresented)
         .frame(minWidth: 900, minHeight: 560)
         .task(id: appearance) { appearance.apply() }
         .fileImporter(isPresented: $model.isImporterPresented, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in

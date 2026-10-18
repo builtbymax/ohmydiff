@@ -97,12 +97,26 @@ struct DiffFileTarget: Equatable {
 }
 
 /// Lines of the focused diff to ask Claude Code about: the selection, else the hunk at the top.
-struct DiffPromptTarget {
+///
+/// Plain data rather than a closure, so publishing it as a focused value only updates menus when it changes.
+struct DiffPromptTarget: Equatable {
     /// The repository root, where Claude Code starts.
     var root: URL
+    var context: PromptContext
+    var diff: FileDiff
+    /// The selected lines; empty to ask about `hunk`.
+    var selection: [DiffPosition]
+    var hunk: Int
+
     /// "Selection" or "Hunk", for menu titles.
-    var scope: String
-    var prompt: (PromptQuestion) -> String
+    var scope: String { selection.isEmpty ? "Hunk" : "Selection" }
+
+    func prompt(_ question: PromptQuestion) -> String {
+        let positions = selection.isEmpty && diff.hunks.indices.contains(hunk)
+            ? diff.hunks[hunk].lines.indices.map { DiffPosition(hunk: hunk, line: $0) }
+            : selection
+        return ClaudePrompt.make(question: question, context: context, diff: diff, positions: positions)
+    }
 }
 
 extension FocusedValues {

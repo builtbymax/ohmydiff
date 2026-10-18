@@ -118,6 +118,7 @@ private struct ProjectMenu: View {
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.secondary)
                     .rotationEffect(.degrees(model.isProjectMenuPresented ? 180 : 0))
+                    .animation(.snappy(duration: 0.2), value: model.isProjectMenuPresented)
                     .padding(.trailing, 6)
             }
             .padding(3)

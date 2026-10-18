@@ -121,11 +121,9 @@ struct FileDiffView: View {
     private var promptTarget: DiffPromptTarget? {
         guard let promptContext, showsTable else { return nil }
         let shown = shownWholeFile?.diff ?? diff
-        let hunk = min(visibleHunk ?? 0, shown.hunks.count - 1)
-        let positions = selectedLines.isEmpty ? shown.hunks[hunk].lines.indices.map { DiffPosition(hunk: hunk, line: $0) } : selectedLines
-        return DiffPromptTarget(root: root, scope: selectedLines.isEmpty ? "Hunk" : "Selection") { question in
-            ClaudePrompt.make(question: question, context: promptContext, diff: shown, positions: positions)
-        }
+        return DiffPromptTarget(
+            root: root, context: promptContext, diff: shown, selection: selectedLines,
+            hunk: min(visibleHunk ?? 0, shown.hunks.count - 1))
     }
 
     private var askClaudeAction: ((ClaudeRequest) -> Void)? {
