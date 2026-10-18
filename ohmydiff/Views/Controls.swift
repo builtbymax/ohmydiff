@@ -110,16 +110,27 @@ private struct PaletteKeys: ViewModifier {
     }
 }
 
-/// An invisible handle on a column's trailing edge; drag it to resize the column.
+/// A handle on a column's trailing edge; drag it to resize the column. A thin line shows on hover and
+/// while dragging.
 struct ColumnResizer: View {
     @Binding var width: Double
     let range: ClosedRange<Double>
     @State private var startWidth: Double?
+    @State private var isHovered = false
 
     var body: some View {
         Color.clear
             .frame(width: 9)
+            .overlay {
+                Rectangle()
+                    .fill(Color.primary.opacity(startWidth != nil ? 0.3 : 0.18))
+                    .frame(width: 2)
+                    .opacity(isHovered || startWidth != nil ? 1 : 0)
+            }
+            .animation(.easeOut(duration: 0.15), value: isHovered)
+            .animation(.easeOut(duration: 0.15), value: startWidth != nil)
             .contentShape(.rect)
+            .onHover { isHovered = $0 }
             .pointerStyle(.frameResize(position: .trailing))
             .gesture(
                 DragGesture(minimumDistance: 1, coordinateSpace: .global)
@@ -131,6 +142,8 @@ struct ColumnResizer: View {
                     .onEnded { _ in startWidth = nil }
             )
             .offset(x: 4.5)
+            // Full height, also beside a bar inset at the top of the column.
+            .ignoresSafeArea(edges: .vertical)
     }
 }
 
