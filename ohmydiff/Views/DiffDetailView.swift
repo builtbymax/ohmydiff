@@ -206,8 +206,8 @@ private struct HunkBar: View {
     var body: some View {
         HStack(spacing: 10) {
             HStack(spacing: 0) {
-                jumpButton("Previous Hunk (p)", systemImage: "chevron.up", direction: -1)
-                jumpButton("Next Hunk (n)", systemImage: "chevron.down", direction: 1)
+                jumpButton("Previous Hunk  P", systemImage: "chevron.up", direction: -1)
+                jumpButton("Next Hunk  N", systemImage: "chevron.down", direction: 1)
             }
             VStack(alignment: .leading, spacing: 0) {
                 Text(title)
@@ -268,11 +268,10 @@ private struct HunkBar: View {
             Image(systemName: systemImage)
                 .font(.system(size: 13, weight: .semibold))
                 .frame(width: 32, height: 32)
-                .contentShape(.circle)
         }
-        .buttonStyle(.plain)
-        .help(title)
-        .accessibilityLabel(title)
+        .buttonStyle(.hoverCapsule())
+        .focusEffectDisabled()
+        .glassTooltip(title, edge: .top)
     }
 }
 

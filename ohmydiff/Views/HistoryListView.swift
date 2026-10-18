@@ -106,10 +106,8 @@ private struct BranchCard: View {
                 BranchRow(branch: branch)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
-                    .background(history.selection == branchSelection ? Theme.selectedRow : .clear, in: .rect(cornerRadius: 8))
-                    .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.row(isSelected: history.selection == branchSelection))
             .padding(-6)
             .id(branchSelection)
         } content: {
@@ -121,10 +119,8 @@ private struct BranchCard: View {
                             CommitRow(commit: commit)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 6)
-                                .background(history.selection == selection ? Theme.selectedRow : .clear, in: .rect(cornerRadius: 8))
-                                .contentShape(.rect)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.row(isSelected: history.selection == selection))
                         .id(selection)
                     }
                 }

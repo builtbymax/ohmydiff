@@ -3,10 +3,10 @@ import OhMyDiffCore
 import SwiftUI
 
 /// The glass controls over the top of the content panel: the project and where you are on the left,
-/// the file list, diff layout, mode and actions on the right.
+/// the file list, diff layout and actions on the right. Changes / History live on the rail.
 struct WorkspaceToolbar: View {
     let model: AppModel
-    @Binding var mode: WorkspaceMode
+    let mode: WorkspaceMode
 
     @AppStorage(DiffSettings.layoutKey) private var layout: DiffLayoutMode = .unified
     @AppStorage(AppSettings.isListHiddenKey) private var isListHidden = false
@@ -24,7 +24,7 @@ struct WorkspaceToolbar: View {
                     .contentShape(.rect)
                     .gesture(WindowDragGesture())
                 ToolbarIconButton(
-                    title: isListHidden ? "Show File List (⌘0)" : "Hide File List (⌘0)",
+                    title: isListHidden ? "Show File List  ⌘0" : "Hide File List  ⌘0",
                     systemImage: isListHidden ? "sidebar.left" : "rectangle.leadinghalf.inset.filled"
                 ) {
                     withAnimation(.snappy) { isListHidden.toggle() }
@@ -32,16 +32,14 @@ struct WorkspaceToolbar: View {
                 .padding(4)
                 .glassEffect(.regular, in: .capsule)
                 GlassSegmented(selection: $layout, options: [(.unified, "Unified"), (.split, "Split")])
-                    .help("Side-by-Side Diff (⌘\\)")
-                GlassSegmented(selection: $mode, options: WorkspaceMode.allCases.map { ($0, $0.rawValue) })
                 HStack(spacing: 2) {
-                    ToolbarIconButton(title: "Refresh (⌘R)", systemImage: "arrow.clockwise") { model.refreshSelected() }
+                    ToolbarIconButton(title: "Refresh  ⌘R", systemImage: "arrow.clockwise") { model.refreshSelected() }
                         .disabled(model.selectedProjectID == nil)
-                    ToolbarIconButton(title: "Open in Editor (⌘O)", systemImage: "arrow.up.forward.square") {
+                    ToolbarIconButton(title: "Open in Editor  ⌘O", systemImage: "arrow.up.forward.square") {
                         diffFile.map(model.openInEditor)
                     }
                     .disabled(diffFile?.exists != true)
-                    ToolbarIconButton(title: "Open Diff in New Window (⌥⌘O)", systemImage: "macwindow.badge.plus") {
+                    ToolbarIconButton(title: "Open Diff in New Window  ⌥⌘O", systemImage: "macwindow.badge.plus") {
                         diffPopout.map { openWindow(id: DiffWindow.id, value: model.register($0)) }
                     }
                     .disabled(diffPopout == nil)
@@ -99,34 +97,12 @@ private struct ProjectBreadcrumb: View {
     }
 }
 
-/// The selected project; opens a menu to switch, add or manage projects.
+/// The selected project; opens the project dropdown.
 private struct ProjectMenu: View {
-    let model: AppModel
+    @Bindable var model: AppModel
 
     var body: some View {
-        Menu {
-            Section("Projects") {
-                ForEach(model.projects) { project in
-                    Toggle(isOn: Binding(
-                        get: { model.selectedProjectID == project.id },
-                        set: { if $0 { model.selectedProjectID = project.id } }
-                    )) {
-                        Text(project.displayName)
-                        let count = model.session(for: project.id).changeCount
-                        Text(count == 1 ? "1 change" : "\(count) changes")
-                    }
-                }
-            }
-            Divider()
-            Button("Switch Project…") { model.isSwitcherPresented = true }
-            Button("Add Project…") { model.isImporterPresented = true }
-            if let project = model.selectedProject {
-                Divider()
-                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([project.url]) }
-                    .disabled(!project.exists)
-                Button("Remove \(project.displayName)", role: .destructive) { model.remove(project.id) }
-            }
-        } label: {
+        Button { model.isProjectMenuPresented.toggle() } label: {
             HStack(spacing: 7) {
                 Text(model.selectedProject.map { projectMonogram($0.displayName) } ?? "+")
                     .font(.system(size: 11, weight: .bold))
@@ -137,15 +113,15 @@ private struct ProjectMenu: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(model.isProjectMenuPresented ? 180 : 0))
+                    .padding(.trailing, 6)
             }
-            .contentShape(.rect)
+            .padding(3)
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
+        .buttonStyle(.hover(cornerRadius: 11, isSelected: model.isProjectMenuPresented))
         .focusEffectDisabled()
         .fixedSize()
-        .help(model.selectedProject?.path ?? "Add a project")
+        .glassTooltip("Switch Project")
     }
 }
 
@@ -183,11 +159,9 @@ private struct ToolbarIconButton: View {
             Image(systemName: systemImage)
                 .font(.system(size: 14, weight: .medium))
                 .frame(width: 30, height: 30)
-                .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverCapsule())
         .focusEffectDisabled()
-        .help(title)
-        .accessibilityLabel(title)
+        .glassTooltip(title)
     }
 }

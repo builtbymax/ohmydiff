@@ -15,7 +15,11 @@ final class AppModel {
         }
     }
 
-    var isSwitcherPresented = false
+    var isSwitcherPresented = false {
+        didSet { if isSwitcherPresented { isProjectMenuPresented = false } }
+    }
+    /// The project dropdown below the breadcrumb.
+    var isProjectMenuPresented = false
     var isImporterPresented = false
     var errorMessage: String?
     /// What each open diff window shows, by the ID its window was opened with.

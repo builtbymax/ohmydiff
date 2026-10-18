@@ -117,10 +117,8 @@ private struct ChangeGroupCard: View {
                                     isSelected: session.selectedFileID == file.id)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 7)
-                                .background(session.selectedFileID == file.id ? Theme.selectedRow : .clear, in: .rect(cornerRadius: 8))
-                                .contentShape(.rect(cornerRadius: 8))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.row(isSelected: session.selectedFileID == file.id))
                         .id(file.id)
                         .contextMenu { ChangeActionMenu(session: session, targets: [ChangeTarget(file: file)], isGroup: false) }
                     }

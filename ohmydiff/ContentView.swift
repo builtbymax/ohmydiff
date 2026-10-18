@@ -22,6 +22,8 @@ struct ContentView: View {
         HStack(spacing: Theme.inset) {
             RailView(model: model, mode: $mode)
                 .padding(.top, Theme.titleBarHeight)
+                // Above the panel, so its tooltips are not hidden behind it.
+                .zIndex(1)
 
             HStack(spacing: 0) {
                 if !isListHidden {
@@ -36,7 +38,7 @@ struct ContentView: View {
             }
             // A bar, not an overlay: lists scrolled under it fade out instead of colliding with the controls.
             .safeAreaBar(edge: .top) {
-                WorkspaceToolbar(model: model, mode: $mode)
+                WorkspaceToolbar(model: model, mode: mode)
             }
             .background(Theme.panel)
             .clipShape(.rect(cornerRadius: 18))
@@ -45,11 +47,18 @@ struct ContentView: View {
         .padding(Theme.inset)
         .background { WindowTranslucency().ignoresSafeArea() }
         .ignoresSafeArea()
+        .overlay(alignment: .topLeading) {
+            if model.isProjectMenuPresented {
+                ProjectDropdown(model: model)
+            }
+        }
         .overlay {
             if model.isSwitcherPresented {
                 ProjectSwitcher(model: model)
             }
         }
+        .animation(.snappy(duration: 0.2), value: model.isProjectMenuPresented)
+        .animation(.snappy(duration: 0.2), value: model.isSwitcherPresented)
         .frame(minWidth: 900, minHeight: 560)
         .task(id: appearance) { appearance.apply() }
         .fileImporter(isPresented: $model.isImporterPresented, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in

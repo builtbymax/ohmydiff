@@ -101,14 +101,8 @@ struct GlassSegmented<Value: Hashable>: View {
                         .foregroundStyle(isSelected ? .primary : .secondary)
                         .padding(.horizontal, 13)
                         .frame(height: 30)
-                        .background {
-                            if isSelected {
-                                Capsule().fill(Theme.glassSelection)
-                            }
-                        }
-                        .contentShape(.capsule)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverCapsule(isSelected: isSelected))
                 .focusEffectDisabled()
             }
         }

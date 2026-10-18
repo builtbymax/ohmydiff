@@ -14,8 +14,8 @@ extension Notification.Name {
 
 /// A diff in a view-based `NSTableView`, so only visible lines are laid out.
 ///
-/// Unified mode has one row per line with old/new gutters; split mode pairs deletions with additions
-/// in two columns. Hunk headers span the full width. Rows can be selected (⇧/⌘-click, ⌘A) and
+/// Unified mode has one row per line with old/new gutters and scrolls sideways for long lines; split
+/// mode pairs deletions with additions in two half-width columns and wraps long lines. Hunk headers span the full width. Rows can be selected (⇧/⌘-click, ⌘A) and
 /// copied with ⌘C; `n` / `p` jump between hunks.
 struct DiffTableView: NSViewRepresentable {
     let fileID: ChangedFile.ID
@@ -87,6 +87,10 @@ struct DiffTableView: NSViewRepresentable {
         private var unifiedRows: [DiffLayout.UnifiedRow] = []
         private var splitRows: [DiffLayout.SplitRow] = []
         private var hunkRows: [Int] = []
+        /// Split mode: each row's character count per side, to work out how many lines it wraps to.
+        private var splitLengths: [(old: Int, new: Int)] = []
+        /// The column width the split row heights were computed for.
+        private var splitColumnWidth: CGFloat = 0
         private var formatter = DiffRowFormatter()
         private var fontSize: CGFloat?
         var onFocusLine: (Int?) -> Void = { _ in }
@@ -143,9 +147,14 @@ struct DiffTableView: NSViewRepresentable {
             case .unified:
                 unifiedRows = DiffLayout.unified(diff)
                 splitRows = []
+                splitLengths = []
                 hunkRows = unifiedRows.indices.filter { if case .hunkHeader = unifiedRows[$0] { true } else { false } }
             case .split:
                 splitRows = DiffLayout.split(diff)
+                splitLengths = splitRows.map { row in
+                    guard case .pair(let h, let old, let new) = row else { return (0, 0) }
+                    return (old.map { formatter.splitLength(hunk: h, line: $0) } ?? 0, new.map { formatter.splitLength(hunk: h, line: $0) } ?? 0)
+                }
                 unifiedRows = []
                 hunkRows = splitRows.indices.filter { if case .hunkHeader = splitRows[$0] { true } else { false } }
             }
@@ -277,9 +286,14 @@ struct DiffTableView: NSViewRepresentable {
             case .unified:
                 tableView.tableColumns.first?.width = formatter.unifiedWidth(unifiedRows)
             case .split:
-                let (old, new) = formatter.splitWidths(splitRows)
-                tableView.tableColumns.first { $0.identifier == Self.oldColumn }?.width = max(old, floor(visible / 2))
-                tableView.tableColumns.first { $0.identifier == Self.newColumn }?.width = max(new, ceil(visible / 2))
+                // Two equal halves that always fit; long lines wrap instead of pushing the new side out of view.
+                let old = floor(visible / 2)
+                tableView.tableColumns.first { $0.identifier == Self.oldColumn }?.width = old
+                tableView.tableColumns.first { $0.identifier == Self.newColumn }?.width = visible - old
+                if old != splitColumnWidth {
+                    splitColumnWidth = old
+                    tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<splitRows.count))
+                }
             case nil:
                 break
             }
@@ -334,6 +348,13 @@ struct DiffTableView: NSViewRepresentable {
             mode == .split ? splitRows.count : unifiedRows.count
         }
 
+        func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+            guard mode == .split, splitLengths.indices.contains(row), splitColumnWidth > 0 else { return formatter.metrics.rowHeight }
+            let lengths = splitLengths[row]
+            let lines = max(formatter.wrappedLineCount(lengths.old, width: splitColumnWidth), formatter.wrappedLineCount(lengths.new, width: splitColumnWidth))
+            return formatter.metrics.rowHeight + CGFloat(lines - 1) * formatter.metrics.lineHeight
+        }
+
         func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
             hunkIndex(ofHeaderRow: row) != nil
         }
@@ -342,6 +363,7 @@ struct DiffTableView: NSViewRepresentable {
             let cell = tableView.makeView(withIdentifier: DiffCellView.reuseIdentifier, owner: nil) as? DiffCellView ?? DiffCellView()
             cell.tint = nil
             cell.drawsTrailingSeparator = false
+            cell.wraps = false
 
             if let hunk = hunkIndex(ofHeaderRow: row) {
                 cell.label.attributedStringValue = formatter.hunkHeader(diff.hunks[hunk], mode: mode ?? .unified)
@@ -365,6 +387,7 @@ struct DiffTableView: NSViewRepresentable {
                 cell.label.attributedStringValue = line.map { formatter.splitLine(hunk: h, line: $0, side: isOld ? .old : .new) }
                     ?? NSAttributedString()
                 cell.drawsTrailingSeparator = isOld
+                cell.wraps = true
                 if let line {
                     cell.tint = DiffRowFormatter.tint(for: diff.hunks[h].lines[line].kind)
                 } else if old != new {
@@ -412,11 +435,14 @@ struct DiffMetrics: Equatable {
 
     let font: NSFont
     let rowHeight: CGFloat
+    /// Height of one more wrapped line within a row.
+    let lineHeight: CGFloat
     let characterWidth: CGFloat
 
     init(fontSize: CGFloat = defaultFontSize) {
         font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        rowHeight = ceil(NSLayoutManager().defaultLineHeight(for: font)) + 3
+        lineHeight = ceil(NSLayoutManager().defaultLineHeight(for: font))
+        rowHeight = lineHeight + 3
         characterWidth = ("M" as NSString).size(withAttributes: [.font: font]).width
     }
 }
@@ -491,7 +517,28 @@ struct DiffRowFormatter {
         append(number(side == .old ? line.oldLineNumber : line.newLineNumber) + " ", .tertiaryLabelColor, to: result)
         appendBody(line, highlights: wordHighlights[h][l], to: result)
         if line.noNewlineAtEnd { append("  ⏎̸", .tertiaryLabelColor, to: result) }
+        // Wrapped lines continue under the code, not under the line number.
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.headIndent = CGFloat(splitPrefix) * metrics.characterWidth
+        paragraph.lineBreakMode = .byCharWrapping
+        result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
         return result
+    }
+
+    /// Characters of a split-mode line as shown: gutter, marker, expanded text and the no-newline mark.
+    func splitLength(hunk h: Int, line l: Int) -> Int {
+        let line = diff.hunks[h].lines[l]
+        return splitPrefix + Self.expandedLength(line.text) + (line.noNewlineAtEnd ? 3 : 0)
+    }
+
+    /// How many lines `characters` take in a split column of `width`, continuation lines indented past the gutter.
+    func wrappedLineCount(_ characters: Int, width: CGFloat) -> Int {
+        // A little slack for the text field's own insets, so a line is never clipped.
+        let available = width - Self.horizontalPadding * 2 - 6
+        let first = max(Int(available / metrics.characterWidth), 1)
+        guard characters > first else { return 1 }
+        let following = max(first - splitPrefix, 1)
+        return 1 + (characters - first + following - 1) / following
     }
 
     private func appendBody(_ line: DiffLine, highlights: [Range<Int>]?, to result: NSMutableAttributedString) {
@@ -722,7 +769,7 @@ private final class DiffRowView: NSTableRowView {
     override func drawBackground(in dirtyRect: NSRect) {
         guard let tint else { return }
         tint.setFill()
-        dirtyRect.fill()
+        dirtyRect.intersection(bounds).fill()
     }
 }
 
@@ -740,6 +787,22 @@ private final class DiffCellView: NSTableCellView {
         didSet { if drawsTrailingSeparator != oldValue { needsDisplay = true } }
     }
 
+    /// Split cells wrap long lines to the column width; unified cells stay on one line and scroll sideways.
+    var wraps = false {
+        didSet {
+            guard wraps != oldValue else { return }
+            label.maximumNumberOfLines = wraps ? 0 : 1
+            label.lineBreakMode = wraps ? .byCharWrapping : .byClipping
+            trailingConstraint.isActive = wraps
+            centerConstraint.isActive = !wraps
+            topConstraint.isActive = wraps
+        }
+    }
+
+    private var trailingConstraint: NSLayoutConstraint!
+    private var centerConstraint: NSLayoutConstraint!
+    private var topConstraint: NSLayoutConstraint!
+
     init() {
         super.init(frame: .zero)
         identifier = Self.reuseIdentifier
@@ -747,10 +810,14 @@ private final class DiffCellView: NSTableCellView {
         label.maximumNumberOfLines = 1
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        trailingConstraint = label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -DiffRowFormatter.horizontalPadding)
+        centerConstraint = label.centerYAnchor.constraint(equalTo: centerYAnchor)
+        topConstraint = label.topAnchor.constraint(equalTo: topAnchor, constant: 1.5)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DiffRowFormatter.horizontalPadding),
             label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            centerConstraint,
         ])
     }
 
@@ -760,7 +827,8 @@ private final class DiffCellView: NSTableCellView {
     override func draw(_ dirtyRect: NSRect) {
         if let tint {
             tint.setFill()
-            dirtyRect.fill()
+            // Views no longer clip to their bounds, so a split cell must not paint into the other column.
+            dirtyRect.intersection(bounds).fill()
         }
         if drawsTrailingSeparator {
             NSColor.separatorColor.setFill()

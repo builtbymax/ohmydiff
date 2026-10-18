@@ -18,7 +18,7 @@ struct RailView: View {
 
             RailButton(title: "Changes", systemImage: "plusminus", isSelected: mode == .changes) { mode = .changes }
             RailButton(title: "History", systemImage: "clock", isSelected: mode == .history) { mode = .history }
-            RailButton(title: "Switch Project (⌘K)", systemImage: "magnifyingglass", isSelected: model.isSwitcherPresented) {
+            RailButton(title: "Switch Project  ⌘K", systemImage: "magnifyingglass", isSelected: model.isSwitcherPresented) {
                 model.isSwitcherPresented = true
             }
             .disabled(model.projects.isEmpty)
@@ -30,10 +30,10 @@ struct RailView: View {
                     .font(.system(size: 16))
                     .foregroundStyle(.secondary)
                     .frame(width: 42, height: 42)
-                    .contentShape(.rect(cornerRadius: 13))
             }
-            .buttonStyle(.plain)
-            .help("Settings (⌘,)")
+            .buttonStyle(.hover(cornerRadius: 13))
+            .focusEffectDisabled()
+            .glassTooltip("Settings  ⌘,", edge: .trailing)
         }
         .padding(.vertical, 12)
         .frame(width: Theme.railWidth)
@@ -61,15 +61,10 @@ private struct RailButton: View {
                 .font(.system(size: 16, weight: isSelected ? .semibold : .regular))
                 .foregroundStyle(isSelected ? .primary : .secondary)
                 .frame(width: 42, height: 42)
-                .background {
-                    if isSelected { RoundedRectangle(cornerRadius: 13).fill(Theme.glassSelection) }
-                }
-                .contentShape(.rect(cornerRadius: 13))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hover(cornerRadius: 13, isSelected: isSelected))
         .focusEffectDisabled()
-        .help(title)
-        .accessibilityLabel(title)
+        .glassTooltip(title, edge: .trailing)
     }
 }
 

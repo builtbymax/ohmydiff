@@ -53,10 +53,8 @@ struct HistoryDetailView: View {
                                                 isSelected: history.selectedFileID == diff.id)
                                             .padding(.horizontal, 8)
                                             .padding(.vertical, 7)
-                                            .background(history.selectedFileID == diff.id ? Theme.selectedRow : .clear, in: .rect(cornerRadius: 8))
-                                            .contentShape(.rect)
                                     }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(.row(isSelected: history.selectedFileID == diff.id))
                                     .id(diff.id)
                                 }
                             }
