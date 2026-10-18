@@ -20,7 +20,6 @@ struct CommandPalette: View {
     @FocusedValue(\.diffPrompt) private var diffPrompt
     @Environment(\.claudeCode) private var claudeCode
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -340,7 +339,10 @@ struct CommandPalette: View {
             }
             add("Use \(option.title) Appearance", symbol) { appearance = option }
         }
-        add("Settings…", "gearshape", "⌘,") { SettingsWindow.open(with: openSettings) }
+        add("Settings…", "gearshape", "⌘,") {
+            // After the palette has closed, so returning focus to the main window cannot push Settings behind it.
+            DispatchQueue.main.async { SettingsWindow.open() }
+        }
         return items
     }
 }

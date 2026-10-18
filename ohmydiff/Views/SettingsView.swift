@@ -69,6 +69,20 @@ enum SettingsWindow {
 
     static func open(with openSettings: OpenSettingsAction) {
         openSettings()
+        bringToFront()
+    }
+
+    /// Opens Settings through the app menu's Settings… item, for callers without a working `openSettings`,
+    /// e.g. overlays that are gone by the time their command runs.
+    static func open() {
+        guard let appMenu = NSApp.mainMenu?.items.first?.submenu,
+              let index = appMenu.items.firstIndex(where: { $0.keyEquivalent == "," && $0.keyEquivalentModifierMask == .command })
+        else { return }
+        appMenu.performActionForItem(at: index)
+        bringToFront()
+    }
+
+    private static func bringToFront() {
         NSApp.activate()
         // SwiftUI creates the window during this run loop pass on first open.
         DispatchQueue.main.async {

@@ -77,14 +77,22 @@ private struct PaletteKeys: ViewModifier {
         var dismiss: () -> Void
     }
 
+    /// The handlers of the latest render, read by the monitor; they capture the items as shown then.
+    private final class Box {
+        var handlers: Handlers?
+    }
+
     let handlers: Handlers
+    @State private var box = Box()
     @State private var monitor: Any?
 
     func body(content: Content) -> some View {
-        content
+        box.handlers = handlers
+        return content
             .onAppear {
-                monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                    guard event.modifierFlags.intersection([.command, .option, .control]).isEmpty else { return event }
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [box] event in
+                    guard let handlers = box.handlers,
+                          event.modifierFlags.intersection([.command, .option, .control]).isEmpty else { return event }
                     switch event.keyCode {
                     case 126: handlers.up()
                     case 125: handlers.down()
