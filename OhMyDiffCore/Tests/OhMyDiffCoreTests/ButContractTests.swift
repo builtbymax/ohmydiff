@@ -150,6 +150,11 @@ struct ButLiveContractTests {
         #expect(status.stacks.flatMap(\.branches).allSatisfy { HistoryBranch.Status(butStatus: $0.branchStatus) != nil })
         #expect(status.mergeBase?.commitId == upstreamHead)
 
+        // Hunk actions find their CLI IDs in `but --json diff`.
+        let hunks = try ButDiff.decode(Data(try await repo.but("--json", "diff").utf8))
+        #expect(Set(hunks.map(\.path)) == ["loose.txt", "one.txt"])
+        #expect(hunks.allSatisfy { !$0.id.isEmpty && $0.newStart > 0 })
+
         let repository = try await repo.open()
         #expect(repository.kind == .gitButler)
         #expect(repository.butIncompatibility == nil)
