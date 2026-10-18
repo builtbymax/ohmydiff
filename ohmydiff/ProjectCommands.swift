@@ -31,7 +31,7 @@ struct ProjectCommands: Commands {
             Button("Copy File Path") { diffFile.map(model.copyPath) }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
                 .disabled(diffFile == nil)
-            Button("Copy Prompt for Claude Code") { diffPrompt.map { model.copyPrompt($0.prompt(.none)) } }
+            Button(AppSettings.copyPromptTitle()) { diffPrompt.map { model.copyPrompt($0.prompt(.none)) } }
                 .keyboardShortcut("c", modifiers: [.command, .shift, .option])
                 .disabled(diffPrompt == nil)
             Menu(AppSettings.openClaudeCodeTitle()) {

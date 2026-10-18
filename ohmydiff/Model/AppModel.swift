@@ -211,12 +211,13 @@ final class AppModel {
         }
     }
 
-    /// Starts Claude Code in the terminal chosen in Settings, in the repository, with the prompt.
+    /// Starts the AI provider in the terminal chosen in Settings, in the repository, with the prompt.
     func openInClaudeCode(prompt: String, root: URL) {
         Task {
             guard let toolchain = await toolchain() else { return }
             do {
-                try await ClaudeCodeLauncher.open(prompt: prompt, in: root, terminal: AppSettings.terminal(), toolchain: toolchain)
+                try await ClaudeCodeLauncher.open(
+                    prompt: prompt, in: root, provider: AppSettings.aiProvider(), terminal: AppSettings.terminal(), toolchain: toolchain)
             } catch {
                 errorMessage = String(describing: error)
             }

@@ -310,7 +310,7 @@ struct CommandPalette: View {
                     claudeCode.open(diffPrompt.prompt(question), diffPrompt.root)
                 }
             }
-            add("Copy Claude Code Prompt for \(diffPrompt.scope)", "doc.on.clipboard", "⌥⇧⌘C") { claudeCode.copy(diffPrompt.prompt(.none)) }
+            add("Copy \(AppSettings.aiProvider().displayName) Prompt for \(diffPrompt.scope)", "doc.on.clipboard", "⌥⇧⌘C") { claudeCode.copy(diffPrompt.prompt(.none)) }
         }
         if layout == .unified {
             add("Show Side-by-Side Diff", "rectangle.split.2x1", "⌘\\") { layout = .split }

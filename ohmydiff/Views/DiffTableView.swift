@@ -228,7 +228,7 @@ struct DiffTableView: NSViewRepresentable {
                 open.submenu?.insertItem(note, at: 0)
                 open.submenu?.insertItem(.separator(), at: 1)
                 menu.addItem(open)
-                menu.addItem(Self.submenu("Copy Prompt for Claude Code", questions: PromptQuestion.allCases) { question in
+                menu.addItem(Self.submenu(AppSettings.copyPromptTitle(), questions: PromptQuestion.allCases) { question in
                     onAskClaude(ClaudeRequest(kind: .copy, question: question, positions: positions))
                 })
             }

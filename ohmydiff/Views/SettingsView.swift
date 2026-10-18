@@ -3,19 +3,19 @@ import OhMyDiffCore
 import SwiftUI
 
 struct SettingsView: View {
-    private enum Pane: Hashable { case general, diff, claudeCode, commandLine }
+    private enum Pane: Hashable { case general, diff, ai, commandLine }
 
     @State private var pane = Pane.general
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
 
     var body: some View {
         VStack(spacing: 18) {
-            GlassSegmented(selection: $pane, options: [(.general, "General"), (.diff, "Diff"), (.claudeCode, "Claude Code"), (.commandLine, "Command Line")])
+            GlassSegmented(selection: $pane, options: [(.general, "General"), (.diff, "Diff"), (.ai, "AI"), (.commandLine, "Command Line")])
             Group {
                 switch pane {
                 case .general: GeneralSettings()
                 case .diff: DiffSettingsPane()
-                case .claudeCode: ClaudeCodeSettings()
+                case .ai: AISettings()
                 case .commandLine: CommandLineSettings()
                 }
             }
@@ -182,16 +182,34 @@ private struct GeneralSettings: View {
     }
 }
 
-private struct ClaudeCodeSettings: View {
+private struct AISettings: View {
+    @AppStorage(AppSettings.aiProviderKey) private var provider = AIProvider.claude
     @AppStorage(AppSettings.terminalKey) private var terminal = AppSettings.terminal()
+    /// Providers found on the login shell PATH; `nil` until looked up.
+    @State private var installed: Set<AIProvider>?
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 4)
 
     var body: some View {
         VStack(spacing: 14) {
-            SettingsCard(title: "Open Claude Code In") {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 10) {
+            SettingsCard(title: "Provider") {
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(AIProvider.allCases) { option in
+                        let isMissing = installed.map { !$0.contains(option) } ?? false
+                        ChoiceTile(title: option.displayName, subtitle: isMissing ? "Not installed" : nil, isSelected: provider == option, action: { provider = option }) {
+                            ProviderIcon(provider: option)
+                                .frame(width: 44, height: 44)
+                                .opacity(isMissing ? 0.45 : 1)
+                                .padding(4)
+                        }
+                    }
+                }
+            }
+            SettingsCard(title: "Open In") {
+                LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(TerminalApp.allCases) { app in
                         let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleIdentifier)
-                        ChoiceTile(title: app.displayName, isSelected: terminal == app, action: { terminal = app }) {
+                        ChoiceTile(title: app.displayName, subtitle: url == nil ? "Not installed" : nil, isSelected: terminal == app, action: { terminal = app }) {
                             AppIcon(url: url, fallback: "terminal")
                                 .frame(width: 44, height: 44)
                                 .opacity(url != nil ? 1 : 0.45)
@@ -199,12 +217,57 @@ private struct ClaudeCodeSettings: View {
                         }
                     }
                 }
-                Text("Claude Code answers in the terminal, not in ohmydiff: right-clicking diff lines, the ✦↗ button on the hunk bar or ⌥⌘E open a new window of this app in the repository and run `claude` with the selected lines as the prompt. ⌥⇧⌘C copies the prompt instead.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
+            Label {
+                Text("\(provider.displayName) answers in the terminal, not in ohmydiff: right-clicking diff lines, the ✦↗ button on the hunk bar or ⌥⌘E open a new \(terminal.displayName) window in the repository and run `\(provider.executable)` with the selected lines as the prompt. ⌥⇧⌘C copies the prompt instead.")
+            } icon: {
+                Image(systemName: "info.circle")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 4)
         }
+        .task {
+            let path = await Toolchain.loginShellPath() ?? ProcessInfo.processInfo.environment["PATH"] ?? ""
+            installed = Set(AIProvider.allCases.filter { ClaudeCodeLauncher.locate($0, environment: ["PATH": path]) != nil })
+        }
+    }
+}
+
+/// A provider's logo on a tile in its brand colors; a symbol for providers without a bundled logo.
+private struct ProviderIcon: View {
+    let provider: AIProvider
+
+    var body: some View {
+        mark
+            .frame(width: 40, height: 40)
+            .background(background, in: .rect(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.18)))
+            .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+    }
+
+    @ViewBuilder private var mark: some View {
+        switch provider {
+        case .claude:
+            Image("ClaudeLogo").resizable().scaledToFit().padding(8)
+        case .codex:
+            Image("CodexLogo").resizable().scaledToFit().foregroundStyle(.white).padding(9)
+        case .gemini:
+            Image(systemName: "sparkle").font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
+        case .opencode:
+            Image(systemName: "curlybraces").font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
+        }
+    }
+
+    private var background: LinearGradient {
+        let colors: [Color] = switch provider {
+        case .claude: [Color(red: 0.98, green: 0.97, blue: 0.95), Color(red: 0.93, green: 0.91, blue: 0.87)]
+        case .codex: [Color(white: 0.22), Color(white: 0.05)]
+        case .gemini: [Color(red: 0.29, green: 0.53, blue: 0.98), Color(red: 0.62, green: 0.40, blue: 0.93)]
+        case .opencode: [Color(white: 0.28), Color(white: 0.12)]
+        }
+        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 }
 

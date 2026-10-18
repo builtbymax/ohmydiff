@@ -87,7 +87,7 @@ private struct ClaudePromptPanel: View {
                 .frame(width: 28, height: 28)
                 .background(Theme.logo, in: .rect(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 1) {
-                Text("Ask Claude Code")
+                Text(AppSettings.askTitle())
                     .fontWeight(.semibold)
                 Text(AppSettings.openClaudeCodeNote(scope: target.scope))
                     .font(.caption)

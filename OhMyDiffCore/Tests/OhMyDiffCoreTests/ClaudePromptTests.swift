@@ -77,10 +77,17 @@ import Testing
     }
 
     @Test func launcherScriptQuotesPathsAndPassesThePromptAsOneArgument() {
-        let script = ClaudeCodeLauncher.script(root: "/my repo/it's", promptFile: "/tmp/p.md", claude: "/opt/homebrew/bin/claude")
+        let script = ClaudeCodeLauncher.script(root: "/my repo/it's", promptFile: "/tmp/p.md", provider: .claude, executable: "/opt/homebrew/bin/claude")
         #expect(script.contains("cd '/my repo/it'\\''s' || exit 1"))
         #expect(script.contains("prompt=$(cat '/tmp/p.md')"))
-        #expect(script.contains("-l -c '\"$0\" \"$1\"' '/opt/homebrew/bin/claude' \"$prompt\""))
+        #expect(script.contains("-l -c '\"$0\" \"$@\"' '/opt/homebrew/bin/claude' \"$prompt\""))
+    }
+
+    @Test func providersPassThePromptToAnInteractiveSession() {
+        let gemini = ClaudeCodeLauncher.script(root: "/r", promptFile: "/tmp/p.md", provider: .gemini, executable: "/bin/gemini")
+        #expect(gemini.contains("'/bin/gemini' '--prompt-interactive' \"$prompt\""))
+        let opencode = ClaudeCodeLauncher.script(root: "/r", promptFile: "/tmp/p.md", provider: .opencode, executable: "/bin/opencode")
+        #expect(opencode.contains("'/bin/opencode' '--prompt' \"$prompt\""))
     }
 
     @Test func dropsClaudeCodeSessionMarkers() {

@@ -15,8 +15,9 @@ enum AppSettings {
     /// Width of the file list beside a commit's or branch's diff in History mode.
     static let historyFilesWidthKey = "historyFilesWidth"
     static let historyFilesWidths: ClosedRange<Double> = 200...420
-    /// The terminal Claude Code is started in.
+    /// The terminal the AI provider is started in, and which provider.
     static let terminalKey = "terminalApp"
+    static let aiProviderKey = "aiProvider"
 
     static let defaultEditor = EditorPreset.cursor
     static let fontSizes: ClosedRange<Double> = 9...20
@@ -27,14 +28,26 @@ enum AppSettings {
         return [TerminalApp.ghostty, .iterm].first { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.bundleIdentifier) != nil } ?? .terminal
     }
 
-    /// Titles for the actions that leave the app: they start `claude` in the chosen terminal rather than
+    static func aiProvider(_ defaults: UserDefaults = .standard) -> AIProvider {
+        defaults.string(forKey: aiProviderKey).flatMap(AIProvider.init(rawValue:)) ?? .claude
+    }
+
+    /// Titles for the actions that leave the app: they start the provider in the chosen terminal rather than
     /// answering in ohmydiff.
     static func openClaudeCodeTitle(_ defaults: UserDefaults = .standard) -> String {
-        "Open Claude Code in \(terminal(defaults).displayName)"
+        "Open \(aiProvider(defaults).displayName) in \(terminal(defaults).displayName)"
     }
 
     static func openClaudeCodeNote(scope: String, _ defaults: UserDefaults = .standard) -> String {
-        "Starts claude in a new \(terminal(defaults).displayName) window with the \(scope.lowercased())"
+        "Starts \(aiProvider(defaults).executable) in a new \(terminal(defaults).displayName) window with the \(scope.lowercased())"
+    }
+
+    static func askTitle(_ defaults: UserDefaults = .standard) -> String {
+        "Ask \(aiProvider(defaults).displayName)"
+    }
+
+    static func copyPromptTitle(_ defaults: UserDefaults = .standard) -> String {
+        "Copy Prompt for \(aiProvider(defaults).displayName)"
     }
 
     /// The command template for the chosen editor; `nil` when a custom command is chosen but empty.
