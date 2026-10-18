@@ -306,6 +306,44 @@ final class ProjectSession {
 
     @ObservationIgnored private var lastCommitBranch: String?
 
+    // MARK: - Suggestions
+
+    func suggestions() async -> Suggestions? {
+        guard let toolchain = await toolchain() else { return nil }
+        return Suggestions(root: rootURL, toolchain: toolchain)
+    }
+
+    /// The changes `targets` commit, as a unified diff for `{{diff}}`: whole files, or only their selected hunks.
+    func patch(for targets: [ChangeTarget]) async throws -> String {
+        guard let repository else { return "" }
+        var order: [ChangedFile] = []
+        var wholeFiles = Set<ChangedFile.ID>()
+        var selectedHunks: [ChangedFile.ID: [Hunk]] = [:]
+        for target in targets {
+            if !order.contains(where: { $0.id == target.file.id }) { order.append(target.file) }
+            if let hunk = target.hunk {
+                selectedHunks[target.file.id, default: []].append(hunk)
+            } else {
+                wholeFiles.insert(target.file.id)
+            }
+        }
+        var patches: [String] = []
+        for file in order {
+            guard var diff = try await repository.diff(for: file) else { continue }
+            if !wholeFiles.contains(file.id), let hunks = selectedHunks[file.id] { diff.hunks = hunks }
+            patches.append(diff.patch)
+        }
+        return patches.joined(separator: "\n")
+    }
+
+    /// The commits already on `branch`, for `{{commits}}`; empty for a new branch.
+    func commitLog(ofBranch branch: String) async -> String {
+        guard let repository, let groups = try? await repository.history(),
+              let found = groups.lazy.flatMap(\.branches).first(where: { $0.name == branch })
+        else { return "" }
+        return Suggestions.commitLog(found.commits)
+    }
+
     // MARK: - Selection and diff
 
     /// Selects the changed file at `path` (relative to the root) and scrolls its diff to `line` of the new

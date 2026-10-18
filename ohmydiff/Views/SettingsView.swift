@@ -2,27 +2,34 @@ import AppKit
 import OhMyDiffCore
 import SwiftUI
 
-struct SettingsView: View {
-    private enum Pane: Hashable { case general, diff, ai, commandLine }
+enum SettingsPane: String, Hashable {
+    case general, diff, ai, templates, tickets, commandLine
+}
 
-    @State private var pane = Pane.general
+struct SettingsView: View {
+    @AppStorage(AppSettings.settingsPaneKey) private var pane = SettingsPane.general
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
 
     var body: some View {
         VStack(spacing: 18) {
-            GlassSegmented(selection: $pane, options: [(.general, "General"), (.diff, "Diff"), (.ai, "AI"), (.commandLine, "Command Line")])
+            GlassSegmented(selection: $pane, options: [
+                (.general, "General"), (.diff, "Diff"), (.ai, "AI"), (.templates, "Templates"), (.tickets, "Tickets"),
+                (.commandLine, "Command Line"),
+            ])
             Group {
                 switch pane {
                 case .general: GeneralSettings()
                 case .diff: DiffSettingsPane()
                 case .ai: AISettings()
+                case .templates: TemplateSettings()
+                case .tickets: TicketSettings()
                 case .commandLine: CommandLineSettings()
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .padding([.horizontal, .bottom], 20)
-        .frame(width: 560, height: 460)
+        .frame(width: 640, height: 520)
         .background { WindowTranslucency().ignoresSafeArea() }
         .background { TitlelessWindow() }
         .toolbar(removing: .title)
@@ -54,6 +61,12 @@ private struct TitlelessWindow: NSViewRepresentable {
 enum SettingsWindow {
     fileprivate static weak var window: NSWindow?
 
+    /// Opens Settings at `pane`.
+    static func open(_ pane: SettingsPane, with openSettings: OpenSettingsAction) {
+        UserDefaults.standard.set(pane.rawValue, forKey: AppSettings.settingsPaneKey)
+        open(with: openSettings)
+    }
+
     static func open(with openSettings: OpenSettingsAction) {
         openSettings()
         NSApp.activate()
@@ -68,14 +81,19 @@ enum SettingsWindow {
 /// A titled settings card with its rows.
 private struct SettingsCard<Content: View>: View {
     let title: String
+    /// A status shown at the end of the header, e.g. Connected.
+    var badge: Badge?
     @ViewBuilder var content: Content
 
     var body: some View {
         Card {
-            Text(title)
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                badge
+            }
         } content: {
             VStack(alignment: .leading, spacing: 12) { content }
                 .padding(14)
@@ -185,53 +203,443 @@ private struct GeneralSettings: View {
 private struct AISettings: View {
     @AppStorage(AppSettings.aiProviderKey) private var provider = AIProvider.claude
     @AppStorage(AppSettings.terminalKey) private var terminal = AppSettings.terminal()
+    @AppStorage(AppSettings.suggestionProviderKey) private var suggestionProvider = ""
+    @AppStorage(AppSettings.suggestionModelKey) private var model = ""
     /// Providers found on the login shell PATH; `nil` until looked up.
     @State private var installed: Set<AIProvider>?
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 4)
+    private static func columns(_ count: Int) -> [GridItem] { Array(repeating: GridItem(.flexible(), spacing: 10), count: count) }
 
     var body: some View {
-        VStack(spacing: 14) {
-            SettingsCard(title: "Provider") {
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(AIProvider.allCases) { option in
-                        let isMissing = installed.map { !$0.contains(option) } ?? false
-                        ChoiceTile(title: option.displayName, subtitle: isMissing ? "Not installed" : nil, isSelected: provider == option, action: { provider = option }) {
-                            ProviderIcon(provider: option)
+        ScrollView {
+            VStack(spacing: 14) {
+                SettingsCard(title: "Ask About Diffs") {
+                    LazyVGrid(columns: Self.columns(AIProvider.allCases.count), spacing: 10) {
+                        ForEach(AIProvider.allCases) { option in
+                            providerTile(option, isSelected: provider == option) { provider = option }
+                        }
+                    }
+                    Divider()
+                    HStack {
+                        Text("Open in")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        SoftSegmented(selection: $terminal, options: TerminalApp.allCases.map { ($0, $0.displayName) }, disabled: missingTerminals)
+                    }
+                    caption("Right-clicking diff lines, the ✦↗ button on the hunk bar or ⌥⌘E open a new \(terminal.displayName) window in the repository and run `\(provider.executable)` with the selected lines as the prompt. ⌥⇧⌘C copies the prompt instead.")
+                }
+
+                SettingsCard(title: "Commit Messages & Branch Names", badge: suggestionBadge) {
+                    LazyVGrid(columns: Self.columns(AIProvider.allCases.count + 1), spacing: 10) {
+                        ChoiceTile(title: "Off", isSelected: suggestionProvider.isEmpty, action: { suggestionProvider = "" }) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 40, height: 40)
+                                .background(Color.primary.opacity(0.06), in: .rect(cornerRadius: 10))
+                                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.hairline))
                                 .frame(width: 44, height: 44)
-                                .opacity(isMissing ? 0.45 : 1)
                                 .padding(4)
                         }
+                        ForEach(AIProvider.allCases) { option in
+                            providerTile(option, isSelected: suggestionProvider == option.rawValue) { suggestionProvider = option.rawValue }
+                        }
+                    }
+                    if let selected = AIProvider(rawValue: suggestionProvider) {
+                        Divider()
+                        HStack(alignment: .top, spacing: 12) {
+                            Text("Model")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .frame(height: 30)
+                            ModelField(provider: selected, model: $model)
+                        }
+                        caption("Runs `\(selected.executable)` once per suggestion, in the repository. Leave the model empty for its default; Templates decide what it is asked.")
+                    } else {
+                        caption("Pick a provider to generate commit messages and branch names in the commit sheet, and pull request drafts in History.")
                     }
                 }
             }
-            SettingsCard(title: "Open In") {
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(TerminalApp.allCases) { app in
-                        let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleIdentifier)
-                        ChoiceTile(title: app.displayName, subtitle: url == nil ? "Not installed" : nil, isSelected: terminal == app, action: { terminal = app }) {
-                            AppIcon(url: url, fallback: "terminal")
-                                .frame(width: 44, height: 44)
-                                .opacity(url != nil ? 1 : 0.45)
-                                .padding(4)
-                        }
-                    }
-                }
-            }
-            Label {
-                Text("\(provider.displayName) answers in the terminal, not in ohmydiff: right-clicking diff lines, the ✦↗ button on the hunk bar or ⌥⌘E open a new \(terminal.displayName) window in the repository and run `\(provider.executable)` with the selected lines as the prompt. ⌥⇧⌘C copies the prompt instead.")
-            } icon: {
-                Image(systemName: "info.circle")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 4)
         }
+        .scrollIndicators(.automatic)
+        .focusEffectDisabled()
         .task {
             let path = await Toolchain.loginShellPath() ?? ProcessInfo.processInfo.environment["PATH"] ?? ""
             installed = Set(AIProvider.allCases.filter { ClaudeCodeLauncher.locate($0, environment: ["PATH": path]) != nil })
         }
+    }
+
+    private func providerTile(_ option: AIProvider, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        let isMissing = installed.map { !$0.contains(option) } ?? false
+        return ChoiceTile(title: option.displayName, subtitle: isMissing ? "Not installed" : nil, isSelected: isSelected, action: action) {
+            ProviderIcon(provider: option)
+                .frame(width: 44, height: 44)
+                .opacity(isMissing ? 0.45 : 1)
+                .padding(4)
+        }
+    }
+
+    private var missingTerminals: Set<TerminalApp> {
+        Set(TerminalApp.allCases.filter { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.bundleIdentifier) == nil && $0 != terminal })
+    }
+
+    private var suggestionBadge: Badge? {
+        guard let selected = AIProvider(rawValue: suggestionProvider) else { return Badge("Off", systemImage: "circle.dashed", color: .secondary) }
+        if installed.map({ !$0.contains(selected) }) == true { return Badge("Not installed", systemImage: "exclamationmark.circle.fill", color: .orange) }
+        return Badge("On", systemImage: "sparkles", color: .green)
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(LocalizedStringKey(text))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// A free-text model name with the provider's known models as a menu and as quick picks matching what is typed.
+private struct ModelField: View {
+    let provider: AIProvider
+    @Binding var model: String
+
+    /// `nil` while loading.
+    @State private var options: [ModelOption]?
+    @FocusState private var isFocused: Bool
+
+    /// Quick picks: models matching the text, hidden once it names one exactly.
+    private var suggestions: [ModelOption] {
+        guard let options, !options.contains(where: { $0.id == model }) else { return [] }
+        return Array(ModelCatalog.matching(model, in: options).prefix(6))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
+                TextField("Model", text: $model, prompt: Text("Default"))
+                    .textFieldStyle(.plain)
+                    .font(.callout.monospaced())
+                    .focused($isFocused)
+                if !model.isEmpty {
+                    Button { model = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Use the provider's default model")
+                }
+                Menu {
+                    Button("Default") { model = "" }
+                    if let options, !options.isEmpty {
+                        Divider()
+                        ForEach(options) { option in
+                            Button { model = option.id } label: {
+                                Text(option.id == model ? "✓ \(option.name)" : option.name)
+                                if !option.detail.isEmpty || option.name != option.id {
+                                    Text([option.name != option.id ? option.id : nil, option.detail.isEmpty ? nil : option.detail].compactMap(\.self).joined(separator: " · "))
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .contentShape(.rect)
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Known \(provider.displayName) models")
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 4)
+            .frame(height: 30)
+            .fieldBackground(isFocused: isFocused)
+
+            if options == nil {
+                Text("Looking up \(provider.displayName) models…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if !suggestions.isEmpty {
+                FlowRow(spacing: 6) {
+                    ForEach(suggestions) { option in
+                        Button { model = option.id } label: {
+                            Text(option.id)
+                                .font(.caption.monospaced().weight(.medium))
+                                .foregroundStyle(Theme.logoText)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Theme.logo.opacity(0.14), in: .capsule)
+                                .overlay(Capsule().strokeBorder(Theme.logoText.opacity(0.2)))
+                        }
+                        .buttonStyle(.plain)
+                        .help(option.detail.isEmpty ? option.name : "\(option.name): \(option.detail)")
+                    }
+                }
+            } else if let match = options?.first(where: { $0.id == model }), !match.detail.isEmpty {
+                Text(match.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .task(id: provider) {
+            options = nil
+            let toolchain = provider == .opencode ? try? await Toolchain.discover() : nil
+            options = await ModelCatalog.models(for: provider, toolchain: toolchain)
+        }
+    }
+}
+
+/// The editable commit and pull request templates.
+private struct TemplateSettings: View {
+    private enum Kind: Hashable { case commit, pullRequest }
+
+    @State private var kind = Kind.commit
+    @AppStorage(AppSettings.commitTemplateKey) private var commitTemplate = PromptTemplate.defaultCommit
+    @AppStorage(AppSettings.pullRequestTemplateKey) private var pullRequestTemplate = PromptTemplate.defaultPullRequest
+    @State private var copied: String?
+
+    private var text: Binding<String> { kind == .commit ? $commitTemplate : $pullRequestTemplate }
+    private var defaultText: String { kind == .commit ? PromptTemplate.defaultCommit : PromptTemplate.defaultPullRequest }
+    private var isEdited: Bool { text.wrappedValue != defaultText }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Card {
+                HStack(spacing: 8) {
+                    SoftSegmented(selection: $kind, options: [(.commit, "Commit Message"), (.pullRequest, "Pull Request")])
+                    if isEdited {
+                        Badge("Edited", systemImage: "pencil", color: Theme.logoText)
+                    }
+                    Spacer()
+                    Button { text.wrappedValue = defaultText } label: {
+                        Label("Reset to Default", systemImage: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(.pill(height: 24))
+                    .font(.caption.weight(.semibold))
+                    .disabled(!isEdited)
+                    .focusEffectDisabled()
+                }
+            } content: {
+                TextEditor(text: text)
+                    .font(.system(size: 12, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(10)
+                    .frame(maxHeight: .infinity)
+            }
+
+            SettingsCard(title: "Placeholders") {
+                FlowRow(spacing: 6) {
+                    ForEach(TemplateContext.placeholders, id: \.name) { placeholder in
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString("{{\(placeholder.name)}}", forType: .string)
+                            copied = placeholder.name
+                        } label: {
+                            Text(copied == placeholder.name ? "Copied" : "{{\(placeholder.name)}}")
+                                .font(.caption.monospaced().weight(.medium))
+                                .foregroundStyle(Theme.logoText)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Theme.logo.opacity(0.14), in: .capsule)
+                                .overlay(Capsule().strokeBorder(Theme.logoText.opacity(0.2)))
+                        }
+                        .buttonStyle(.plain)
+                        .help("\(placeholder.description). Click to copy.")
+                    }
+                }
+                Text("Click one to copy it. Ticket placeholders are empty when no ticket is linked; `{{commits}}` lists the branch's commits.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .focusEffectDisabled()
+        .task(id: copied) {
+            guard copied != nil else { return }
+            try? await Task.sleep(for: .seconds(1.2))
+            copied = nil
+        }
+    }
+}
+
+/// Lays out its children left to right, wrapping to new lines.
+private struct FlowRow: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = rows(for: subviews, width: proposal.width ?? .infinity)
+        let height = rows.map { $0.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0 }.reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0))
+        return CGSize(width: proposal.width ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(for: subviews, width: bounds.width) {
+            var x = bounds.minX
+            let height = row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+            for subview in row {
+                let size = subview.sizeThatFits(.unspecified)
+                subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += height + spacing
+        }
+    }
+
+    private func rows(for subviews: Subviews, width: CGFloat) -> [[LayoutSubview]] {
+        var rows: [[LayoutSubview]] = [[]]
+        var x: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                rows.append([])
+                x = 0
+            }
+            rows[rows.count - 1].append(subview)
+            x += size.width + spacing
+        }
+        return rows
+    }
+}
+
+/// The trackers tickets are looked up in.
+private struct TicketSettings: View {
+    @AppStorage(AppSettings.jiraSiteKey) private var jiraSite = ""
+    @AppStorage(AppSettings.jiraEmailKey) private var jiraEmail = ""
+    @AppStorage(AppSettings.githubTicketsKey) private var github = false
+    @AppStorage(AppSettings.gitlabTicketsKey) private var gitlab = false
+    @State private var linearKey = Keychain.read(.linear) ?? ""
+    @State private var jiraToken = Keychain.read(.jira) ?? ""
+    /// `gh` and `glab` found on the login shell PATH; `nil` until looked up.
+    @State private var tools: Set<String>?
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                SettingsCard(title: "Linear", badge: .connection(!linearKey.isEmpty)) {
+                    SettingsField(label: "API key", text: $linearKey, prompt: "lin_api_…", isSecure: true)
+                        .onChange(of: linearKey) { Keychain.write(linearKey.trimmingCharacters(in: .whitespaces), for: .linear) }
+                    note("Create a personal API key in Linear under Settings → Security & access. It is stored in your Keychain.")
+                }
+                SettingsCard(title: "Jira", badge: .connection(isJiraConnected)) {
+                    SettingsField(label: "Site", text: $jiraSite, prompt: "example.atlassian.net")
+                    SettingsField(label: "Email", text: $jiraEmail, prompt: "you@example.com")
+                    SettingsField(label: "API token", text: $jiraToken, prompt: "Token", isSecure: true)
+                        .onChange(of: jiraToken) { Keychain.write(jiraToken.trimmingCharacters(in: .whitespaces), for: .jira) }
+                    note("Create an API token at id.atlassian.com under Security. It is stored in your Keychain.")
+                }
+                SettingsCard(title: "GitHub & GitLab") {
+                    forgeRow("GitHub Issues", tool: "gh", isOn: $github)
+                    Divider()
+                    forgeRow("GitLab Issues", tool: "glab", isOn: $gitlab)
+                    note("Uses the repository's remote and the account the CLI is signed in with (`gh auth login`, `glab auth login`).")
+                }
+                Label("Branches like `feature/hal-128` or `fix/42-crash` link their ticket in the commit sheet, where you can also search for one. Templates use it through the `{{ticket.…}}` placeholders.", systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+            }
+        }
+        .scrollIndicators(.automatic)
+        .focusEffectDisabled()
+        .task {
+            let path = await Toolchain.loginShellPath() ?? ProcessInfo.processInfo.environment["PATH"] ?? ""
+            tools = Set(["gh", "glab"].filter { Toolchain.locate($0, in: path) != nil })
+        }
+    }
+
+    private var isJiraConnected: Bool {
+        JiraTickets.siteURL(jiraSite) != nil && !jiraEmail.isEmpty && !jiraToken.isEmpty
+    }
+
+    private func forgeRow(_ title: String, tool: String, isOn: Binding<Bool>) -> some View {
+        let isMissing = tools.map { !$0.contains(tool) } ?? false
+        return HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                Text(isMissing ? "`\(tool)` is not installed" : "Through the `\(tool)` CLI")
+                    .font(.caption)
+                    .foregroundStyle(isMissing ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+            }
+            Spacer()
+            Toggle(title, isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .tint(Theme.logoText)
+        }
+    }
+
+    private func note(_ text: LocalizedStringKey) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// A label on the left and a soft input well on the right.
+private struct SettingsField: View {
+    let label: String
+    @Binding var text: String
+    var prompt = ""
+    var isSecure = false
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(label)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(width: 72, alignment: .leading)
+            Group {
+                if isSecure {
+                    SecureField(label, text: $text, prompt: Text(prompt))
+                } else {
+                    TextField(label, text: $text, prompt: Text(prompt))
+                }
+            }
+            .textFieldStyle(.plain)
+            .font(.callout)
+            .focused($isFocused)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .fieldBackground(isFocused: isFocused)
+        }
+    }
+}
+
+/// A small status capsule, e.g. `Installed` or `Connected`.
+private struct Badge: View {
+    let title: String
+    let systemImage: String
+    let color: Color
+
+    init(_ title: String, systemImage: String, color: Color) {
+        self.title = title
+        self.systemImage = systemImage
+        self.color = color
+    }
+
+    static func connection(_ isConnected: Bool) -> Badge {
+        isConnected
+            ? Badge("Connected", systemImage: "checkmark.circle.fill", color: Theme.addition)
+            : Badge("Not connected", systemImage: "circle.dashed", color: .secondary)
+    }
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .labelStyle(.titleAndIcon)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.14), in: .capsule)
     }
 }
 
@@ -598,18 +1006,11 @@ private struct StatusPill: View {
     let state: CLILauncher.InstallState
 
     var body: some View {
-        let (title, symbol, color): (String, String, Color) = switch state {
-        case .current: ("Installed", "checkmark.circle.fill", Theme.addition)
-        case .outdated: ("Outdated", "exclamationmark.circle.fill", .orange)
-        case .missing: ("Not installed", "circle.dashed", .secondary)
+        switch state {
+        case .current: Badge("Installed", systemImage: "checkmark.circle.fill", color: Theme.addition)
+        case .outdated: Badge("Outdated", systemImage: "exclamationmark.circle.fill", color: .orange)
+        case .missing: Badge("Not installed", systemImage: "circle.dashed", color: .secondary)
         }
-        Label(title, systemImage: symbol)
-            .labelStyle(.titleAndIcon)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.14), in: .capsule)
     }
 }
 

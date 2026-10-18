@@ -18,6 +18,19 @@ enum AppSettings {
     /// The terminal the AI provider is started in, and which provider.
     static let terminalKey = "terminalApp"
     static let aiProviderKey = "aiProvider"
+    /// The provider and model that suggest commit messages, branch names and pull requests; empty for none.
+    static let suggestionProviderKey = "suggestionProvider"
+    static let suggestionModelKey = "suggestionModel"
+    /// Edited templates; absent or blank for the defaults.
+    static let commitTemplateKey = "commitTemplate"
+    static let pullRequestTemplateKey = "pullRequestTemplate"
+    /// Ticket trackers. API keys and tokens live in the Keychain.
+    static let jiraSiteKey = "jiraSite"
+    static let jiraEmailKey = "jiraEmail"
+    static let githubTicketsKey = "githubTickets"
+    static let gitlabTicketsKey = "gitlabTickets"
+    /// The Settings pane, so other windows can open Settings at a pane.
+    static let settingsPaneKey = "settingsPane"
 
     static let defaultEditor = EditorPreset.cursor
     static let fontSizes: ClosedRange<Double> = 9...20
@@ -30,6 +43,46 @@ enum AppSettings {
 
     static func aiProvider(_ defaults: UserDefaults = .standard) -> AIProvider {
         defaults.string(forKey: aiProviderKey).flatMap(AIProvider.init(rawValue:)) ?? .claude
+    }
+
+    static func suggestionProvider(_ defaults: UserDefaults = .standard) -> AIProvider? {
+        defaults.string(forKey: suggestionProviderKey).flatMap(AIProvider.init(rawValue:))
+    }
+
+    static func commitTemplate(_ defaults: UserDefaults = .standard) -> String {
+        template(commitTemplateKey, default: PromptTemplate.defaultCommit, defaults)
+    }
+
+    static func pullRequestTemplate(_ defaults: UserDefaults = .standard) -> String {
+        template(pullRequestTemplateKey, default: PromptTemplate.defaultPullRequest, defaults)
+    }
+
+    private static func template(_ key: String, default template: String, _ defaults: UserDefaults) -> String {
+        let saved = defaults.string(forKey: key) ?? ""
+        return saved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? template : saved
+    }
+
+    /// The suggester for the chosen provider; `nil` when suggestions are off.
+    static func suggester(toolchain: Toolchain, _ defaults: UserDefaults = .standard) -> Suggester? {
+        suggestionProvider(defaults).map {
+            Suggester(provider: $0, model: defaults.string(forKey: suggestionModelKey) ?? "", toolchain: toolchain)
+        }
+    }
+
+    /// The connected ticket trackers, Linear and Jira first.
+    static func ticketResolver(root: URL, toolchain: Toolchain, _ defaults: UserDefaults = .standard) -> TicketResolver {
+        var providers: [any TicketProvider] = []
+        if let key = Keychain.read(.linear), !key.isEmpty {
+            providers.append(LinearTickets(apiKey: key))
+        }
+        if let site = JiraTickets.siteURL(defaults.string(forKey: jiraSiteKey) ?? ""),
+           let email = defaults.string(forKey: jiraEmailKey), !email.isEmpty,
+           let token = Keychain.read(.jira), !token.isEmpty {
+            providers.append(JiraTickets(site: site, email: email, token: token))
+        }
+        if defaults.bool(forKey: githubTicketsKey) { providers.append(ForgeTickets(source: .github, root: root, toolchain: toolchain)) }
+        if defaults.bool(forKey: gitlabTicketsKey) { providers.append(ForgeTickets(source: .gitlab, root: root, toolchain: toolchain)) }
+        return TicketResolver(providers: providers)
     }
 
     /// Titles for the actions that leave the app: they start the provider in the chosen terminal rather than

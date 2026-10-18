@@ -6,6 +6,8 @@ import SwiftUI
 struct HistoryDetailView: View {
     @Bindable var history: HistoryModel
     let root: URL
+    /// For drafting a pull request of the selected branch.
+    var suggestions: () async -> Suggestions? = { nil }
 
     /// The commit details sidebar; stays open while moving between commits.
     @State private var isInfoShown = false
@@ -17,7 +19,7 @@ struct HistoryDetailView: View {
                 if let commit = history.selectedCommit {
                     CommitHeader(commit: commit, isInfoShown: $isInfoShown)
                 } else {
-                    BranchHeader(branch: branch, remoteURL: history.remoteURL)
+                    BranchHeader(branch: branch, remoteURL: history.remoteURL, diffs: loadedDiffs, suggestions: suggestions)
                 }
                 files(for: selection)
             }
@@ -107,6 +109,11 @@ struct HistoryDetailView: View {
         }
     }
 
+    private var loadedDiffs: [FileDiff]? {
+        if case .loaded(let diffs) = history.files { return diffs }
+        return nil
+    }
+
     /// `feature/x` or `1ab49f8 on feature/x`, for a diff window's subtitle.
     private func context(for selection: HistoryModel.Selection) -> String {
         switch selection {
@@ -191,6 +198,11 @@ private struct CommitHeader: View {
 private struct BranchHeader: View {
     let branch: HistoryBranch
     let remoteURL: URL?
+    /// The branch's whole diff, once loaded.
+    let diffs: [FileDiff]?
+    let suggestions: () async -> Suggestions?
+
+    @State private var isDraftingPullRequest = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -207,6 +219,18 @@ private struct BranchHeader: View {
             Spacer()
             if let label = BranchStatusLabel(branch: branch) { label }
             if !branch.tip.isEmpty { CopySHAButton(sha: branch.tip) }
+            Button { isDraftingPullRequest = true } label: {
+                Label("Draft Pull Request", systemImage: "sparkles")
+            }
+            .buttonStyle(.pill(height: 28))
+            .focusEffectDisabled()
+            .disabled(diffs?.isEmpty ?? true)
+            .help("Writes a pull request title and description with the AI provider and template from Settings")
+            .sheet(isPresented: $isDraftingPullRequest) {
+                if let diffs {
+                    PullRequestSheet(branch: branch, diffs: diffs, suggestions: suggestions)
+                }
+            }
             if let remoteURL, isOnRemote {
                 Link(destination: remoteURL.appending(path: "tree").appending(path: branch.name)) {
                     Label("Open on \(RemoteHost(remoteURL).name)", systemImage: "arrow.up.right")

@@ -98,8 +98,19 @@ private struct CommitSheet: View {
     @State private var message = ""
     @State private var error: String?
     @FocusState private var focus: Field?
+    /// Suggestions read from Settings when the sheet opens.
+    @State private var suggestions: Suggestions?
+    @State private var tickets: TicketResolver?
+    @State private var ticket: Ticket?
+    /// Set once the user links or unlinks a ticket, so the branch name no longer picks it.
+    @State private var isTicketChosen = false
+    @State private var isDetectingTicket = false
+    @State private var generating: Suggestion?
+    @State private var suggestionError: Error?
+    @State private var suggestionTask: Task<Void, Never>?
 
     private enum Field { case branchName, message }
+    private enum Suggestion { case message, branch }
 
     private var targetBranch: String { isNewBranch ? newBranch.trimmingCharacters(in: .whitespaces) : branch }
     private var canCommit: Bool {
@@ -128,21 +139,36 @@ private struct CommitSheet: View {
                         disabled: session.branchNames.isEmpty ? [false] : [])
                 }
                 if isNewBranch {
-                    TextField("Branch name", text: $newBranch, prompt: Text("feature/name"))
-                        .textFieldStyle(.plain)
-                        .font(.body.monospaced())
-                        .focused($focus, equals: .branchName)
-                        .onSubmit { focus = .message }
-                        .padding(.horizontal, 10)
-                        .frame(height: 34)
-                        .fieldBackground(isFocused: focus == .branchName)
+                    HStack(spacing: 6) {
+                        TextField("Branch name", text: $newBranch, prompt: Text("feature/name"))
+                            .textFieldStyle(.plain)
+                            .font(.body.monospaced())
+                            .focused($focus, equals: .branchName)
+                            .onSubmit { focus = .message }
+                        SuggestButton(title: "Suggest", isRunning: generating == .branch) { suggest(.branch) }
+                    }
+                    .padding(.leading, 10)
+                    .padding(.trailing, 5)
+                    .frame(height: 34)
+                    .fieldBackground(isFocused: focus == .branchName)
                 } else {
                     branchList
                 }
             }
 
+            if let tickets, !tickets.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionTitle("Ticket")
+                    TicketField(ticket: $ticket, isDetecting: isDetectingTicket, resolver: tickets) { isTicketChosen = true }
+                }
+            }
+
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Message")
+                HStack {
+                    sectionTitle("Message")
+                    Spacer()
+                    SuggestButton(title: "Generate", isRunning: generating == .message) { suggest(.message) }
+                }
                 TextEditor(text: $message)
                     .font(.body.monospaced())
                     .scrollContentBackground(.hidden)
@@ -159,6 +185,7 @@ private struct CommitSheet: View {
                     }
                     .padding(8)
                     .fieldBackground(isFocused: focus == .message)
+                if let suggestionError { SuggestionNotice(error: suggestionError) }
             }
 
             footer
@@ -169,6 +196,55 @@ private struct CommitSheet: View {
             branch = session.suggestedBranch(for: request.targets)
             isNewBranch = session.branchNames.isEmpty
             focus = isNewBranch ? .branchName : .message
+        }
+        .task {
+            suggestions = await session.suggestions()
+            tickets = suggestions?.tickets
+        }
+        // Follows the target branch, e.g. `feature/hal-128` links HAL-128, until the user picks a ticket.
+        .task(id: "\(targetBranch)|\(tickets?.providers.count ?? -1)") {
+            guard !isTicketChosen, let tickets, !tickets.isEmpty else { return }
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            isDetectingTicket = true
+            let found = await tickets.ticket(forBranch: targetBranch)
+            guard !Task.isCancelled, !isTicketChosen else { return }
+            isDetectingTicket = false
+            ticket = found
+        }
+        .onDisappear { suggestionTask?.cancel() }
+    }
+
+    /// Asks the AI provider for a commit message or branch name from the selected changes. Never commits.
+    private func suggest(_ kind: Suggestion) {
+        suggestionTask?.cancel()
+        suggestionError = nil
+        generating = kind
+        let branch = kind == .message ? targetBranch : ""
+        let isExisting = kind == .message && !isNewBranch
+        suggestionTask = Task {
+            do {
+                guard let suggestions else { throw SuggestionUnavailable.noToolchain }
+                _ = try suggestions.suggester()
+                let diff = try await session.patch(for: request.targets)
+                let commits = isExisting ? await session.commitLog(ofBranch: branch) : ""
+                let context = TemplateContext(diff: diff, commits: commits, branch: branch, ticket: ticket)
+                switch kind {
+                case .message:
+                    let text = try await suggestions.commitMessage(context)
+                    guard !Task.isCancelled else { return }
+                    message = text
+                    focus = .message
+                case .branch:
+                    let name = try await suggestions.branchName(context)
+                    guard !Task.isCancelled else { return }
+                    newBranch = name
+                }
+            } catch {
+                guard !Task.isCancelled, !(error is CancellationError) else { return }
+                suggestionError = error
+            }
+            generating = nil
         }
     }
 
@@ -288,7 +364,7 @@ private struct CommitSheet: View {
 }
 
 /// A small capsule segmented control on solid surfaces: the selected segment is a raised white pill.
-private struct SoftSegmented<Value: Hashable>: View {
+struct SoftSegmented<Value: Hashable>: View {
     @Binding var selection: Value
     let options: [(value: Value, title: String)]
     var disabled: Set<Value> = []
@@ -324,7 +400,7 @@ private struct SoftSegmented<Value: Hashable>: View {
     }
 }
 
-private extension View {
+extension View {
     /// A soft rounded well for inputs; its edge turns lime while focused.
     func fieldBackground(isFocused: Bool) -> some View {
         background(Color.primary.opacity(0.045), in: .rect(cornerRadius: 10))
