@@ -25,6 +25,9 @@ struct DiffTableView: NSViewRepresentable {
     let fontSize: CGFloat
     /// The file line the selection points at (or the first change without a selection), for opening in an editor.
     var onFocusLine: (Int?) -> Void = { _ in }
+    /// Actions offered in the context menu of a hunk's rows, and what runs when one is picked (with the hunk index).
+    var hunkActions: [ChangeAction] = []
+    var onHunkAction: (ChangeAction, Int) -> Void = { _, _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -43,6 +46,7 @@ struct DiffTableView: NSViewRepresentable {
         tableView.delegate = context.coordinator
         tableView.copyText = { [weak coordinator = context.coordinator] rows in coordinator?.text(for: rows) ?? "" }
         tableView.jumpToHunk = { [weak coordinator = context.coordinator] direction in coordinator?.jumpToHunk(direction) }
+        tableView.rowMenu = { [weak coordinator = context.coordinator] row in coordinator?.menu(forRow: row) }
 
         let scrollView = NSScrollView()
         scrollView.documentView = tableView
@@ -57,6 +61,8 @@ struct DiffTableView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.onFocusLine = onFocusLine
+        context.coordinator.hunkActions = hunkActions
+        context.coordinator.onHunkAction = onHunkAction
         context.coordinator.show(diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize)
     }
 
@@ -74,6 +80,8 @@ struct DiffTableView: NSViewRepresentable {
         private var formatter = DiffRowFormatter()
         private var fontSize: CGFloat?
         var onFocusLine: (Int?) -> Void = { _ in }
+        var hunkActions: [ChangeAction] = []
+        var onHunkAction: (ChangeAction, Int) -> Void = { _, _ in }
         private var observers: [NSObjectProtocol] = []
 
         private static let oldColumn = NSUserInterfaceItemIdentifier("old")
@@ -133,6 +141,44 @@ struct DiffTableView: NSViewRepresentable {
                 tableView.scrollRowToVisible(0)
             }
             reportFocusLine()
+        }
+
+        // MARK: Hunk actions
+
+        func menu(forRow row: Int) -> NSMenu? {
+            guard !hunkActions.isEmpty, let hunk = hunkIndex(atRow: row) else { return nil }
+            let menu = NSMenu()
+            for action in hunkActions {
+                menu.addItem(MenuHandler.item(Self.title(for: action)) { [weak self] in self?.onHunkAction(action, hunk) })
+            }
+            return menu
+        }
+
+        private static func title(for action: ChangeAction) -> String {
+            switch action {
+            case .stage: "Stage Hunk"
+            case .unstage: "Unstage Hunk"
+            case .commit: "Commit Hunk to Branch…"
+            case .discard: "Discard Hunk…"
+            }
+        }
+
+        /// The hunk a row belongs to, header included.
+        private func hunkIndex(atRow row: Int) -> Int? {
+            switch mode {
+            case .unified:
+                guard unifiedRows.indices.contains(row) else { return nil }
+                switch unifiedRows[row] {
+                case .hunkHeader(let h), .line(let h, _), .noNewlineAtEnd(let h, _): return h
+                }
+            case .split:
+                guard splitRows.indices.contains(row) else { return nil }
+                switch splitRows[row] {
+                case .hunkHeader(let h), .pair(let h, _, _): return h
+                }
+            case nil:
+                return nil
+            }
         }
 
         // MARK: Editor line
@@ -586,6 +632,12 @@ enum SyntaxTheme {
 private final class DiffNSTableView: NSTableView {
     var copyText: ((IndexSet) -> String)?
     var jumpToHunk: ((Int) -> Void)?
+    var rowMenu: ((Int) -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let row = row(at: convert(event.locationInWindow, from: nil))
+        return row >= 0 ? rowMenu?(row) : nil
+    }
 
     @objc func copy(_ sender: Any?) {
         guard !selectedRowIndexes.isEmpty, let text = copyText?(selectedRowIndexes) else { return }
@@ -605,6 +657,25 @@ private final class DiffNSTableView: NSTableView {
         case ("p", true): jumpToHunk?(-1)
         default: super.keyDown(with: event)
         }
+    }
+}
+
+/// A menu item that runs a closure; the item keeps its handler alive as its represented object.
+private final class MenuHandler: NSObject {
+    private let handler: () -> Void
+
+    init(_ handler: @escaping () -> Void) {
+        self.handler = handler
+    }
+
+    @objc func run() { handler() }
+
+    static func item(_ title: String, handler: @escaping () -> Void) -> NSMenuItem {
+        let target = MenuHandler(handler)
+        let item = NSMenuItem(title: title, action: #selector(run), keyEquivalent: "")
+        item.target = target
+        item.representedObject = target
+        return item
     }
 }
 

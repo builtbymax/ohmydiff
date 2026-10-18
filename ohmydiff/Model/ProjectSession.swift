@@ -39,6 +39,10 @@ final class ProjectSession {
     private(set) var diff: DiffState?
     /// Why a GitButler workspace is shown as plain git; `nil` when it is not one or `but` is supported.
     private(set) var butIncompatibility: ButIncompatibility?
+    /// A discard waiting for confirmation or a commit waiting for its message.
+    var actionRequest: ActionRequest?
+    private(set) var isPerformingAction = false
+    var actionError: String?
     let history = HistoryModel()
 
     var selectedFileID: ChangedFile.ID? {
@@ -180,6 +184,95 @@ final class ProjectSession {
         apply([])
         phase = .missing
     }
+
+    // MARK: - Actions
+
+    /// An action the user started that needs one more step: a confirmation or a commit message.
+    struct ActionRequest: Identifiable {
+        let id = UUID()
+        var action: ChangeAction
+        var targets: [ChangeTarget]
+
+        /// e.g. `notes.txt`, `a hunk of notes.txt` or `3 files`.
+        var subject: String {
+            if targets.count == 1, let target = targets.first {
+                let name = (target.file.path as NSString).lastPathComponent
+                return target.hunk == nil ? name : "a hunk of \(name)"
+            }
+            return "\(targets.count) files"
+        }
+    }
+
+    /// Whether every target supports `action`; `false` until the repository is open or while another action runs.
+    func supports(_ action: ChangeAction, on targets: [ChangeTarget]) -> Bool {
+        guard let repository, !targets.isEmpty, !isPerformingAction else { return false }
+        return targets.allSatisfy { repository.supports(action, on: $0) }
+    }
+
+    /// Stages and unstages right away; discards ask for confirmation and commits for a message first.
+    func request(_ action: ChangeAction, on targets: [ChangeTarget]) {
+        guard supports(action, on: targets) else { return }
+        switch action {
+        case .stage, .unstage:
+            Task { await perform(action, on: targets) }
+        case .commit, .discard:
+            actionRequest = ActionRequest(action: action, targets: targets)
+        }
+    }
+
+    /// Runs an action and refreshes; a failure shows in `actionError`.
+    func perform(_ action: ChangeAction, on targets: [ChangeTarget]) async {
+        do {
+            try await run(action, on: targets)
+        } catch {
+            actionError = String(describing: error)
+        }
+    }
+
+    /// Runs an action and refreshes, throwing failures to the caller, e.g. to show them in the commit sheet.
+    func run(_ action: ChangeAction, on targets: [ChangeTarget], branch: String = "", message: String = "") async throws {
+        guard let repository, !isPerformingAction else { return }
+        isPerformingAction = true
+        defer {
+            isPerformingAction = false
+            refresh()
+        }
+        switch action {
+        case .stage: try await repository.stage(targets)
+        case .unstage: try await repository.unstage(targets)
+        case .discard: try await repository.discard(targets)
+        case .commit:
+            try await repository.commit(targets, toBranch: branch, message: message)
+            lastCommitBranch = branch
+        }
+    }
+
+    /// Applied GitButler branches, top of each stack first.
+    var branchNames: [String] {
+        groups.flatMap { group -> [String] in
+            if case .stack(_, let branches) = group.kind { return branches }
+            return []
+        }
+    }
+
+    /// The top branch of the GitButler stack a file is assigned to; `nil` for unassigned changes.
+    func assignedBranch(of path: String) -> String? {
+        for group in groups {
+            if case .stack(_, let branches) = group.kind, group.files.contains(where: { $0.path == path }) {
+                return branches.first
+            }
+        }
+        return nil
+    }
+
+    /// The branch a commit of `targets` most likely goes to: the stack they are assigned to, else the last one used.
+    func suggestedBranch(for targets: [ChangeTarget]) -> String {
+        if let assigned = targets.lazy.compactMap({ self.assignedBranch(of: $0.file.path) }).first { return assigned }
+        if let lastCommitBranch, branchNames.contains(lastCommitBranch) { return lastCommitBranch }
+        return branchNames.first ?? ""
+    }
+
+    @ObservationIgnored private var lastCommitBranch: String?
 
     // MARK: - Selection and diff
 

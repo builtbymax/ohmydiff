@@ -18,6 +18,7 @@ struct ChangesListView: View {
                 guard case .success(let url) = result else { return }
                 Task { await model.relocate(session.project.id, to: url) }
             }
+            .changeActionPresentation(session)
     }
 
     @ViewBuilder
@@ -63,8 +64,13 @@ struct ChangesListView: View {
                         }
                     } header: {
                         ChangeGroupHeader(group: group)
+                            .contextMenu { ChangeActionMenu(session: session, targets: group.files.map { ChangeTarget(file: $0) }, isGroup: true) }
                     }
                 }
+            }
+            .contextMenu(forSelectionType: ChangedFile.ID.self) { ids in
+                let files = session.groups.allFiles.filter { ids.contains($0.id) }
+                ChangeActionMenu(session: session, targets: files.map { ChangeTarget(file: $0) }, isGroup: false)
             }
             .onKeyPress("n") { jumpToHunk(1) }
             .onKeyPress("p") { jumpToHunk(-1) }

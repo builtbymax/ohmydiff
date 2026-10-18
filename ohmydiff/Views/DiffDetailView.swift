@@ -36,9 +36,16 @@ struct DiffDetailView: View {
                 Button("Try Again") { session.refresh() }
             }
         case .diff(let diff):
-            FileDiffView(fileID: file.id, diff: diff, highlights: session.diff?.highlights, root: session.rootURL) { side in
-                await session.contents(of: file, side: side)
-            }
+            FileDiffView(
+                fileID: file.id, diff: diff, highlights: session.diff?.highlights, root: session.rootURL,
+                contents: { side in await session.contents(of: file, side: side) },
+                hunkActions: ChangeAction.allCases.filter { action in
+                    diff.hunks.first.map { session.supports(action, on: [ChangeTarget(file: file, hunk: $0)]) } ?? false
+                },
+                onHunkAction: { action, hunk in
+                    guard diff.hunks.indices.contains(hunk) else { return }
+                    session.request(action, on: [ChangeTarget(file: file, hunk: diff.hunks[hunk])])
+                })
         }
     }
 }
@@ -53,6 +60,9 @@ struct FileDiffView: View {
     let root: URL
     /// One side's contents, for image previews.
     let contents: (Repository.FileSide) async -> Data?
+    /// Actions in each hunk's context menu; none in History mode.
+    var hunkActions: [ChangeAction] = []
+    var onHunkAction: (ChangeAction, Int) -> Void = { _, _ in }
 
     @AppStorage(DiffSettings.layoutKey) private var preferredLayout: DiffLayoutMode = .unified
     @AppStorage(AppSettings.fontSizeKey) private var fontSize = Double(DiffMetrics.defaultFontSize)
@@ -93,10 +103,11 @@ struct FileDiffView: View {
                 let mode: DiffLayoutMode = preferredLayout == .split && proxy.size.width >= DiffSettings.minimumSplitWidth ? .split : .unified
                 DiffTableView(
                     fileID: fileID, diff: diff, highlights: highlights, mode: mode,
-                    fontSize: CGFloat(fontSize.clamped(to: AppSettings.fontSizes))
-                ) { line in
-                    if line != focusLine { focusLine = line }
-                }
+                    fontSize: CGFloat(fontSize.clamped(to: AppSettings.fontSizes)),
+                    onFocusLine: { line in
+                        if line != focusLine { focusLine = line }
+                    },
+                    hunkActions: hunkActions, onHunkAction: onHunkAction)
             }
         }
     }
