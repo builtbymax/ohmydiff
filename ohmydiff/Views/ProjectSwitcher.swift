@@ -1,11 +1,10 @@
 import OhMyDiffCore
 import SwiftUI
 
-/// ⌘K palette: fuzzy-filter projects by name and jump with Return.
+/// ⌘K palette floating over the window: fuzzy-filter projects by name and jump with Return.
 struct ProjectSwitcher: View {
     let model: AppModel
 
-    @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var highlighted = 0
     @FocusState private var isSearchFocused: Bool
@@ -15,22 +14,38 @@ struct ProjectSwitcher: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            TextField("Switch to project…", text: $query)
-                .textFieldStyle(.plain)
-                .font(.title3)
-                .padding(14)
-                .focused($isSearchFocused)
-                .onSubmit(choose)
-                .onKeyPress(.downArrow) { moveHighlight(1) }
-                .onKeyPress(.upArrow) { moveHighlight(-1) }
-                .onChange(of: query) { highlighted = 0 }
+        ZStack(alignment: .top) {
+            Color.black.opacity(0.12)
+                .ignoresSafeArea()
+                .onTapGesture(perform: dismiss)
+            palette
+                .padding(.top, 90)
+        }
+        .transition(.opacity)
+    }
 
-            Divider()
+    private var palette: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Switch to project…", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.title3)
+                    .focused($isSearchFocused)
+                    .onSubmit(choose)
+                    .onKeyPress(.downArrow) { moveHighlight(1) }
+                    .onKeyPress(.upArrow) { moveHighlight(-1) }
+                    .onChange(of: query) { highlighted = 0 }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+
+            Divider().opacity(0.5)
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 2) {
+                    LazyVStack(spacing: 3) {
                         ForEach(Array(results.enumerated()), id: \.element.item.id) { offset, result in
                             row(result.item, match: result.match, isHighlighted: offset == highlighted)
                                 .id(offset)
@@ -40,11 +55,12 @@ struct ProjectSwitcher: View {
                                 }
                         }
                     }
-                    .padding(6)
+                    .padding(8)
                 }
                 .onChange(of: highlighted) { proxy.scrollTo(highlighted) }
             }
-            .frame(height: 280)
+            .frame(maxHeight: 300)
+            .fixedSize(horizontal: false, vertical: true)
             .overlay {
                 if results.isEmpty {
                     Text(model.projects.isEmpty ? "No projects yet" : "No matching projects")
@@ -52,35 +68,53 @@ struct ProjectSwitcher: View {
                 }
             }
         }
-        .frame(width: 480)
+        .frame(width: 520)
+        .glassEffect(Theme.barGlass, in: .rect(cornerRadius: 22))
+        .shadow(color: .black.opacity(0.18), radius: 30, y: 12)
         .onAppear { isSearchFocused = true }
-        .onExitCommand { dismiss() }
+        .onExitCommand(perform: dismiss)
+    }
+
+    private func dismiss() {
+        model.isSwitcherPresented = false
     }
 
     private func row(_ project: Project, match: FuzzyMatcher.Match, isHighlighted: Bool) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: project.kind == .gitButler ? "square.stack.3d.up" : "folder")
-                .foregroundStyle(isHighlighted ? AnyShapeStyle(.white) : AnyShapeStyle(.tint))
-                .frame(width: 18)
+        let session = model.session(for: project.id)
+        return HStack(spacing: 12) {
+            Text(projectMonogram(project.displayName))
+                .font(.system(size: 12, weight: .bold))
+                .frame(width: 32, height: 32)
+                .background(Theme.glassSelection, in: .rect(cornerRadius: 9))
             VStack(alignment: .leading, spacing: 1) {
-                Text(highlightedName(project.displayName, indices: match.indices))
-                Text(project.path)
+                HStack(spacing: 6) {
+                    Text(highlightedName(project.displayName, indices: match.indices))
+                    Text(project.kind == .gitButler ? "GitButler" : "Git")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(project.kind == .gitButler ? Color.green : Color.secondary)
+                }
+                Text((project.path as NSString).abbreviatingWithTildeInPath)
                     .font(.caption)
-                    .foregroundStyle(isHighlighted ? AnyShapeStyle(.white.opacity(0.8)) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.head)
             }
             Spacer()
+            if session.changeCount > 0 {
+                Text(session.changeCount == 1 ? "1 change" : "\(session.changeCount) changes")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
             if let position = model.projects.firstIndex(of: project), position < 9 {
                 Text("⌘\(position + 1)")
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(isHighlighted ? AnyShapeStyle(.white.opacity(0.8)) : AnyShapeStyle(.tertiary))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 26, alignment: .trailing)
             }
         }
-        .foregroundStyle(isHighlighted ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(isHighlighted ? AnyShapeStyle(.tint) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 8))
+        .padding(.vertical, 7)
+        .background(isHighlighted ? Theme.glassSelection : .clear, in: .rect(cornerRadius: 12))
         .contentShape(.rect)
     }
 

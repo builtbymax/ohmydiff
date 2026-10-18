@@ -16,6 +16,7 @@ A native macOS diff viewer for git and [GitButler](https://gitbutler.com) worksp
 
 - **⌘O** opens the selected file at the selected line in your editor (Cursor, VS Code, Zed, Xcode, Sublime Text or a custom command, chosen in Settings).
 - **⇧⌘C** copies the file's path, **⌘R** refreshes, **⇧⌘O** adds a project.
+- **⌘K** or the project name in the toolbar switches projects. **⌘0** hides the file list so the diff gets the whole window, and **⌥⌘O** opens the diff in its own window (live for uncommitted files).
 - **Actions:** right-click a file, a section header or a hunk in the diff, or use the bar floating over the diff for the hunk at the top (**n** / **p** move between hunks). Plain git repositories can stage, unstage and discard (untracked files go to the Trash). GitButler workspaces can commit to a branch you pick and discard, always through `but` with explicit change IDs, so `but undo` reverts them.
 - **Command line:** install `ohmydiff` from Settings → Command Line (it goes to `~/.local/bin`), then run `ohmydiff` in a repository, or `ohmydiff path/to/repo`. It adds the project if it is new and brings it to the front via the `ohmydiff://open?path=…` URL scheme.
 

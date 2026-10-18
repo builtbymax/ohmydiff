@@ -282,6 +282,26 @@ final class ProjectSession {
         return try? await repository.contents(of: file, side: side)
     }
 
+    /// The current diff of the changed file at `path`, with syntax colors, independent of the selection,
+    /// e.g. for a diff window. `nil` when the file no longer has changes or the repository is not open yet.
+    func diffState(forPath path: String) async -> DiffState? {
+        guard let repository, let file = groups.lazy.flatMap(\.files).first(where: { $0.path == path }) else { return nil }
+        var state: DiffState
+        do {
+            state = DiffState(fileID: file.id, content: try await repository.diff(for: file).map(DiffState.Content.diff) ?? .noDifference)
+        } catch is CancellationError {
+            return nil
+        } catch {
+            return DiffState(fileID: file.id, content: .failed(String(describing: error)))
+        }
+        if case .diff(let fileDiff) = state.content, !fileDiff.isBinary, let language = SyntaxLanguage(path: fileDiff.path) {
+            state.highlights = await DiffHighlighting.highlights(for: fileDiff, language: language) { side in
+                try? await repository.contents(of: file, side: side, limit: SyntaxHighlighter.maximumLength)
+            }
+        }
+        return state
+    }
+
     /// Replaces the groups, keeping the selection on the same file where possible.
     private func apply(_ newGroups: [ChangeGroup]) {
         let previous = groups

@@ -5,7 +5,10 @@ struct ProjectCommands: Commands {
     let model: AppModel
 
     @AppStorage(DiffSettings.layoutKey) private var diffLayout: DiffLayoutMode = .unified
+    @AppStorage(AppSettings.isListHiddenKey) private var isListHidden = false
     @FocusedValue(\.diffFile) private var diffFile
+    @FocusedValue(\.diffPopout) private var diffPopout
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -15,6 +18,11 @@ struct ProjectCommands: Commands {
             Button("Open in Editor") { diffFile.map(model.openInEditor) }
                 .keyboardShortcut("o")
                 .disabled(diffFile?.exists != true)
+            Button("Open Diff in New Window") {
+                diffPopout.map { openWindow(id: DiffWindow.id, value: model.register($0)) }
+            }
+            .keyboardShortcut("o", modifiers: [.command, .option])
+            .disabled(diffPopout == nil)
         }
 
         CommandGroup(after: .pasteboard) {
@@ -24,6 +32,10 @@ struct ProjectCommands: Commands {
         }
 
         CommandGroup(before: .sidebar) {
+            Button(isListHidden ? "Show File List" : "Hide File List") {
+                withAnimation(.snappy) { isListHidden.toggle() }
+            }
+            .keyboardShortcut("0")
             Toggle("Side-by-Side Diff", isOn: Binding(
                 get: { diffLayout == .split },
                 set: { diffLayout = $0 ? .split : .unified }))

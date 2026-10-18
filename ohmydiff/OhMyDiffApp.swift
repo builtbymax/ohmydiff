@@ -16,6 +16,12 @@ struct OhMyDiffApp: App {
             ProjectCommands(model: model)
         }
 
+        WindowGroup("Diff", id: DiffWindow.id, for: UUID.self) { $popoutID in
+            DiffWindow(model: model, popoutID: popoutID)
+        }
+        .defaultSize(width: 1100, height: 760)
+        .commandsRemoved()
+
         Settings {
             SettingsView()
         }

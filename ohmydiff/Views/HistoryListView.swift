@@ -40,25 +40,50 @@ struct HistoryListView: View {
                 "No Branches", systemImage: "arrow.triangle.branch",
                 description: Text(session.project.kind == .gitButler ? "No branches are applied to the workspace." : "The repository has no local branches."))
         case (.ready, .ready):
-            List(selection: $history.selection) {
-                ForEach(history.groups) { group in
-                    Section(group.kind == .stack ? "Stack" : "Branches") {
-                        ForEach(group.branches) { branch in
-                            BranchRow(branch: branch)
-                                .tag(HistoryModel.Selection.branch(branch.name))
-                            if showsCommits(of: branch, in: group) {
-                                ForEach(branch.commits) { commit in
-                                    CommitRow(commit: commit)
-                                        .tag(HistoryModel.Selection.commit(sha: commit.sha, branch: branch.name))
-                                }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(history.groups) { group in
+                            Text(group.kind == .stack ? "Stack" : "Branches")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.leading, 6)
+                                .padding(.top, 4)
+                            ForEach(group.branches) { branch in
+                                BranchCard(branch: branch, showsCommits: showsCommits(of: branch, in: group), history: history)
                             }
                         }
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
                 }
+                .focusable()
+                .focusEffectDisabled()
+                .onKeyPress(.downArrow) { moveSelection(1, proxy: proxy) }
+                .onKeyPress(.upArrow) { moveSelection(-1, proxy: proxy) }
             }
-            .scrollContentBackground(.hidden)
-            .contentMargins(.top, session.butIncompatibility == nil ? Theme.toolbarInset - 8 : 0, for: .scrollContent)
         }
+    }
+
+    /// Every selectable row in list order: each branch, then its listed commits.
+    private var selectableItems: [HistoryModel.Selection] {
+        history.groups.flatMap { group in
+            group.branches.flatMap { branch in
+                [.branch(branch.name)] + (showsCommits(of: branch, in: group)
+                    ? branch.commits.map { HistoryModel.Selection.commit(sha: $0.sha, branch: branch.name) } : [])
+            }
+        }
+    }
+
+    private func moveSelection(_ offset: Int, proxy: ScrollViewProxy) -> KeyPress.Result {
+        let items = selectableItems
+        guard !items.isEmpty else { return .ignored }
+        let current = history.selection.flatMap(items.firstIndex(of:))
+        let next = current.map { min(max($0 + offset, 0), items.count - 1) } ?? 0
+        history.selection = items[next]
+        proxy.scrollTo(items[next])
+        return .handled
     }
 
     /// GitButler stacks are short, so all their commits are listed; plain-git branches list theirs
@@ -68,23 +93,64 @@ struct HistoryListView: View {
     }
 }
 
+/// A branch as a card: the branch on top, its commits below.
+private struct BranchCard: View {
+    let branch: HistoryBranch
+    let showsCommits: Bool
+    @Bindable var history: HistoryModel
+
+    var body: some View {
+        let branchSelection = HistoryModel.Selection.branch(branch.name)
+        Card {
+            Button { history.selection = branchSelection } label: {
+                BranchRow(branch: branch)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(history.selection == branchSelection ? Theme.selectedRow : .clear, in: .rect(cornerRadius: 8))
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .padding(-6)
+            .id(branchSelection)
+        } content: {
+            if showsCommits, !branch.commits.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(branch.commits) { commit in
+                        let selection = HistoryModel.Selection.commit(sha: commit.sha, branch: branch.name)
+                        Button { history.selection = selection } label: {
+                            CommitRow(commit: commit)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .background(history.selection == selection ? Theme.selectedRow : .clear, in: .rect(cornerRadius: 8))
+                                .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .id(selection)
+                    }
+                }
+                .padding(4)
+            }
+        }
+    }
+}
+
 private struct BranchRow: View {
     let branch: HistoryBranch
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 7) {
             Image(systemName: branch.isCurrent ? "checkmark.circle.fill" : "arrow.triangle.branch")
+                .font(.caption)
                 .foregroundStyle(branch.isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                .frame(width: 16)
                 .help(branch.isCurrent ? "Checked out" : "")
             Text(branch.name)
-                .fontWeight(.medium)
+                .font(.callout.weight(.semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 4)
             if let label = BranchStatusLabel(branch: branch) { label }
             Text("\(branch.commits.count)")
-                .font(.caption.monospacedDigit())
+                .font(.caption.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .help("\(branch.commits.count) commits")
         }
@@ -133,10 +199,11 @@ private struct CommitRow: View {
             Image(systemName: commit.isConflicted ? "exclamationmark.triangle.fill" : "circle.fill")
                 .font(.system(size: commit.isConflicted ? 10 : 5))
                 .foregroundStyle(commit.isConflicted ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
-                .frame(width: 16)
+                .frame(width: 12)
             VStack(alignment: .leading, spacing: 1) {
                 Text(commit.summary.isEmpty ? "(no message)" : commit.summary)
                     .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 4) {
                     Text(commit.shortSHA).monospaced()
                     if let date = commit.date {
@@ -148,7 +215,6 @@ private struct CommitRow: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .padding(.leading, 12)
         .help(commit.message)
     }
 }

@@ -18,6 +18,8 @@ final class AppModel {
     var isSwitcherPresented = false
     var isImporterPresented = false
     var errorMessage: String?
+    /// What each open diff window shows, by the ID its window was opened with.
+    private(set) var popouts: [UUID: DiffPopout] = [:]
 
     @ObservationIgnored private let store: ProjectStore
     @ObservationIgnored private var sessions: [Project.ID: ProjectSession] = [:]
@@ -162,6 +164,17 @@ final class AppModel {
 
     func refreshSelected() {
         selectedSession?.refresh()
+    }
+
+    /// Keeps a diff for a new window and returns the ID to open the window with.
+    func register(_ popout: DiffPopout) -> UUID {
+        let id = UUID()
+        popouts[id] = popout
+        return id
+    }
+
+    func closePopout(_ id: UUID) {
+        popouts[id] = nil
     }
 
     // MARK: - Integration

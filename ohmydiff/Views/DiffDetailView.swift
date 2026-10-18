@@ -36,7 +36,7 @@ struct DiffDetailView: View {
         case .diff(let diff):
             FileDiffView(
                 fileID: file.id, diff: diff, highlights: session.diff?.highlights, root: session.rootURL,
-                topInset: Theme.toolbarInset,
+                popout: .change(projectID: session.project.id, path: file.path),
                 contents: { side in await session.contents(of: file, side: side) },
                 hunkActions: ChangeAction.allCases.filter { action in
                     diff.hunks.first.map { session.supports(action, on: [ChangeTarget(file: file, hunk: $0)]) } ?? false
@@ -57,8 +57,8 @@ struct FileDiffView: View {
     let highlights: SyntaxHighlights?
     /// The repository root, to locate the file in the working tree.
     let root: URL
-    /// Room above the title, e.g. for the floating toolbar.
-    var topInset: CGFloat = 12
+    /// What Open Diff in New Window shows; `nil` inside a diff window.
+    var popout: DiffPopout? = nil
     /// One side's contents, for image previews.
     let contents: (Repository.FileSide) async -> Data?
     /// Actions in each hunk's context menu and the hunk bar; none in History mode.
@@ -83,7 +83,7 @@ struct FileDiffView: View {
                 .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.hairline))
         }
         .padding(.horizontal, 20)
-        .padding(.top, topInset)
+        .padding(.top, 12)
         .padding(.bottom, 12)
         .overlay(alignment: .bottom) {
             if showsTable, !diff.hunks.isEmpty {
@@ -95,6 +95,7 @@ struct FileDiffView: View {
         }
         .focusedSceneValue(\.diffFile, DiffFileTarget(
             url: root.appending(path: diff.path), relativePath: diff.path, line: focusLine))
+        .focusedSceneValue(\.diffPopout, popout)
     }
 
     /// Whether the diff rows are shown, rather than a placeholder.
@@ -218,29 +219,30 @@ private struct HunkBar: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: 260, alignment: .leading)
-            if let primary {
+            if !actions.isEmpty {
                 Divider().frame(height: 22)
-                Button(Self.title(for: primary)) { perform(primary) }
-                    .buttonStyle(.glassProminent)
-                    .controlSize(.large)
-                    .fontWeight(.semibold)
-            }
-            if actions.contains(.discard) {
-                Button { perform(.discard) } label: {
-                    Text("Discard…")
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.red)
-                        .padding(.horizontal, 10)
-                        .frame(height: 32)
-                        .contentShape(.capsule)
+                Menu {
+                    ForEach(actions.filter { $0 != .discard }, id: \.self) { action in
+                        Button(Self.title(for: action)) { perform(action) }
+                    }
+                    if actions.contains(.discard) {
+                        Divider()
+                        Button(Self.title(for: .discard), role: .destructive) { perform(.discard) }
+                    }
+                } label: {
+                    Label("Actions", systemImage: "ellipsis.circle")
                 }
-                .buttonStyle(.plain)
+                .menuStyle(.button)
+                .buttonStyle(.glass)
+                .controlSize(.large)
+                .fixedSize()
+                .help("Actions for this hunk")
             }
         }
         .padding(.leading, 6)
         .padding(.trailing, actions.isEmpty ? 16 : 8)
         .frame(height: 48)
-        .glassEffect(.regular, in: .capsule)
+        .glassEffect(Theme.barGlass, in: .capsule)
     }
 
     private var hunk: Hunk { hunks[min(current, hunks.count - 1)] }
@@ -249,9 +251,6 @@ private struct HunkBar: View {
         let section = hunk.section.trimmingCharacters(in: .whitespaces)
         return section.isEmpty ? "@@ −\(hunk.oldStart),\(hunk.oldCount) +\(hunk.newStart),\(hunk.newCount) @@" : section
     }
-
-    /// Commit for GitButler, stage or unstage for plain git; discard has its own button.
-    private var primary: ChangeAction? { actions.first { $0 != .discard } }
 
     private static func title(for action: ChangeAction) -> String {
         switch action {

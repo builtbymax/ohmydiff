@@ -15,10 +15,8 @@ struct HistoryDetailView: View {
                 } else {
                     BranchHeader(branch: branch)
                 }
-                Divider()
                 files(for: selection)
             }
-            .padding(.top, Theme.toolbarInset - 8)
         } else {
             ContentUnavailableView("No Selection", systemImage: "clock")
         }
@@ -39,20 +37,50 @@ struct HistoryDetailView: View {
             ContentUnavailableView("No Changes", systemImage: "equal", description: Text("No files changed."))
         case .loaded(let diffs):
             HSplitView {
-                List(selection: $history.selectedFileID) {
-                    ForEach(diffs) { diff in
-                        FileRow(path: diff.path, previousPath: diff.oldPath == diff.newPath ? nil : diff.oldPath, kind: diff.kind,
-                                stats: diff.isBinary ? nil : LineStats(additions: diff.additions, deletions: diff.deletions))
-                            .tag(diff.id)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        Card {
+                            Text(diffs.count == 1 ? "1 file" : "\(diffs.count) files")
+                                .font(.callout.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } content: {
+                            LazyVStack(spacing: 0) {
+                                ForEach(diffs) { diff in
+                                    Button { history.selectedFileID = diff.id } label: {
+                                        FileRow(path: diff.path, previousPath: diff.oldPath == diff.newPath ? nil : diff.oldPath, kind: diff.kind,
+                                                stats: diff.isBinary ? nil : LineStats(additions: diff.additions, deletions: diff.deletions),
+                                                isSelected: history.selectedFileID == diff.id)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 7)
+                                            .background(history.selectedFileID == diff.id ? Theme.selectedRow : .clear, in: .rect(cornerRadius: 8))
+                                            .contentShape(.rect)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .id(diff.id)
+                                }
+                            }
+                            .padding(4)
+                        }
+                        .padding(12)
                     }
+                    .focusable()
+                    .focusEffectDisabled()
+                    .onKeyPress(.downArrow) { moveFile(1, in: diffs, proxy: proxy) }
+                    .onKeyPress(.upArrow) { moveFile(-1, in: diffs, proxy: proxy) }
+                    .onKeyPress("n") { jumpToHunk(1) }
+                    .onKeyPress("p") { jumpToHunk(-1) }
                 }
-                .onKeyPress("n") { jumpToHunk(1) }
-                .onKeyPress("p") { jumpToHunk(-1) }
-                .frame(minWidth: 180, idealWidth: 240, maxWidth: 420)
+                .frame(minWidth: 200, idealWidth: 280, maxWidth: 420)
 
                 Group {
                     if let file = history.selectedFile {
-                        FileDiffView(fileID: "\(selection):\(file.id)", diff: file, highlights: history.highlights[file.id], root: root) { side in
+                        FileDiffView(
+                            fileID: "\(selection):\(file.id)", diff: file, highlights: history.highlights[file.id], root: root,
+                            popout: .snapshot(
+                                project: root.lastPathComponent, context: context(for: selection), diff: file,
+                                highlights: history.highlights[file.id], root: root)
+                        ) { side in
                             await history.contents(of: file, side: side)
                         }
                     } else {
@@ -62,6 +90,23 @@ struct HistoryDetailView: View {
                 .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    /// `feature/x` or `1ab49f8 on feature/x`, for a diff window's subtitle.
+    private func context(for selection: HistoryModel.Selection) -> String {
+        switch selection {
+        case .branch(let name): name
+        case .commit(let sha, let branch): "\(sha.prefix(7)) on \(branch)"
+        }
+    }
+
+    private func moveFile(_ offset: Int, in diffs: [FileDiff], proxy: ScrollViewProxy) -> KeyPress.Result {
+        guard !diffs.isEmpty else { return .ignored }
+        let current = diffs.firstIndex { $0.id == history.selectedFileID }
+        let next = current.map { min(max($0 + offset, 0), diffs.count - 1) } ?? 0
+        history.selectedFileID = diffs[next].id
+        proxy.scrollTo(diffs[next].id)
+        return .handled
     }
 
     private func jumpToHunk(_ direction: Int) -> KeyPress.Result {
@@ -77,7 +122,7 @@ private struct CommitHeader: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text(commit.summary.isEmpty ? "(no message)" : commit.summary)
-                    .font(.headline)
+                    .font(.system(size: 18, weight: .bold))
                     .textSelection(.enabled)
                 Spacer()
                 if commit.isConflicted {
@@ -110,9 +155,9 @@ private struct CommitHeader: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.bar)
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 }
 
@@ -125,7 +170,7 @@ private struct BranchHeader: View {
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(branch.name)
-                    .font(.headline)
+                    .font(.system(size: 18, weight: .bold))
                     .textSelection(.enabled)
                 Text(summary)
                     .font(.caption)
@@ -135,9 +180,9 @@ private struct BranchHeader: View {
             if let label = BranchStatusLabel(branch: branch) { label }
             if !branch.tip.isEmpty { CopySHAButton(sha: branch.tip) }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.bar)
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
     private var summary: String {

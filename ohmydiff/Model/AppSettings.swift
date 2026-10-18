@@ -7,6 +7,11 @@ enum AppSettings {
     static let editorKey = "editorPreset"
     static let customEditorCommandKey = "customEditorCommand"
     static let fontSizeKey = "diffFontSize"
+    static let appearanceKey = "appearance"
+    /// Width of the file list column, and whether it is hidden to give the diff the whole panel.
+    static let listWidthKey = "listWidth"
+    static let isListHiddenKey = "isListHidden"
+    static let listWidths: ClosedRange<Double> = 240...560
 
     static let defaultEditor = EditorPreset.cursor
     static let fontSizes: ClosedRange<Double> = 9...20
@@ -17,6 +22,30 @@ enum AppSettings {
         if let template = preset.template { return template }
         let custom = defaults.string(forKey: customEditorCommandKey)?.trimmingCharacters(in: .whitespaces) ?? ""
         return custom.isEmpty ? nil : custom
+    }
+}
+
+/// Light, dark or following the system.
+enum AppAppearance: String, CaseIterable, Identifiable {
+    case system, light, dark
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    /// Applies to every window, including Settings and diff windows.
+    @MainActor func apply() {
+        NSApp.appearance = switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
     }
 }
 

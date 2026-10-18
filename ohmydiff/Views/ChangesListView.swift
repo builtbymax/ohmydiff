@@ -55,7 +55,7 @@ struct ChangesListView: View {
                         }
                     }
                     .padding(.horizontal, 12)
-                    .padding(.top, session.butIncompatibility == nil ? Theme.toolbarInset : 8)
+                    .padding(.top, 8)
                     .padding(.bottom, 16)
                 }
                 .focusable()
