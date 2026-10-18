@@ -99,6 +99,8 @@ struct DiffTableView: NSViewRepresentable {
         private var splitLengths: [(old: Int, new: Int)] = []
         /// The column width the split row heights were computed for.
         private var splitColumnWidth: CGFloat = 0
+        /// Unified mode: the characters of the widest row, measured once per layout rather than on every resize.
+        private var unifiedCharacters = 0
         private var formatter = DiffRowFormatter()
         private var fontSize: CGFloat?
         private var isWholeFile = false
@@ -153,30 +155,38 @@ struct DiffTableView: NSViewRepresentable {
             // when still at the top, show the first change.
             let isTogglingWholeFile = !isNewFile && isWholeFile != self.isWholeFile
             let anchor = isTogglingWholeFile && topRow() != 0 ? topLine() : nil
+            // Syntax colors arrive after the diff and font changes keep the rows; only a new diff or
+            // layout lays the rows out again.
+            let needsLayout = diff != self.diff || mode != self.mode || isWholeFile != self.isWholeFile
             if mode != self.mode { configureColumns(for: mode) }
-            self.diff = diff
             self.highlights = highlights
             self.fileID = fileID
             self.mode = mode
             self.fontSize = fontSize
             self.isWholeFile = isWholeFile
-            formatter = DiffRowFormatter(diff: diff, highlights: highlights, metrics: DiffMetrics(fontSize: fontSize))
+            // Word highlights only depend on the diff, so they are kept when just the colors or font change.
+            let words = diff == self.diff ? formatter.words : WordHighlights(diff: diff)
+            self.diff = diff
+            formatter = DiffRowFormatter(diff: diff, highlights: highlights, metrics: DiffMetrics(fontSize: fontSize), words: words)
             tableView.rowHeight = formatter.metrics.rowHeight
 
-            switch mode {
-            case .unified:
-                unifiedRows = DiffLayout.unified(diff, hunkHeaders: !isWholeFile)
-                splitRows = []
-                splitLengths = []
-            case .split:
-                splitRows = DiffLayout.split(diff, hunkHeaders: !isWholeFile)
-                splitLengths = splitRows.map { row in
-                    guard case .pair(let h, let old, let new) = row else { return (0, 0) }
-                    return (old.map { formatter.splitLength(hunk: h, line: $0) } ?? 0, new.map { formatter.splitLength(hunk: h, line: $0) } ?? 0)
+            if needsLayout {
+                switch mode {
+                case .unified:
+                    unifiedRows = DiffLayout.unified(diff, hunkHeaders: !isWholeFile)
+                    unifiedCharacters = formatter.unifiedCharacters(unifiedRows)
+                    splitRows = []
+                    splitLengths = []
+                case .split:
+                    splitRows = DiffLayout.split(diff, hunkHeaders: !isWholeFile)
+                    splitLengths = splitRows.map { row in
+                        guard case .pair(let h, let old, let new) = row else { return (0, 0) }
+                        return (old.map { formatter.splitLength(hunk: h, line: $0) } ?? 0, new.map { formatter.splitLength(hunk: h, line: $0) } ?? 0)
+                    }
+                    unifiedRows = []
                 }
-                unifiedRows = []
+                hunkRows = jumpRows()
             }
-            hunkRows = jumpRows()
 
             sizeColumns()
             tableView.reloadData()
@@ -361,15 +371,21 @@ struct DiffTableView: NSViewRepresentable {
             let visible = scrollView.contentView.bounds.width
             switch mode {
             case .unified:
-                tableView.tableColumns.first?.width = formatter.unifiedWidth(unifiedRows)
+                tableView.tableColumns.first?.width = formatter.width(characters: unifiedCharacters)
             case .split:
                 // Two equal halves that always fit; long lines wrap instead of pushing the new side out of view.
                 let old = floor(visible / 2)
                 tableView.tableColumns.first { $0.identifier == Self.oldColumn }?.width = old
                 tableView.tableColumns.first { $0.identifier == Self.newColumn }?.width = visible - old
                 if old != splitColumnWidth {
+                    // While resizing, only the rows that wrap to a different number of lines change height.
+                    let changed = splitColumnWidth == 0
+                        ? IndexSet(integersIn: 0..<splitRows.count)
+                        : IndexSet(splitLengths.indices.filter {
+                            wrappedLines(row: $0, width: splitColumnWidth) != wrappedLines(row: $0, width: old)
+                        })
                     splitColumnWidth = old
-                    tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<splitRows.count))
+                    if !changed.isEmpty { tableView.noteHeightOfRows(withIndexesChanged: changed) }
                 }
             case nil:
                 break
@@ -499,9 +515,13 @@ struct DiffTableView: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard mode == .split, splitLengths.indices.contains(row), splitColumnWidth > 0 else { return formatter.metrics.rowHeight }
+            return formatter.metrics.rowHeight + CGFloat(wrappedLines(row: row, width: splitColumnWidth) - 1) * formatter.metrics.lineHeight
+        }
+
+        /// Split mode: how many lines a row's longer side wraps to in columns of `width`.
+        private func wrappedLines(row: Int, width: CGFloat) -> Int {
             let lengths = splitLengths[row]
-            let lines = max(formatter.wrappedLineCount(lengths.old, width: splitColumnWidth), formatter.wrappedLineCount(lengths.new, width: splitColumnWidth))
-            return formatter.metrics.rowHeight + CGFloat(lines - 1) * formatter.metrics.lineHeight
+            return max(formatter.wrappedLineCount(lengths.old, width: width), formatter.wrappedLineCount(lengths.new, width: width))
         }
 
         func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
@@ -617,21 +637,21 @@ struct DiffRowFormatter {
 
     private var diff = FileDiff(oldPath: nil, newPath: nil, kind: .unknown)
     private var gutterDigits = 3
-    /// Changed character ranges per hunk, keyed by line index.
-    private var wordHighlights: [[Int: [Range<Int>]]] = []
+    /// Changed character ranges, worked out per hunk as its rows are first shown.
+    private(set) var words = WordHighlights(diff: FileDiff(oldPath: nil, newPath: nil, kind: .unknown))
     private var syntax: SyntaxHighlights?
 
     private(set) var metrics = DiffMetrics()
 
     init() {}
 
-    init(diff: FileDiff, highlights: SyntaxHighlights? = nil, metrics: DiffMetrics = DiffMetrics()) {
+    init(diff: FileDiff, highlights: SyntaxHighlights? = nil, metrics: DiffMetrics = DiffMetrics(), words: WordHighlights? = nil) {
         self.diff = diff
         self.metrics = metrics
         self.syntax = highlights
+        self.words = words ?? WordHighlights(diff: diff)
         let largest = diff.hunks.map { max($0.oldStart + $0.oldCount, $0.newStart + $0.newCount) }.max() ?? 0
         gutterDigits = max(String(largest).count, 3)
-        wordHighlights = diff.hunks.map(WordDiff.highlights(for:))
     }
 
     /// Unified: two line numbers, a space after each, then the marker and a space.
@@ -656,7 +676,7 @@ struct DiffRowFormatter {
         let line = diff.hunks[h].lines[l]
         let result = NSMutableAttributedString()
         append(number(line.oldLineNumber) + " " + number(line.newLineNumber) + " ", .tertiaryLabelColor, to: result)
-        appendBody(line, highlights: wordHighlights[h][l], to: result)
+        appendBody(line, highlights: words.ranges(hunk: h, line: l), to: result)
         return result
     }
 
@@ -664,7 +684,7 @@ struct DiffRowFormatter {
         let line = diff.hunks[h].lines[l]
         let result = NSMutableAttributedString()
         append(number(side == .old ? line.oldLineNumber : line.newLineNumber) + " ", .tertiaryLabelColor, to: result)
-        appendBody(line, highlights: wordHighlights[h][l], to: result)
+        appendBody(line, highlights: words.ranges(hunk: h, line: l), to: result)
         if line.noNewlineAtEnd { append("  ⏎̸", .tertiaryLabelColor, to: result) }
         // Wrapped lines continue under the code, not under the line number.
         let paragraph = NSMutableParagraphStyle()
@@ -765,8 +785,8 @@ struct DiffRowFormatter {
 
     // MARK: Widths
 
-    /// Width of the widest unified row, so long lines scroll horizontally instead of being cut off.
-    func unifiedWidth(_ rows: [DiffLayout.UnifiedRow]) -> CGFloat {
+    /// Characters of the widest unified row, so long lines scroll horizontally instead of being cut off.
+    func unifiedCharacters(_ rows: [DiffLayout.UnifiedRow]) -> Int {
         var longest = 0
         for row in rows {
             switch row {
@@ -775,20 +795,10 @@ struct DiffRowFormatter {
             case .noNewlineAtEnd: longest = max(longest, 25)
             }
         }
-        return width(characters: unifiedPrefix + longest)
+        return unifiedPrefix + longest
     }
 
-    func splitWidths(_ rows: [DiffLayout.SplitRow]) -> (old: CGFloat, new: CGFloat) {
-        var old = 0
-        var new = 0
-        for case .pair(let h, let o, let n) in rows {
-            if let o { old = max(old, Self.expandedLength(diff.hunks[h].lines[o].text) + 3) }
-            if let n { new = max(new, Self.expandedLength(diff.hunks[h].lines[n].text) + 3) }
-        }
-        return (width(characters: splitPrefix + old), width(characters: splitPrefix + new))
-    }
-
-    private func width(characters: Int) -> CGFloat {
+    func width(characters: Int) -> CGFloat {
         ceil(CGFloat(characters) * metrics.characterWidth + Self.horizontalPadding * 2)
     }
 
@@ -812,6 +822,25 @@ struct DiffRowFormatter {
     private static func expandedLength(_ text: String) -> Int {
         guard text.contains("\t") else { return text.count }
         return expandingTabs(text).count
+    }
+}
+
+/// Word-level highlights of a diff, worked out per hunk the first time one of its rows is shown, so
+/// opening a large diff does not compare every changed line up front.
+final class WordHighlights {
+    private let hunks: [Hunk]
+    private var cache: [Int: [Int: [Range<Int>]]] = [:]
+
+    init(diff: FileDiff) {
+        hunks = diff.hunks
+    }
+
+    /// Changed character ranges of a line; `nil` when it has none.
+    func ranges(hunk: Int, line: Int) -> [Range<Int>]? {
+        if let ranges = cache[hunk] { return ranges[line] }
+        let ranges = WordDiff.highlights(for: hunks[hunk])
+        cache[hunk] = ranges
+        return ranges[line]
     }
 }
 
