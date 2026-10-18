@@ -31,6 +31,17 @@ private struct CompatibilityBanner: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(Color.yellow.opacity(0.12), in: .rect(cornerRadius: 10))
-        .help("Unexpected `but --json status` output:\n" + incompatibility.violations.joined(separator: "\n"))
+        .hoverCard(edge: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Unexpected `but --json status` output")
+                    .font(.caption.weight(.semibold))
+                ForEach(incompatibility.violations, id: \.self) { violation in
+                    Text(violation)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 }

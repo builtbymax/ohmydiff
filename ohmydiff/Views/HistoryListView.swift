@@ -138,7 +138,6 @@ private struct BranchRow: View {
             Image(systemName: branch.isCurrent ? "checkmark.circle.fill" : "arrow.triangle.branch")
                 .font(.caption)
                 .foregroundStyle(branch.isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                .help(branch.isCurrent ? "Checked out" : "")
             Text(branch.name)
                 .font(.callout.weight(.semibold))
                 .lineLimit(1)
@@ -148,8 +147,8 @@ private struct BranchRow: View {
             Text("\(branch.commits.count)")
                 .font(.caption.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
-                .help("\(branch.commits.count) commits")
         }
+        .hoverCard { BranchHoverCard(branch: branch) }
     }
 }
 
@@ -211,6 +210,107 @@ private struct CommitRow: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .help(commit.message)
+        .hoverCard { CommitHoverCard(commit: commit) }
     }
+}
+
+/// A branch's push state, commit count, base and tip.
+private struct BranchHoverCard: View {
+    let branch: HistoryBranch
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.triangle.branch")
+                    .foregroundStyle(.secondary)
+                Text(branch.name)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 6) {
+                if branch.isCurrent {
+                    Text("Checked out")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.tint)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.12), in: .capsule)
+                }
+                if let label = BranchStatusLabel(branch: branch) { label }
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                HoverCardField(label: "Commits", value: branch.commits.count == 1 ? "1 commit" : "\(branch.commits.count) commits")
+                if let baseName = branch.baseName { HoverCardField(label: "Since", value: baseName) }
+                if !branch.tip.isEmpty { HoverCardField(label: "Tip", value: String(branch.tip.prefix(10)), monospaced: true) }
+                if let latest = branch.commits.first?.date {
+                    HoverCardField(label: "Updated", value: latest.formatted(.relative(presentation: .named)))
+                }
+            }
+        }
+    }
+}
+
+/// A commit's full message, author and date.
+struct CommitHoverCard: View {
+    let commit: CommitInfo
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(commit.summary.isEmpty ? "(no message)" : commit.summary)
+                    .font(.callout.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                if !commit.body.isEmpty {
+                    Text(commit.body)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(12)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Divider()
+            HStack(spacing: 8) {
+                AuthorAvatar(name: commit.authorName, size: 26)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(commit.authorName.isEmpty ? "Unknown author" : commit.authorName)
+                        .font(.caption.weight(.semibold))
+                    HStack(spacing: 4) {
+                        Text(commit.shortSHA).monospaced()
+                        if let date = commit.date {
+                            Text("·")
+                            Text(date, format: .relative(presentation: .named))
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                if commit.isConflicted {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                }
+            }
+        }
+    }
+}
+
+/// A person's initials on a color derived from their name.
+struct AuthorAvatar: View {
+    let name: String
+    var size: CGFloat = 28
+
+    var body: some View {
+        Text(initials)
+            .font(.system(size: size * 0.4, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(Theme.nameColor(name).gradient, in: .circle)
+    }
+
+    private var initials: String {
+        let words = name.split(separator: " ").filter { !$0.isEmpty }
+        let letters = words.count > 1 ? [words.first!.first!, words.last!.first!] : Array(name.prefix(2))
+        return letters.isEmpty ? "?" : String(letters).uppercased()
+    }
+
 }

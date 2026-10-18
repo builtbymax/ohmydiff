@@ -5,6 +5,7 @@ import SwiftUI
 struct RailView: View {
     @Bindable var model: AppModel
     @Binding var mode: WorkspaceMode
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(spacing: 6) {
@@ -25,7 +26,7 @@ struct RailView: View {
 
             Spacer(minLength: 8)
 
-            SettingsLink {
+            Button { SettingsWindow.open(with: openSettings) } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 16))
                     .foregroundStyle(.secondary)

@@ -12,6 +12,9 @@ enum AppSettings {
     static let listWidthKey = "listWidth"
     static let isListHiddenKey = "isListHidden"
     static let listWidths: ClosedRange<Double> = 240...560
+    /// Width of the file list beside a commit's or branch's diff in History mode.
+    static let historyFilesWidthKey = "historyFilesWidth"
+    static let historyFilesWidths: ClosedRange<Double> = 200...420
 
     static let defaultEditor = EditorPreset.cursor
     static let fontSizes: ClosedRange<Double> = 9...20

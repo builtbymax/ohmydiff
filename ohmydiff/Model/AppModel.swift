@@ -15,6 +15,10 @@ final class AppModel {
         }
     }
 
+    /// Changes or History, chosen on the rail or from the command palette.
+    var mode: WorkspaceMode = .changes
+
+    /// The ⌘K command palette.
     var isSwitcherPresented = false {
         didSet { if isSwitcherPresented { isProjectMenuPresented = false } }
     }

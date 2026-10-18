@@ -104,10 +104,14 @@ private struct ProjectMenu: View {
     var body: some View {
         Button { model.isProjectMenuPresented.toggle() } label: {
             HStack(spacing: 7) {
-                Text(model.selectedProject.map { projectMonogram($0.displayName) } ?? "+")
-                    .font(.system(size: 11, weight: .bold))
-                    .frame(width: 26, height: 26)
-                    .background(Theme.glassSelection, in: .rect(cornerRadius: 8))
+                if let project = model.selectedProject {
+                    ProjectMonogram(name: project.displayName, isCurrent: true, size: 26)
+                } else {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .bold))
+                        .frame(width: 26, height: 26)
+                        .background(Theme.glassSelection, in: .rect(cornerRadius: 8))
+                }
                 Text(model.selectedProject?.displayName ?? "Add Project")
                     .fontWeight(.semibold)
                 Image(systemName: "chevron.down")

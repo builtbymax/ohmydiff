@@ -14,15 +14,33 @@ enum Theme {
     static let cardRow = dynamic(light: 0xFFFFFF, dark: 0x1E1E20)
     static let selectedRow = dynamic(light: 0xE8E8EB, dark: 0x3A3A3F)
     static let hairline = Color.primary.opacity(0.07)
+    /// Shell commands in Settings.
+    static let terminal = dynamic(light: 0xF4F4F6, dark: 0x161618)
     /// A selected segment or rail button on glass.
     static let glassSelection = dynamic(light: 0x000000, dark: 0xFFFFFF).opacity(0.09)
-    /// Glass over code is tinted with the panel color so its labels stay readable.
-    static let barGlass = Glass.regular.tint(dynamic(light: 0xFFFFFF, dark: 0x1E1E20).opacity(0.72))
+    /// Glass over code is tinted with the panel color so its labels stay readable; nearly white in light
+    /// mode, where a thinner tint lets the content below turn it gray.
+    static let barGlass = Glass.regular.tint(dynamic(light: 0xFFFFFF, dark: 0x1E1E20, lightAlpha: 0.9, darkAlpha: 0.72))
+    /// Tooltips and hover cards.
+    static let floating = dynamic(light: 0xFFFFFF, dark: 0x2A2A2D)
+    static let floatingEdge = dynamic(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 0.08, darkAlpha: 0.1)
+    /// The shadow below floating glass: soft and faint in light mode.
+    static let overlayShadow = dynamic(light: 0x000000, dark: 0x000000, lightAlpha: 0.08, darkAlpha: 0.3)
+    /// The lime of the logo, darkened enough to read on white.
+    static let logoText = dynamic(light: 0x5E7D00, dark: 0xD9F23B)
     /// The logo's accent.
     static let logo = Color(red: 0.85, green: 0.95, blue: 0.23)
 
-    static let addition = dynamic(light: 0x2F9E44, dark: 0x6BD08A)
-    static let deletion = dynamic(light: 0xD9480F, dark: 0xFF7A66)
+    /// Soft, pastel diff colors: text for counts and markers, tints for line and word backgrounds.
+    static let additionColor = dynamicNSColor(light: 0x3A9A5E, dark: 0x9FE0B5)
+    static let deletionColor = dynamicNSColor(light: 0xC8615F, dark: 0xF5A8A4)
+    static let additionLineTint = dynamicNSColor(light: 0x8FD9A8, dark: 0x86D6A4, lightAlpha: 0.22, darkAlpha: 0.13)
+    static let deletionLineTint = dynamicNSColor(light: 0xF4A5A5, dark: 0xF09292, lightAlpha: 0.24, darkAlpha: 0.13)
+    static let additionWordTint = dynamicNSColor(light: 0x7BCF98, dark: 0x86D6A4, lightAlpha: 0.45, darkAlpha: 0.28)
+    static let deletionWordTint = dynamicNSColor(light: 0xF09090, dark: 0xF09292, lightAlpha: 0.45, darkAlpha: 0.28)
+
+    static let addition = Color(nsColor: additionColor)
+    static let deletion = Color(nsColor: deletionColor)
 
     static let railWidth: CGFloat = 60
     /// Gap between the window edge, the rail and the panel.
@@ -32,15 +50,27 @@ enum Theme {
     /// Room below the diff for the floating hunk bar.
     static let hunkBarInset: CGFloat = 72
 
-    static func dynamic(light: UInt32, dark: UInt32) -> Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            let value = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+    /// A stable color for a name, e.g. for project monograms and author avatars.
+    static func nameColor(_ name: String) -> Color {
+        let palette: [Color] = [.blue, .purple, .pink, .orange, .teal, .indigo, .green, .mint]
+        let hash = name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
+        return palette[hash % palette.count]
+    }
+
+    static func dynamic(light: UInt32, dark: UInt32, lightAlpha: CGFloat = 1, darkAlpha: CGFloat = 1) -> Color {
+        Color(nsColor: dynamicNSColor(light: light, dark: dark, lightAlpha: lightAlpha, darkAlpha: darkAlpha))
+    }
+
+    static func dynamicNSColor(light: UInt32, dark: UInt32, lightAlpha: CGFloat = 1, darkAlpha: CGFloat = 1) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let value = isDark ? dark : light
             return NSColor(
                 srgbRed: CGFloat((value >> 16) & 0xFF) / 255,
                 green: CGFloat((value >> 8) & 0xFF) / 255,
                 blue: CGFloat(value & 0xFF) / 255,
-                alpha: 1)
-        })
+                alpha: isDark ? darkAlpha : lightAlpha)
+        }
     }
 }
 

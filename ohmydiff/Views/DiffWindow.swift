@@ -49,7 +49,6 @@ struct DiffWindow: View {
                     Text("Split").tag(DiffLayoutMode.split)
                 }
                 .pickerStyle(.segmented)
-                .help("Side-by-Side Diff")
             }
         }
         .onDisappear { popoutID.map(model.closePopout) }

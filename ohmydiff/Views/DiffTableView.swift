@@ -453,13 +453,13 @@ struct DiffRowFormatter {
 
     static let hunkTint = NSColor.secondaryLabelColor.withAlphaComponent(0.07)
     static let fillerTint = NSColor.secondaryLabelColor.withAlphaComponent(0.05)
-    private static let additionWordTint = NSColor.systemGreen.withAlphaComponent(0.32)
-    private static let deletionWordTint = NSColor.systemRed.withAlphaComponent(0.32)
+    private static let additionWordTint = Theme.additionWordTint
+    private static let deletionWordTint = Theme.deletionWordTint
 
     static func tint(for kind: DiffLine.Kind) -> NSColor? {
         switch kind {
-        case .addition: .systemGreen.withAlphaComponent(0.14)
-        case .deletion: .systemRed.withAlphaComponent(0.14)
+        case .addition: Theme.additionLineTint
+        case .deletion: Theme.deletionLineTint
         case .context: nil
         }
     }
@@ -545,10 +545,10 @@ struct DiffRowFormatter {
         let wordTint: NSColor?
         switch line.kind {
         case .addition:
-            append("+ ", .systemGreen, to: result)
+            append("+ ", Theme.additionColor, to: result)
             wordTint = Self.additionWordTint
         case .deletion:
-            append("− ", .systemRed, to: result)
+            append("− ", Theme.deletionColor, to: result)
             wordTint = Self.deletionWordTint
         case .context:
             append("  ", .tertiaryLabelColor, to: result)
@@ -725,6 +725,21 @@ private final class DiffNSTableView: NSTableView {
         return super.validateUserInterfaceItem(item)
     }
 
+    /// Rows draw their tints and labels once; repaint them when the theme switches.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        backgroundColor = .textBackgroundColor
+        enclosingScrollView?.backgroundColor = .textBackgroundColor
+        enumerateAvailableRowViews { rowView, _ in
+            rowView.needsDisplay = true
+            for case let cell as DiffCellView in rowView.subviews {
+                cell.needsDisplay = true
+                cell.label.needsDisplay = true
+            }
+        }
+        needsDisplay = true
+    }
+
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         switch (event.charactersIgnoringModifiers, modifiers.isEmpty) {
@@ -769,6 +784,32 @@ private final class DiffRowView: NSTableRowView {
     override func drawBackground(in dirtyRect: NSRect) {
         guard let tint else { return }
         tint.setFill()
+        dirtyRect.intersection(bounds).fill()
+    }
+
+    /// A soft wash over the line's own tint instead of the system's solid blue, so syntax colors and
+    /// added/removed tints stay readable in both themes.
+    static let selectionTint = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor.controlAccentColor.withAlphaComponent(0.3)
+            : NSColor.controlAccentColor.withAlphaComponent(0.16)
+    }
+
+    override var isEmphasized: Bool {
+        get { false }
+        set {}
+    }
+
+    override var isSelected: Bool {
+        didSet {
+            guard isSelected != oldValue else { return }
+            // Split cells paint their own tint over the row, so they draw the selection too.
+            for case let cell as DiffCellView in subviews { cell.needsDisplay = true }
+        }
+    }
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        Self.selectionTint.setFill()
         dirtyRect.intersection(bounds).fill()
     }
 }
@@ -829,6 +870,10 @@ private final class DiffCellView: NSTableCellView {
             tint.setFill()
             // Views no longer clip to their bounds, so a split cell must not paint into the other column.
             dirtyRect.intersection(bounds).fill()
+            if (superview as? NSTableRowView)?.isSelected == true {
+                DiffRowView.selectionTint.setFill()
+                dirtyRect.intersection(bounds).fill()
+            }
         }
         if drawsTrailingSeparator {
             NSColor.separatorColor.setFill()

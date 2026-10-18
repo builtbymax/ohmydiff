@@ -12,7 +12,6 @@ enum WorkspaceMode: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     @Bindable var model: AppModel
-    @State private var mode: WorkspaceMode = .changes
 
     @AppStorage(AppSettings.listWidthKey) private var listWidth = 340.0
     @AppStorage(AppSettings.isListHiddenKey) private var isListHidden = false
@@ -20,25 +19,25 @@ struct ContentView: View {
 
     var body: some View {
         HStack(spacing: Theme.inset) {
-            RailView(model: model, mode: $mode)
+            RailView(model: model, mode: $model.mode)
                 .padding(.top, Theme.titleBarHeight)
                 // Above the panel, so its tooltips are not hidden behind it.
                 .zIndex(1)
 
             HStack(spacing: 0) {
                 if !isListHidden {
-                    ListPaneView(model: model, mode: mode)
+                    ListPaneView(model: model, mode: model.mode)
                         .frame(width: listWidth)
                         .background(Theme.column)
-                        .overlay(alignment: .trailing) { ColumnResizer(width: $listWidth) }
+                        .overlay(alignment: .trailing) { ColumnResizer(width: $listWidth, range: AppSettings.listWidths) }
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
-                DetailPaneView(model: model, mode: mode)
+                DetailPaneView(model: model, mode: model.mode)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             // A bar, not an overlay: lists scrolled under it fade out instead of colliding with the controls.
             .safeAreaBar(edge: .top) {
-                WorkspaceToolbar(model: model, mode: mode)
+                WorkspaceToolbar(model: model, mode: model.mode)
             }
             .background(Theme.panel)
             .clipShape(.rect(cornerRadius: 18))
@@ -54,7 +53,7 @@ struct ContentView: View {
         }
         .overlay {
             if model.isSwitcherPresented {
-                ProjectSwitcher(model: model)
+                CommandPalette(model: model)
             }
         }
         .animation(.snappy(duration: 0.2), value: model.isProjectMenuPresented)
@@ -77,33 +76,6 @@ struct ContentView: View {
             // Catch up on anything the watcher cannot see, e.g. changes made while the Mac slept.
             model.refreshSelected()
         }
-    }
-}
-
-/// The hairline between the file list and the diff; drag it to resize the list.
-private struct ColumnResizer: View {
-    @Binding var width: Double
-    @State private var startWidth: Double?
-
-    var body: some View {
-        Rectangle()
-            .fill(Theme.hairline)
-            .frame(width: 1)
-            .overlay {
-                Color.clear
-                    .frame(width: 9)
-                    .contentShape(.rect)
-                    .pointerStyle(.frameResize(position: .trailing))
-                    .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                            .onChanged { value in
-                                let start = startWidth ?? width
-                                startWidth = start
-                                width = (start + value.translation.width).clamped(to: AppSettings.listWidths)
-                            }
-                            .onEnded { _ in startWidth = nil }
-                    )
-            }
     }
 }
 

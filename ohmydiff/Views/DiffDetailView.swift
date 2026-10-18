@@ -143,7 +143,8 @@ struct FileDiffView: View {
 
 enum DiffSettings {
     static let layoutKey = "diffLayout"
-    static let minimumSplitWidth: CGFloat = 760
+    /// Split cells wrap long lines, so two columns stay readable down to about this width.
+    static let minimumSplitWidth: CGFloat = 480
     /// Diffs with more changed lines than this start collapsed.
     static let largeDiffLineCount = 25_000
 
@@ -169,15 +170,18 @@ private struct DiffTitle: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .truncationMode(.head)
+                        .textSelection(.enabled)
                 }
-                Text(name)
-                    .font(.system(size: 22, weight: .bold))
-                    .kerning(-0.3)
-                    .truncationMode(.middle)
+                HStack(alignment: .center, spacing: 10) {
+                    Text(name)
+                        .font(.system(size: 22, weight: .bold))
+                        .kerning(-0.3)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                    if let tag = LanguageTag(path: diff.path) { tag }
+                }
             }
             .lineLimit(1)
-            .textSelection(.enabled)
-            .help(diff.path)
             Spacer(minLength: 8)
             if diff.isModeChange, !diff.hunks.isEmpty {
                 Text("\(diff.oldMode ?? "") → \(diff.newMode ?? "")")
@@ -221,22 +225,25 @@ private struct HunkBar: View {
             .frame(maxWidth: 260, alignment: .leading)
             if !actions.isEmpty {
                 Divider().frame(height: 22)
-                Menu {
+                HStack(spacing: 6) {
                     ForEach(actions.filter { $0 != .discard }, id: \.self) { action in
-                        Button(Self.title(for: action)) { perform(action) }
+                        Button { perform(action) } label: {
+                            Label(Self.title(for: action), systemImage: Self.systemImage(for: action))
+                        }
+                        .buttonStyle(.pill(action == .commit ? .prominent : .normal, height: 32))
+                        .focusEffectDisabled()
                     }
                     if actions.contains(.discard) {
-                        Divider()
-                        Button(Self.title(for: .discard), role: .destructive) { perform(.discard) }
+                        Button { perform(.discard) } label: {
+                            Image(systemName: Self.systemImage(for: .discard))
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .buttonStyle(.pill(.destructive, height: 32))
+                        .focusEffectDisabled()
+                        .glassTooltip("Discard Hunk…", edge: .top)
                     }
-                } label: {
-                    Label("Actions", systemImage: "ellipsis.circle")
                 }
-                .menuStyle(.button)
-                .buttonStyle(.glass)
-                .controlSize(.large)
                 .fixedSize()
-                .help("Actions for this hunk")
             }
         }
         .padding(.leading, 6)
@@ -254,10 +261,19 @@ private struct HunkBar: View {
 
     private static func title(for action: ChangeAction) -> String {
         switch action {
-        case .stage: "Stage Hunk"
-        case .unstage: "Unstage Hunk"
-        case .commit: "Commit Hunk…"
+        case .stage: "Stage"
+        case .unstage: "Unstage"
+        case .commit: "Commit…"
         case .discard: "Discard Hunk…"
+        }
+    }
+
+    private static func systemImage(for action: ChangeAction) -> String {
+        switch action {
+        case .stage: "plus"
+        case .unstage: "minus"
+        case .commit: "checkmark"
+        case .discard: "trash"
         }
     }
 

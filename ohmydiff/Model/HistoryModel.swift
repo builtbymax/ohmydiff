@@ -36,6 +36,8 @@ final class HistoryModel {
     private(set) var phase: Phase = .idle
     private(set) var isRefreshing = false
     private(set) var files: Files?
+    /// The web page of the repository's remote, for Open on GitHub.
+    private(set) var remoteURL: URL?
     /// Syntax colors per file of the current selection, filled in as files are shown.
     private(set) var highlights: [FileDiff.ID: SyntaxHighlights] = [:]
 
@@ -54,6 +56,8 @@ final class HistoryModel {
     }
 
     @ObservationIgnored private var repository: Repository?
+    /// The repository `remoteURL` was looked up for.
+    @ObservationIgnored private var remoteRoot: URL?
     /// The revisions the current `files` were loaded for, to skip reloads when nothing moved.
     @ObservationIgnored private var loadedRevisions: Revisions?
     @ObservationIgnored private var filesTask: Task<Void, Never>?
@@ -77,6 +81,10 @@ final class HistoryModel {
     // MARK: Loading
 
     func refresh(_ repository: Repository) async {
+        if remoteRoot != repository.root {
+            remoteRoot = repository.root
+            remoteURL = await repository.remoteWebURL()
+        }
         self.repository = repository
         isRefreshing = true
         defer { isRefreshing = false }

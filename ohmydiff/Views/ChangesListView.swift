@@ -146,8 +146,7 @@ private struct ChangeGroupHeader: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .fixedSize()
-                        // Top of the stack first, like `but status`.
-                        .help(branches.joined(separator: "\n"))
+                        .hoverCard { StackHoverCard(branches: branches) }
                 }
             } else {
                 Text(group.title)
@@ -207,23 +206,113 @@ struct FileRow: View {
                 LineStatsLabel(stats: stats)
             }
         }
-        .help(previousPath.map { "\($0) → \(path)" } ?? path)
+        .hoverCard {
+            FileHoverCard(path: path, previousPath: previousPath, kind: kind, stats: stats, badge: badge)
+        }
     }
 
     private var name: String { (path as NSString).lastPathComponent }
     private var directory: String { (path as NSString).deletingLastPathComponent }
 
-    private var badge: (letter: String, color: Color) {
-        switch kind {
-        case .added: ("A", .green)
-        case .untracked: ("U", .green)
-        case .deleted: ("D", .red)
+    private var badge: FileBadge { FileBadge(kind: kind) }
+}
+
+/// The letter and color of a file's change kind, e.g. a green `A` for an added file.
+struct FileBadge {
+    let letter: String
+    let color: Color
+
+    init(kind: FileChangeKind) {
+        (letter, color) = switch kind {
+        case .added: ("A", Theme.addition)
+        case .untracked: ("U", Theme.addition)
+        case .deleted: ("D", Theme.deletion)
         case .modified: ("M", .orange)
         case .renamed: ("R", .blue)
         case .copied: ("C", .blue)
         case .typeChanged: ("T", .purple)
         case .conflicted: ("!", .red)
         case .unknown: ("?", .secondary)
+        }
+    }
+}
+
+/// A file's full path, rename source, kind and line counts.
+private struct FileHoverCard: View {
+    let path: String
+    let previousPath: String?
+    let kind: FileChangeKind
+    let stats: LineStats?
+    let badge: FileBadge
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(kindTitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(badge.color)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(badge.color.opacity(0.14), in: .capsule)
+                if let tag = LanguageTag(path: path) { tag }
+                Spacer(minLength: 4)
+                if let stats { LineStatsLabel(stats: stats) }
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text((path as NSString).lastPathComponent)
+                    .font(.callout.weight(.semibold))
+                Text(path)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            if let previousPath {
+                HoverCardField(label: "Renamed", value: "from \(previousPath)", monospaced: true)
+            }
+        }
+    }
+
+    private var kindTitle: String {
+        switch kind {
+        case .added: "Added"
+        case .untracked: "Untracked"
+        case .deleted: "Deleted"
+        case .modified: "Modified"
+        case .renamed: "Renamed"
+        case .copied: "Copied"
+        case .typeChanged: "Type Changed"
+        case .conflicted: "Conflicted"
+        case .unknown: "Changed"
+        }
+    }
+}
+
+/// The branches of a stack, top first like `but status`.
+private struct StackHoverCard: View {
+    let branches: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Stack · \(branches.count) branches")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(branches.enumerated()), id: \.offset) { index, branch in
+                    HStack(spacing: 8) {
+                        VStack(spacing: 0) {
+                            Rectangle().fill(index == 0 ? .clear : Color.secondary.opacity(0.4)).frame(width: 1.5)
+                            Circle().fill(index == 0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary)).frame(width: 7, height: 7)
+                            Rectangle().fill(index == branches.count - 1 ? .clear : Color.secondary.opacity(0.4)).frame(width: 1.5)
+                        }
+                        .frame(width: 10)
+                        Text(branch)
+                            .font(.callout.weight(index == 0 ? .semibold : .regular))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .frame(height: 24)
+                }
+            }
         }
     }
 }
