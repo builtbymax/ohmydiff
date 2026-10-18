@@ -30,7 +30,7 @@ struct HistoryDetailView: View {
             }
             .animation(.snappy(duration: 0.25), value: isInfoShown)
         } else {
-            ContentUnavailableView("No Selection", systemImage: "clock")
+            EmptyState("No Selection", systemImage: "clock")
         }
     }
 
@@ -42,11 +42,11 @@ struct HistoryDetailView: View {
                 .controlSize(.small)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .unavailable(let message):
-            ContentUnavailableView("Nothing to Review", systemImage: "doc", description: Text(message))
+            EmptyState("Nothing to Review", systemImage: "doc", description: message)
         case .failed(let message):
-            ContentUnavailableView("Could Not Load Diff", systemImage: "exclamationmark.triangle", description: Text(message))
+            EmptyState("Could Not Load Diff", systemImage: "exclamationmark.triangle", description: message)
         case .loaded(let diffs) where diffs.isEmpty:
-            ContentUnavailableView("No Changes", systemImage: "equal", description: Text("No files changed."))
+            EmptyState("No Changes", systemImage: "equal", description: "No files changed.")
         case .loaded(let diffs):
             HStack(spacing: 0) {
                 ScrollViewReader { proxy in
@@ -99,7 +99,7 @@ struct HistoryDetailView: View {
                             await history.contents(of: file, side: side)
                         }
                     } else {
-                        ContentUnavailableView("No File Selected", systemImage: "text.alignleft")
+                        EmptyState("No File Selected", systemImage: "text.alignleft")
                     }
                 }
                 .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)

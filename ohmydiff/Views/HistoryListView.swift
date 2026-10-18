@@ -22,13 +22,9 @@ struct HistoryListView: View {
     private var content: some View {
         switch (session.phase, history.phase) {
         case (.missing, _):
-            ContentUnavailableView("Folder Not Found", systemImage: "questionmark.folder", description: Text("\(session.project.path) was moved or deleted."))
+            EmptyState("Folder Not Found", systemImage: "questionmark.folder", description: "\(session.project.path) was moved or deleted.")
         case (.failed(let message), _), (_, .failed(let message)):
-            ContentUnavailableView {
-                Label("Could Not Load History", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            } actions: {
+            EmptyState("Could Not Load History", systemImage: "exclamationmark.triangle", description: message) {
                 Button("Try Again") { session.refresh() }
             }
         case (.idle, _), (_, .idle):
@@ -36,9 +32,9 @@ struct HistoryListView: View {
                 .controlSize(.small)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case (.ready, .ready) where history.groups.allSatisfy(\.branches.isEmpty):
-            ContentUnavailableView(
+            EmptyState(
                 "No Branches", systemImage: "arrow.triangle.branch",
-                description: Text(session.project.kind == .gitButler ? "No branches are applied to the workspace." : "The repository has no local branches."))
+                description: session.project.kind == .gitButler ? "No branches are applied to the workspace." : "The repository has no local branches.")
         case (.ready, .ready):
             ScrollViewReader { proxy in
                 ScrollView {

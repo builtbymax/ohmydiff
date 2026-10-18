@@ -56,7 +56,7 @@ struct DiffWindow: View {
                     .navigationTitle((diff.path as NSString).lastPathComponent)
                     .navigationSubtitle("\(project) · \(context)")
             case nil:
-                ContentUnavailableView("Diff Unavailable", systemImage: "macwindow", description: Text("Open the diff again from the main window."))
+                EmptyState("Diff Unavailable", systemImage: "macwindow", description: "Open the diff again from the main window.")
             }
         }
         .background(Theme.panel, in: .rect(cornerRadius: 16))
@@ -96,9 +96,9 @@ private struct LiveDiff: View {
                     await session.contents(ofPath: path, side: side)
                 }
             } else if case .failed(let message)? = state?.content {
-                ContentUnavailableView("Could Not Load Diff", systemImage: "exclamationmark.triangle", description: Text(message))
+                EmptyState("Could Not Load Diff", systemImage: "exclamationmark.triangle", description: message)
             } else if isLoaded {
-                ContentUnavailableView("No Changes", systemImage: "checkmark.circle", description: Text("\(path) no longer differs from the last commit."))
+                EmptyState("No Changes", systemImage: "checkmark.circle", description: "\(path) no longer differs from the last commit.")
             } else {
                 ProgressView().controlSize(.small)
             }

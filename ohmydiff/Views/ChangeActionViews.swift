@@ -97,82 +97,185 @@ private struct CommitSheet: View {
     @State private var newBranch = ""
     @State private var message = ""
     @State private var error: String?
-    @FocusState private var isMessageFocused: Bool
+    @FocusState private var focus: Field?
+
+    private enum Field { case branchName, message }
 
     private var targetBranch: String { isNewBranch ? newBranch.trimmingCharacters(in: .whitespaces) : branch }
     private var canCommit: Bool {
         !targetBranch.isEmpty && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !session.isPerformingAction
     }
 
+    /// The summed line counts, when every target is a whole file with known counts.
+    private var stats: LineStats? {
+        guard request.targets.allSatisfy({ $0.hunk == nil }) else { return nil }
+        let all = request.targets.compactMap(\.file.stats)
+        guard all.count == request.targets.count else { return nil }
+        return LineStats(additions: all.reduce(0) { $0 + $1.additions }, deletions: all.reduce(0) { $0 + $1.deletions })
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Commit \(request.subject)")
-                .font(.headline)
-            Form {
-                Picker("Branch", selection: $isNewBranch) {
-                    Text("Existing Branch").tag(false)
-                    Text("New Branch").tag(true)
+        VStack(alignment: .leading, spacing: 16) {
+            header
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    sectionTitle("Branch")
+                    Spacer()
+                    SoftSegmented(
+                        selection: $isNewBranch,
+                        options: [(false, "Existing"), (true, "New")],
+                        disabled: session.branchNames.isEmpty ? [false] : [])
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
                 if isNewBranch {
-                    TextField("Name", text: $newBranch, prompt: Text("feature/name"))
+                    TextField("Branch name", text: $newBranch, prompt: Text("feature/name"))
+                        .textFieldStyle(.plain)
+                        .font(.body.monospaced())
+                        .focused($focus, equals: .branchName)
+                        .onSubmit { focus = .message }
+                        .padding(.horizontal, 10)
+                        .frame(height: 34)
+                        .fieldBackground(isFocused: focus == .branchName)
                 } else {
-                    Picker("Branch", selection: $branch) {
-                        ForEach(session.branchNames, id: \.self) { Text($0).tag($0) }
-                    }
-                    .disabled(session.branchNames.isEmpty)
+                    branchList
                 }
             }
-            .formStyle(.columns)
 
-            TextEditor(text: $message)
-                .font(.body.monospaced())
-                .focused($isMessageFocused)
-                .frame(minHeight: 120)
-                .overlay(alignment: .topLeading) {
-                    if message.isEmpty {
-                        Text("Commit message")
-                            .foregroundStyle(.tertiary)
-                            .padding(.leading, 5)
-                            .allowsHitTesting(false)
+            VStack(alignment: .leading, spacing: 8) {
+                sectionTitle("Message")
+                TextEditor(text: $message)
+                    .font(.body.monospaced())
+                    .scrollContentBackground(.hidden)
+                    .focused($focus, equals: .message)
+                    .frame(minHeight: 120)
+                    .overlay(alignment: .topLeading) {
+                        if message.isEmpty {
+                            Text("Summary of the change")
+                                .font(.body.monospaced())
+                                .foregroundStyle(.tertiary)
+                                .padding(.leading, 5)
+                                .allowsHitTesting(false)
+                        }
                     }
-                }
-                .border(.separator)
-
-            if let error {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .textSelection(.enabled)
-            } else {
-                Text("Only the selected changes are committed, with `but commit -b`.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .padding(8)
+                    .fieldBackground(isFocused: focus == .message)
             }
 
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Commit") { commit() }
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canCommit)
-            }
+            footer
         }
         .padding(20)
         .frame(width: 460)
         .onAppear {
             branch = session.suggestedBranch(for: request.targets)
             isNewBranch = session.branchNames.isEmpty
-            isMessageFocused = true
+            focus = isNewBranch ? .branchName : .message
         }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.black)
+                .frame(width: 34, height: 34)
+                .background(Theme.logo, in: .rect(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Commit \(request.subject)")
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                HStack(spacing: 6) {
+                    if let stats { LineStatsLabel(stats: stats) }
+                    Text("Only the selected changes are committed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private var branchList: some View {
+        ScrollView {
+            VStack(spacing: 1) {
+                ForEach(session.branchNames, id: \.self) { name in
+                    Button { branch = name } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 16)
+                            Text(name)
+                                .font(.callout.monospaced())
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer(minLength: 8)
+                            if name == branch {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(Theme.logoText)
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .frame(height: 28)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.row(isSelected: name == branch))
+                    .focusEffectDisabled()
+                }
+            }
+            .padding(4)
+        }
+        .scrollIndicators(.never)
+        .frame(maxHeight: 128)
+        .fixedSize(horizontal: false, vertical: true)
+        .fieldBackground(isFocused: false)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(Theme.deletion)
+                    .textSelection(.enabled)
+                    .lineLimit(3)
+            } else {
+                HStack(spacing: 5) {
+                    KeyCap("⌘↩")
+                    Text("to commit with `but commit -b`")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 8)
+            Button("Cancel", role: .cancel) { dismiss() }
+                .keyboardShortcut(.cancelAction)
+                .buttonStyle(.pill(height: 32))
+            Button { commit() } label: {
+                if session.isPerformingAction {
+                    ProgressView().controlSize(.small).tint(.black)
+                } else {
+                    Text("Commit")
+                }
+            }
+            .keyboardShortcut(.return, modifiers: .command)
+            .buttonStyle(.pill(.prominent, height: 32))
+            .disabled(!canCommit)
+        }
+        .focusEffectDisabled()
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
     }
 
     private func commit() {
         guard canCommit else { return }
         let branch = targetBranch
+        error = nil
         Task {
             do {
                 try await session.run(.commit, on: request.targets, branch: branch, message: message)
@@ -181,5 +284,53 @@ private struct CommitSheet: View {
                 self.error = String(describing: error)
             }
         }
+    }
+}
+
+/// A small capsule segmented control on solid surfaces: the selected segment is a raised white pill.
+private struct SoftSegmented<Value: Hashable>: View {
+    @Binding var selection: Value
+    let options: [(value: Value, title: String)]
+    var disabled: Set<Value> = []
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(options, id: \.value) { option in
+                let isSelected = option.value == selection
+                Button { withAnimation(.snappy(duration: 0.18)) { selection = option.value } } label: {
+                    Text(option.title)
+                        .font(.caption.weight(isSelected ? .semibold : .medium))
+                        .foregroundStyle(isSelected ? .primary : .secondary)
+                        .padding(.horizontal, 11)
+                        .frame(height: 22)
+                        .background {
+                            if isSelected {
+                                Capsule()
+                                    .fill(Theme.cardRow)
+                                    .shadow(color: .black.opacity(0.08), radius: 1, y: 1)
+                            }
+                        }
+                        .contentShape(.capsule)
+                }
+                .buttonStyle(.plain)
+                .disabled(disabled.contains(option.value))
+                .opacity(disabled.contains(option.value) ? 0.4 : 1)
+            }
+        }
+        .padding(2)
+        .background(Color.primary.opacity(0.06), in: .capsule)
+        .overlay(Capsule().strokeBorder(Theme.hairline))
+        .focusEffectDisabled()
+    }
+}
+
+private extension View {
+    /// A soft rounded well for inputs; its edge turns lime while focused.
+    func fieldBackground(isFocused: Bool) -> some View {
+        background(Color.primary.opacity(0.045), in: .rect(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(isFocused ? Theme.logoText.opacity(0.7) : Theme.hairline, lineWidth: isFocused ? 1.5 : 1))
+            .animation(.snappy(duration: 0.15), value: isFocused)
     }
 }

@@ -27,25 +27,18 @@ struct ChangesListView: View {
                 .controlSize(.small)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .missing:
-            ContentUnavailableView {
-                Label("Folder Not Found", systemImage: "questionmark.folder")
-            } description: {
-                Text("\(session.project.path) was moved or deleted.")
-            } actions: {
+            EmptyState("Folder Not Found", systemImage: "questionmark.folder", description: "\(session.project.path) was moved or deleted.") {
                 Button("Locate…") { isLocating = true }
                 Button("Remove Project") { model.remove(session.project.id) }
+                    .buttonStyle(.pill(.destructive))
                 Button("Try Again") { session.refresh() }
             }
         case .failed(let message):
-            ContentUnavailableView {
-                Label("Could Not Load Project", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            } actions: {
+            EmptyState("Could Not Load Project", systemImage: "exclamationmark.triangle", description: message) {
                 Button("Try Again") { session.refresh() }
             }
         case .ready where visibleGroups.isEmpty:
-            ContentUnavailableView("No Changes", systemImage: "checkmark.circle", description: Text("The working tree is clean."))
+            EmptyState("No Changes", systemImage: "checkmark.circle", description: "The working tree is clean.")
         case .ready:
             ScrollViewReader { proxy in
                 ScrollView {

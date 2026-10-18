@@ -219,3 +219,54 @@ struct KeyCap: View {
             .fixedSize()
     }
 }
+
+/// A placeholder for an empty or failed pane in the app's own style: the icon on a small card tile,
+/// a compact title and caption, and pill actions.
+struct EmptyState<Actions: View>: View {
+    let title: String
+    let systemImage: String
+    var description: String?
+    @ViewBuilder var actions: Actions
+
+    init(_ title: String, systemImage: String, description: String? = nil, @ViewBuilder actions: () -> Actions) {
+        self.title = title
+        self.systemImage = systemImage
+        self.description = description
+        self.actions = actions()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 44, height: 44)
+                .background(Theme.card, in: .rect(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.hairline))
+                .padding(.bottom, 14)
+            Text(title)
+                .font(.body.weight(.semibold))
+            if let description {
+                Text(description)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
+            }
+            if Actions.self != EmptyView.self {
+                HStack(spacing: 8) { actions }
+                    .buttonStyle(.pill())
+                    .padding(.top, 16)
+            }
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 320)
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+extension EmptyState where Actions == EmptyView {
+    init(_ title: String, systemImage: String, description: String? = nil) {
+        self.init(title, systemImage: systemImage, description: description) { EmptyView() }
+    }
+}

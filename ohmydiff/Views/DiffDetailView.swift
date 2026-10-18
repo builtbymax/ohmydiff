@@ -10,9 +10,9 @@ struct DiffDetailView: View {
         if let state = session.diff, let file = session.selectedFile {
             content(state.content, file: file)
         } else if session.phase == .ready && session.changeCount == 0 {
-            ContentUnavailableView("No Changes", systemImage: "checkmark.circle")
+            EmptyState("No Changes", systemImage: "checkmark.circle")
         } else {
-            ContentUnavailableView("No Selection", systemImage: "text.alignleft")
+            EmptyState("No Selection", systemImage: "text.alignleft")
         }
     }
 
@@ -24,13 +24,9 @@ struct DiffDetailView: View {
                 .controlSize(.small)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .noDifference:
-            ContentUnavailableView("No Differences", systemImage: "equal", description: Text("\(file.path) matches the last commit."))
+            EmptyState("No Differences", systemImage: "equal", description: "\(file.path) matches the last commit.")
         case .failed(let message):
-            ContentUnavailableView {
-                Label("Could Not Load Diff", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            } actions: {
+            EmptyState("Could Not Load Diff", systemImage: "exclamationmark.triangle", description: message) {
                 Button("Try Again") { session.refresh() }
             }
         case .diff(let diff):
@@ -156,18 +152,15 @@ struct FileDiffView: View {
         if diff.isBinary, DiffSettings.isImage(diff.path) {
             ImageDiffView(fileID: fileID, contents: contents)
         } else if diff.isBinary {
-            ContentUnavailableView("Binary File", systemImage: "doc.zipper", description: Text("Binary changes cannot be shown."))
+            EmptyState("Binary File", systemImage: "doc.zipper", description: "Binary changes cannot be shown.")
         } else if diff.hunks.isEmpty {
-            ContentUnavailableView(
+            EmptyState(
                 diff.isModeChange ? "Mode Changed" : "Empty File", systemImage: "doc",
-                description: Text(diff.isModeChange ? "\(diff.oldMode ?? "") → \(diff.newMode ?? "")" : "The file has no content."))
+                description: diff.isModeChange ? "\(diff.oldMode ?? "") → \(diff.newMode ?? "")" : "The file has no content.")
         } else if DiffSettings.isLarge(diff), !revealedFiles.contains(fileID) {
-            ContentUnavailableView {
-                Label("Large Diff", systemImage: "doc.text.magnifyingglass")
-            } description: {
-                Text("\(diff.additions + diff.deletions) changed lines are hidden to keep things fast.")
-            } actions: {
+            EmptyState("Large Diff", systemImage: "doc.text.magnifyingglass", description: "\(diff.additions + diff.deletions) changed lines are hidden to keep things fast.") {
                 Button("Show Diff") { revealedFiles.insert(fileID) }
+                    .buttonStyle(.pill(.prominent))
             }
         } else {
             GeometryReader { proxy in
@@ -383,7 +376,7 @@ private struct ImageDiffView: View {
                     if let old = images.old { preview(old, title: "Before") }
                     if let new = images.new { preview(new, title: "After") }
                     if images.old == nil && images.new == nil {
-                        ContentUnavailableView("Image Unavailable", systemImage: "photo")
+                        EmptyState("Image Unavailable", systemImage: "photo")
                     }
                 }
                 .padding(24)

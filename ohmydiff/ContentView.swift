@@ -98,12 +98,9 @@ private struct ListPaneView: View {
                 HistoryListView(session: session)
             }
         } else {
-            ContentUnavailableView {
-                Label("No Projects", systemImage: "folder.badge.plus")
-            } description: {
-                Text("Add a git repository or drop a folder on the rail.")
-            } actions: {
+            EmptyState("No Projects", systemImage: "folder.badge.plus", description: "Add a git repository or drop a folder on the rail.") {
                 Button("Add Project…") { model.isImporterPresented = true }
+                    .buttonStyle(.pill(.prominent))
             }
         }
     }
@@ -120,7 +117,7 @@ private struct DetailPaneView: View {
             case .history: HistoryDetailView(history: session.history, root: session.rootURL)
             }
         } else {
-            ContentUnavailableView("No Selection", systemImage: "text.alignleft")
+            EmptyState("No Selection", systemImage: "text.alignleft")
         }
     }
 }
