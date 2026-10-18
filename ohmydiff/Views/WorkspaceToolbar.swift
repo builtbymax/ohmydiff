@@ -54,7 +54,7 @@ struct WorkspaceToolbar: View {
     }
 }
 
-/// `ohmydiff ⌄ / feature/x  GitButler · 3 branches`; the project name opens the project menu.
+/// `ohmydiff ⌄ / feature/x  GitButler · 3`; the project name opens the project menu.
 private struct ProjectBreadcrumb: View {
     let model: AppModel
     let mode: WorkspaceMode
@@ -130,11 +130,19 @@ private struct ProjectMenu: View {
     }
 }
 
-/// `Git` or `GitButler · 3 branches`, or `Missing`.
+/// `Git` or `GitButler · 3` with the applied branch count, or `Missing`.
 private struct KindPill: View {
     let session: ProjectSession
 
     var body: some View {
+        if isGitButler {
+            pill.glassTooltip(session.branchNames.count == 1 ? "1 branch applied" : "\(session.branchNames.count) branches applied")
+        } else {
+            pill
+        }
+    }
+
+    private var pill: some View {
         Text(text)
             .font(.caption.weight(.semibold))
             .foregroundStyle(color)
@@ -149,8 +157,7 @@ private struct KindPill: View {
     private var text: String {
         if session.phase == .missing { return "Missing" }
         guard isGitButler else { return "Git" }
-        let count = session.branchNames.count
-        return count == 1 ? "GitButler · 1 branch" : "GitButler · \(count) branches"
+        return "GitButler · \(session.branchNames.count)"
     }
 }
 
