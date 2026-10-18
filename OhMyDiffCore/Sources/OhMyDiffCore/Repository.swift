@@ -87,28 +87,39 @@ public struct Repository: Sendable {
 
     /// Uncommitted changes grouped the way the project's kind presents them.
     public func changeGroups() async throws -> [ChangeGroup] {
-        let groups = switch kind {
+        let groups: [ChangeGroup]
+        switch kind {
         case .git:
-            Self.gitChangeGroups(try await gitStatus())
+            groups = Self.gitChangeGroups(try await gitStatus())
         case .gitButler:
-            Self.butChangeGroups(try await butStatus(), gitStatus: try await gitStatus())
+            // Independent reads; `but status` is the slow one, so `git status` runs alongside it.
+            async let butStatus = butStatus()
+            async let gitStatus = gitStatus()
+            groups = Self.butChangeGroups(try await butStatus, gitStatus: try await gitStatus)
         }
         return try await addingStats(to: groups)
     }
 
     /// Fills in each file's line counts with one `--numstat` run per diff the groups draw from.
     private func addingStats(to groups: [ChangeGroup]) async throws -> [ChangeGroup] {
-        var stats: [ChangeSource: [String: LineStats]] = [:]
-        for source in Set(groups.flatMap { $0.files.map(\.source) }) {
-            let base: [String]
-            switch source {
-            case .staged: base = ["diff", "--cached"]
-            case .unstaged: base = ["diff"]
-            case .workspace: base = ["diff", "HEAD"]
-            case .untracked, .conflicted: continue
+        // The `--numstat` runs are independent, so they run at once.
+        let stats = try await withThrowingTaskGroup(of: (ChangeSource, [String: LineStats]).self) { tasks in
+            for source in Set(groups.flatMap { $0.files.map(\.source) }) {
+                let base: [String]
+                switch source {
+                case .staged: base = ["diff", "--cached"]
+                case .unstaged: base = ["diff"]
+                case .workspace: base = ["diff", "HEAD"]
+                case .untracked, .conflicted: continue
+                }
+                tasks.addTask {
+                    let output = try await toolchain.git(base + Self.diffOptions + ["--numstat", "-z"], in: root)
+                    return (source, NumstatParser.parse(output.stdout))
+                }
             }
-            let output = try await toolchain.git(base + Self.diffOptions + ["--numstat", "-z"], in: root)
-            stats[source] = NumstatParser.parse(output.stdout)
+            var stats: [ChangeSource: [String: LineStats]] = [:]
+            for try await (source, parsed) in tasks { stats[source] = parsed }
+            return stats
         }
 
         return groups.map { group in
