@@ -62,7 +62,7 @@ struct DiffWindow: View {
         .background(Theme.panel, in: .rect(cornerRadius: 16))
         .clipShape(.rect(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.hairline))
-        .padding([.horizontal, .bottom], Theme.inset)
+        .padding(Theme.inset)
         .background { WindowTranslucency().ignoresSafeArea() }
         .frame(minWidth: 520, minHeight: 360)
         .toolbar {
