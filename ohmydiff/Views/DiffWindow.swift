@@ -6,7 +6,21 @@ enum DiffPopout: Equatable {
     /// An uncommitted file, followed live as the project refreshes.
     case change(projectID: Project.ID, path: String)
     /// A file of a commit or branch in History mode, which does not change.
-    case snapshot(project: String, context: String, diff: FileDiff, highlights: SyntaxHighlights?, root: URL)
+    case snapshot(
+        project: String, context: String, diff: FileDiff, highlights: SyntaxHighlights?, root: URL,
+        sources: (old: RevisionFile?, new: RevisionFile?))
+
+    static func == (lhs: DiffPopout, rhs: DiffPopout) -> Bool {
+        switch (lhs, rhs) {
+        case let (.change(lProject, lPath), .change(rProject, rPath)):
+            lProject == rProject && lPath == rPath
+        case let (.snapshot(lProject, lContext, lDiff, lHighlights, lRoot, lSources), .snapshot(rProject, rContext, rDiff, rHighlights, rRoot, rSources)):
+            lProject == rProject && lContext == rContext && lDiff == rDiff && lHighlights == rHighlights && lRoot == rRoot
+                && lSources == rSources
+        default:
+            false
+        }
+    }
 }
 
 extension FocusedValues {
@@ -28,8 +42,12 @@ struct DiffWindow: View {
             switch popoutID.flatMap({ model.popouts[$0] }) {
             case .change(let projectID, let path):
                 LiveDiff(session: model.session(for: projectID), path: path)
-            case .snapshot(let project, let context, let diff, let highlights, let root):
-                FileDiffView(fileID: "\(context):\(diff.id)", diff: diff, highlights: highlights, root: root) { _ in nil }
+            case .snapshot(let project, let context, let diff, let highlights, let root, let sources):
+                FileDiffView(fileID: "\(context):\(diff.id)", diff: diff, highlights: highlights, root: root) { side in
+                    guard let source = side == .old ? sources.old : sources.new, let toolchain = await model.toolchain() else { return nil }
+                    let repository = Repository(root: root, kind: .git, toolchain: toolchain)
+                    return try? await repository.contents(at: source.revision, path: source.path)
+                }
                     .navigationTitle((diff.path as NSString).lastPathComponent)
                     .navigationSubtitle("\(project) · \(context)")
             case nil:
@@ -66,7 +84,9 @@ private struct LiveDiff: View {
     var body: some View {
         Group {
             if let state, case .diff(let diff) = state.content {
-                FileDiffView(fileID: state.fileID, diff: diff, highlights: state.highlights, root: session.rootURL) { _ in nil }
+                FileDiffView(fileID: state.fileID, diff: diff, highlights: state.highlights, root: session.rootURL) { side in
+                    await session.contents(ofPath: path, side: side)
+                }
             } else if case .failed(let message)? = state?.content {
                 ContentUnavailableView("Could Not Load Diff", systemImage: "exclamationmark.triangle", description: Text(message))
             } else if isLoaded {

@@ -17,4 +17,17 @@ enum DiffHighlighting {
         let (oldText, newText) = await (old, new)
         return SyntaxHighlighter.highlights(for: diff, language: language, old: oldText, new: newText)
     }
+
+    /// `diff` expanded to the whole file, with syntax colors for every line; `nil` when the contents do not
+    /// match the diff.
+    @concurrent
+    static func wholeFile(for diff: FileDiff, old: Data?, new: Data?) async -> (diff: FileDiff, highlights: SyntaxHighlights?)? {
+        guard let expanded = diff.expandedToWholeFile(old: old, new: new) else { return nil }
+        let highlights = SyntaxLanguage(path: diff.path).map { language in
+            SyntaxHighlighter.highlights(
+                for: expanded, language: language,
+                old: old.flatMap { String(data: $0, encoding: .utf8) }, new: new.flatMap { String(data: $0, encoding: .utf8) })
+        }
+        return (expanded, highlights)
+    }
 }

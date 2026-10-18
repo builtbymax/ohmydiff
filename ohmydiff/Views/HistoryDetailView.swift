@@ -91,7 +91,8 @@ struct HistoryDetailView: View {
                             fileID: "\(selection):\(file.id)", diff: file, highlights: history.highlights[file.id], root: root,
                             popout: .snapshot(
                                 project: root.lastPathComponent, context: context(for: selection), diff: file,
-                                highlights: history.highlights[file.id], root: root)
+                                highlights: history.highlights[file.id], root: root,
+                                sources: (history.source(of: file, side: .old), history.source(of: file, side: .new)))
                         ) { side in
                             await history.contents(of: file, side: side)
                         }

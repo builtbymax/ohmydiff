@@ -23,6 +23,8 @@ struct DiffTableView: NSViewRepresentable {
     let highlights: SyntaxHighlights?
     let mode: DiffLayoutMode
     let fontSize: CGFloat
+    /// The diff is expanded to the whole file: hunk headers are left out and `n` / `p` jump to each hunk's first change.
+    var isWholeFile = false
     /// Room below the last row, e.g. for a bar floating over the bottom of the diff.
     var bottomInset: CGFloat = 0
     /// The file line the selection points at (or the first change without a selection), for opening in an editor.
@@ -73,7 +75,7 @@ struct DiffTableView: NSViewRepresentable {
         }
         context.coordinator.hunkActions = hunkActions
         context.coordinator.onHunkAction = onHunkAction
-        context.coordinator.show(diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize)
+        context.coordinator.show(diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize, isWholeFile: isWholeFile)
     }
 
     @MainActor
@@ -93,6 +95,7 @@ struct DiffTableView: NSViewRepresentable {
         private var splitColumnWidth: CGFloat = 0
         private var formatter = DiffRowFormatter()
         private var fontSize: CGFloat?
+        private var isWholeFile = false
         var onFocusLine: (Int?) -> Void = { _ in }
         var onVisibleHunk: (Int?) -> Void = { _ in }
         private var visibleHunk: Int?
@@ -127,43 +130,54 @@ struct DiffTableView: NSViewRepresentable {
             observers.forEach(NotificationCenter.default.removeObserver)
         }
 
-        func show(_ diff: FileDiff, highlights: SyntaxHighlights?, fileID: ChangedFile.ID, mode: DiffLayoutMode, fontSize: CGFloat) {
+        func show(
+            _ diff: FileDiff, highlights: SyntaxHighlights?, fileID: ChangedFile.ID, mode: DiffLayoutMode, fontSize: CGFloat,
+            isWholeFile: Bool
+        ) {
             guard let tableView,
                   diff != self.diff || highlights != self.highlights || fileID != self.fileID || mode != self.mode
-                    || fontSize != self.fontSize
+                    || fontSize != self.fontSize || isWholeFile != self.isWholeFile
             else { return }
             // Rows of the other layout do not line up with the current ones, so start over at the top.
             let isNewFile = fileID != self.fileID || mode != self.mode
+            // Expanding or collapsing the file moves every row; keep the line at the top in place, or
+            // when still at the top, show the first change.
+            let isTogglingWholeFile = !isNewFile && isWholeFile != self.isWholeFile
+            let anchor = isTogglingWholeFile && topRow() != 0 ? topLine() : nil
             if mode != self.mode { configureColumns(for: mode) }
             self.diff = diff
             self.highlights = highlights
             self.fileID = fileID
             self.mode = mode
             self.fontSize = fontSize
+            self.isWholeFile = isWholeFile
             formatter = DiffRowFormatter(diff: diff, highlights: highlights, metrics: DiffMetrics(fontSize: fontSize))
             tableView.rowHeight = formatter.metrics.rowHeight
 
             switch mode {
             case .unified:
-                unifiedRows = DiffLayout.unified(diff)
+                unifiedRows = DiffLayout.unified(diff, hunkHeaders: !isWholeFile)
                 splitRows = []
                 splitLengths = []
-                hunkRows = unifiedRows.indices.filter { if case .hunkHeader = unifiedRows[$0] { true } else { false } }
             case .split:
-                splitRows = DiffLayout.split(diff)
+                splitRows = DiffLayout.split(diff, hunkHeaders: !isWholeFile)
                 splitLengths = splitRows.map { row in
                     guard case .pair(let h, let old, let new) = row else { return (0, 0) }
                     return (old.map { formatter.splitLength(hunk: h, line: $0) } ?? 0, new.map { formatter.splitLength(hunk: h, line: $0) } ?? 0)
                 }
                 unifiedRows = []
-                hunkRows = splitRows.indices.filter { if case .hunkHeader = splitRows[$0] { true } else { false } }
             }
+            hunkRows = jumpRows()
 
             sizeColumns()
             tableView.reloadData()
             if isNewFile {
                 tableView.deselectAll(nil)
                 tableView.scrollRowToVisible(0)
+            } else if let anchor, let row = row(showing: anchor) {
+                scroll(toRow: row)
+            } else if isTogglingWholeFile, let first = hunkRows.first {
+                scroll(toRow: max(first - jumpLeadRows, 0))
             }
             reportFocusLine()
             reportVisibleHunk()
@@ -301,19 +315,91 @@ struct DiffTableView: NSViewRepresentable {
 
         // MARK: Hunk navigation
 
-        func jumpToHunk(_ direction: Int) {
-            guard let tableView, let scrollView, !hunkRows.isEmpty else { return }
-            let topInset = scrollView.contentInsets.top
-            let top = scrollView.contentView.bounds.minY + topInset
-            let currentRow = max(tableView.row(at: NSPoint(x: 0, y: top + 1)), 0)
+        /// Rows of unchanged lines kept above a change jumped to in whole-file mode, for context.
+        private var jumpLeadRows: Int { isWholeFile ? 3 : 0 }
 
+        func jumpToHunk(_ direction: Int) {
+            guard !hunkRows.isEmpty, let currentRow = topRow() else { return }
+            let reference = currentRow + jumpLeadRows
             let target = direction > 0
-                ? hunkRows.first { $0 > currentRow }
-                : hunkRows.last { $0 < currentRow }
+                ? hunkRows.first { $0 > reference }
+                : hunkRows.last { $0 < reference }
             guard let target else { return }
-            let y = tableView.rect(ofRow: target).minY - topInset
+            scroll(toRow: max(target - jumpLeadRows, 0))
+        }
+
+        /// The rows `n` / `p` jump to: hunk headers, or each hunk's first change when there are no headers.
+        private func jumpRows() -> [Int] {
+            var rows: [Int] = []
+            var lastHunk: Int?
+            for row in 0..<rowCount {
+                switch (mode, isWholeFile) {
+                case (.unified, false):
+                    if case .hunkHeader = unifiedRows[row] { rows.append(row) }
+                case (.split, false):
+                    if case .hunkHeader = splitRows[row] { rows.append(row) }
+                case (.unified, true):
+                    if case .line(let h, let l) = unifiedRows[row], h != lastHunk, diff.hunks[h].lines[l].kind != .context {
+                        rows.append(row)
+                        lastHunk = h
+                    }
+                case (.split, true):
+                    if case .pair(let h, let old, let new) = splitRows[row], h != lastHunk, old != new {
+                        rows.append(row)
+                        lastHunk = h
+                    }
+                case (nil, _):
+                    break
+                }
+            }
+            return rows
+        }
+
+        private func topRow() -> Int? {
+            guard let tableView, let scrollView else { return nil }
+            let top = scrollView.contentView.bounds.minY + scrollView.contentInsets.top
+            return max(tableView.row(at: NSPoint(x: 0, y: top + 1)), 0)
+        }
+
+        private func scroll(toRow row: Int) {
+            guard let tableView, let scrollView else { return }
+            let y = tableView.rect(ofRow: row).minY - scrollView.contentInsets.top
             scrollView.contentView.scroll(to: NSPoint(x: scrollView.contentView.bounds.minX, y: y))
             scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+
+        /// The old and new line numbers of the first line at or below the top of the visible rows.
+        private func topLine() -> (old: Int?, new: Int?)? {
+            guard let top = topRow() else { return nil }
+            for row in top..<rowCount {
+                if let line = line(atRow: row) { return (line.oldLineNumber, line.newLineNumber) }
+            }
+            return nil
+        }
+
+        /// The first row showing the given line, or the line after it when it is not shown.
+        private func row(showing anchor: (old: Int?, new: Int?)) -> Int? {
+            for row in 0..<rowCount {
+                guard let line = line(atRow: row) else { continue }
+                if let new = anchor.new, let number = line.newLineNumber, number >= new { return row }
+                if anchor.new == nil, let old = anchor.old, let number = line.oldLineNumber, number >= old { return row }
+            }
+            return nil
+        }
+
+        private func line(atRow row: Int) -> DiffLine? {
+            switch mode {
+            case .unified:
+                guard unifiedRows.indices.contains(row), case .line(let h, let l) = unifiedRows[row] else { return nil }
+                return diff.hunks[h].lines[l]
+            case .split:
+                guard splitRows.indices.contains(row), case .pair(let h, let old, let new) = splitRows[row],
+                      let l = new ?? old
+                else { return nil }
+                return diff.hunks[h].lines[l]
+            case nil:
+                return nil
+            }
         }
 
         // MARK: Copy
@@ -344,9 +430,9 @@ struct DiffTableView: NSViewRepresentable {
 
         // MARK: Data source and delegate
 
-        func numberOfRows(in tableView: NSTableView) -> Int {
-            mode == .split ? splitRows.count : unifiedRows.count
-        }
+        func numberOfRows(in tableView: NSTableView) -> Int { rowCount }
+
+        private var rowCount: Int { mode == .split ? splitRows.count : unifiedRows.count }
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard mode == .split, splitLengths.indices.contains(row), splitColumnWidth > 0 else { return formatter.metrics.rowHeight }

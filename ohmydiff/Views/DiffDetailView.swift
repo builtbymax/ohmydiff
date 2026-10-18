@@ -59,7 +59,7 @@ struct FileDiffView: View {
     let root: URL
     /// What Open Diff in New Window shows; `nil` inside a diff window.
     var popout: DiffPopout? = nil
-    /// One side's contents, for image previews.
+    /// One side's contents, for image previews and the whole-file view.
     let contents: (Repository.FileSide) async -> Data?
     /// Actions in each hunk's context menu and the hunk bar; none in History mode.
     var hunkActions: [ChangeAction] = []
@@ -67,6 +67,9 @@ struct FileDiffView: View {
 
     @AppStorage(DiffSettings.layoutKey) private var preferredLayout: DiffLayoutMode = .unified
     @AppStorage(AppSettings.fontSizeKey) private var fontSize = Double(DiffMetrics.defaultFontSize)
+    @AppStorage(DiffSettings.wholeFileKey) private var prefersWholeFile = false
+    /// The diff expanded to the whole file, once loaded; `source` is the diff it was expanded from.
+    @State private var wholeFile: (source: FileDiff, diff: FileDiff, highlights: SyntaxHighlights?)?
     /// Large diffs the user chose to show anyway.
     @State private var revealedFiles: Set<String> = []
     @State private var focusLine: Int?
@@ -75,7 +78,7 @@ struct FileDiffView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            DiffTitle(diff: diff)
+            DiffTitle(diff: diff, showsWholeFile: DiffSettings.canShowWholeFile(diff) ? $prefersWholeFile : nil)
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Theme.panel)
@@ -96,6 +99,21 @@ struct FileDiffView: View {
         .focusedSceneValue(\.diffFile, DiffFileTarget(
             url: root.appending(path: diff.path), relativePath: diff.path, line: focusLine))
         .focusedSceneValue(\.diffPopout, popout)
+        .task(id: prefersWholeFile && DiffSettings.canShowWholeFile(diff) ? diff : nil) {
+            guard prefersWholeFile, DiffSettings.canShowWholeFile(diff), wholeFile?.source != diff else { return }
+            let old = await contents(.old)
+            let new = await contents(.new)
+            guard !Task.isCancelled, let expanded = await DiffHighlighting.wholeFile(for: diff, old: old, new: new),
+                  !Task.isCancelled
+            else { return }
+            wholeFile = (diff, expanded.diff, expanded.highlights)
+        }
+    }
+
+    /// The whole file when it is wanted and loaded for the current diff.
+    private var shownWholeFile: (diff: FileDiff, highlights: SyntaxHighlights?)? {
+        guard prefersWholeFile, let wholeFile, wholeFile.source == diff else { return nil }
+        return (wholeFile.diff, wholeFile.highlights)
     }
 
     /// Whether the diff rows are shown, rather than a placeholder.
@@ -125,9 +143,11 @@ struct FileDiffView: View {
             GeometryReader { proxy in
                 // Side by side needs room for two readable columns.
                 let mode: DiffLayoutMode = preferredLayout == .split && proxy.size.width >= DiffSettings.minimumSplitWidth ? .split : .unified
+                let wholeFile = shownWholeFile
                 DiffTableView(
-                    fileID: fileID, diff: diff, highlights: highlights, mode: mode,
+                    fileID: fileID, diff: wholeFile?.diff ?? diff, highlights: wholeFile.map(\.highlights) ?? highlights, mode: mode,
                     fontSize: CGFloat(fontSize.clamped(to: AppSettings.fontSizes)),
+                    isWholeFile: wholeFile != nil,
                     bottomInset: Theme.hunkBarInset,
                     onFocusLine: { line in
                         if line != focusLine { focusLine = line }
@@ -143,6 +163,7 @@ struct FileDiffView: View {
 
 enum DiffSettings {
     static let layoutKey = "diffLayout"
+    static let wholeFileKey = "diffWholeFile"
     /// Split cells wrap long lines, so two columns stay readable down to about this width.
     static let minimumSplitWidth: CGFloat = 480
     /// Diffs with more changed lines than this start collapsed.
@@ -150,6 +171,12 @@ enum DiffSettings {
 
     static func isLarge(_ diff: FileDiff) -> Bool {
         diff.hunks.reduce(0) { $0 + $1.lines.count } > largeDiffLineCount
+    }
+
+    /// Whether the diff leaves out unchanged lines that the whole-file view would add; added and
+    /// deleted files are shown whole already.
+    static func canShowWholeFile(_ diff: FileDiff) -> Bool {
+        !diff.isBinary && !diff.hunks.isEmpty && ![.added, .deleted, .untracked].contains(diff.kind) && !isLarge(diff)
     }
 
     static func isImage(_ path: String) -> Bool {
@@ -161,6 +188,8 @@ enum DiffSettings {
 /// The file's directory, name and line counts above its diff.
 private struct DiffTitle: View {
     let diff: FileDiff
+    /// The whole-file toggle; `nil` hides it.
+    let showsWholeFile: Binding<Bool>?
 
     var body: some View {
         HStack(alignment: .lastTextBaseline, spacing: 14) {
@@ -189,6 +218,17 @@ private struct DiffTitle: View {
                     .foregroundStyle(.secondary)
             }
             LineStatsLabel(stats: LineStats(additions: diff.additions, deletions: diff.deletions), font: .callout)
+            if let showsWholeFile {
+                let isOn = showsWholeFile.wrappedValue
+                Button { showsWholeFile.wrappedValue.toggle() } label: {
+                    Image(systemName: isOn ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.hoverCapsule(isSelected: isOn))
+                .focusEffectDisabled()
+                .glassTooltip(isOn ? "Show Changes Only  ⇧⌘\\" : "Show Whole File  ⇧⌘\\")
+            }
         }
     }
 

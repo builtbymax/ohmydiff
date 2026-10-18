@@ -12,6 +12,7 @@ struct CommandPalette: View {
     @FocusState private var isSearchFocused: Bool
 
     @AppStorage(DiffSettings.layoutKey) private var layout: DiffLayoutMode = .unified
+    @AppStorage(DiffSettings.wholeFileKey) private var showsWholeFile = false
     @AppStorage(AppSettings.isListHiddenKey) private var isListHidden = false
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
     @FocusedValue(\.diffFile) private var diffFile
@@ -305,6 +306,11 @@ struct CommandPalette: View {
             add("Show Side-by-Side Diff", "rectangle.split.2x1", "⌘\\") { layout = .split }
         } else {
             add("Show Unified Diff", "rectangle", "⌘\\") { layout = .unified }
+        }
+        if showsWholeFile {
+            add("Show Changes Only", "rectangle.compress.vertical", "⇧⌘\\") { showsWholeFile = false }
+        } else {
+            add("Show Whole File", "rectangle.expand.vertical", "⇧⌘\\") { showsWholeFile = true }
         }
         add(isListHidden ? "Show File List" : "Hide File List", "sidebar.left", "⌘0") {
             withAnimation(.snappy) { isListHidden.toggle() }

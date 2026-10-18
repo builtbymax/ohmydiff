@@ -282,6 +282,12 @@ final class ProjectSession {
         return try? await repository.contents(of: file, side: side)
     }
 
+    /// One side of the changed file at `path`, independent of the selection, e.g. for a diff window.
+    func contents(ofPath path: String, side: Repository.FileSide) async -> Data? {
+        guard let file = groups.lazy.flatMap(\.files).first(where: { $0.path == path }) else { return nil }
+        return await contents(of: file, side: side)
+    }
+
     /// The current diff of the changed file at `path`, with syntax colors, independent of the selection,
     /// e.g. for a diff window. `nil` when the file no longer has changes or the repository is not open yet.
     func diffState(forPath path: String) async -> DiffState? {

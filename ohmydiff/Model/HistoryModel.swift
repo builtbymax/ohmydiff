@@ -196,13 +196,23 @@ final class HistoryModel {
         }
     }
 
-    /// One side of a file of the current selection, for image previews.
+    /// One side of a file of the current selection, for image previews and the whole-file view.
     func contents(of file: FileDiff, side: Repository.FileSide) async -> Data? {
-        guard let repository, let revisions = loadedRevisions else { return nil }
-        let revision = side == .old ? revisions.base ?? "\(revisions.tip)^" : revisions.tip
-        guard let path = side == .old ? file.oldPath : file.newPath else { return nil }
-        return try? await repository.contents(at: revision, path: path)
+        guard let repository, let source = source(of: file, side: side) else { return nil }
+        return try? await repository.contents(at: source.revision, path: source.path)
     }
+
+    /// Where one side of a file of the current selection is stored; `nil` when the file does not exist there.
+    func source(of file: FileDiff, side: Repository.FileSide) -> RevisionFile? {
+        guard let revisions = loadedRevisions, let path = side == .old ? file.oldPath : file.newPath else { return nil }
+        return RevisionFile(revision: side == .old ? revisions.base ?? "\(revisions.tip)^" : revisions.tip, path: path)
+    }
+}
+
+/// A file at a revision, e.g. `HEAD^:src/main.swift`.
+struct RevisionFile: Hashable {
+    var revision: String
+    var path: String
 }
 
 private extension HistoryModel.Selection {

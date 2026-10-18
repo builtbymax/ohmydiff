@@ -5,6 +5,7 @@ struct ProjectCommands: Commands {
     let model: AppModel
 
     @AppStorage(DiffSettings.layoutKey) private var diffLayout: DiffLayoutMode = .unified
+    @AppStorage(DiffSettings.wholeFileKey) private var showsWholeFile = false
     @AppStorage(AppSettings.isListHiddenKey) private var isListHidden = false
     @FocusedValue(\.diffFile) private var diffFile
     @FocusedValue(\.diffPopout) private var diffPopout
@@ -40,6 +41,8 @@ struct ProjectCommands: Commands {
                 get: { diffLayout == .split },
                 set: { diffLayout = $0 ? .split : .unified }))
                 .keyboardShortcut("\\")
+            Toggle("Show Whole File", isOn: $showsWholeFile)
+                .keyboardShortcut("\\", modifiers: [.command, .shift])
             Divider()
         }
 
