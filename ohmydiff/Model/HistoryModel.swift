@@ -202,6 +202,19 @@ final class HistoryModel {
         return try? await repository.contents(at: source.revision, path: source.path)
     }
 
+    /// What a prompt to Claude Code says about the current selection: the commit, or the branch and its base.
+    func promptContext(root: URL) -> PromptContext? {
+        let source: PromptContext.Source
+        if let commit = selectedCommit {
+            source = .commit(sha: commit.sha, message: commit.message)
+        } else if let branch = selectedBranch {
+            source = .branch(name: branch.name, base: branch.baseName ?? branch.base)
+        } else {
+            return nil
+        }
+        return PromptContext(repositoryPath: root.path, isGitButler: repository?.kind == .gitButler, source: source)
+    }
+
     /// Where one side of a file of the current selection is stored; `nil` when the file does not exist there.
     func source(of file: FileDiff, side: Repository.FileSide) -> RevisionFile? {
         guard let revisions = loadedRevisions, let path = side == .old ? file.oldPath : file.newPath else { return nil }

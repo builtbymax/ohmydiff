@@ -37,6 +37,7 @@ struct DiffDetailView: View {
             FileDiffView(
                 fileID: file.id, diff: diff, highlights: session.diff?.highlights, root: session.rootURL,
                 popout: .change(projectID: session.project.id, path: file.path),
+                promptContext: session.promptContext(forPath: file.path),
                 contents: { side in await session.contents(of: file, side: side) },
                 hunkActions: ChangeAction.allCases.filter { action in
                     diff.hunks.first.map { session.supports(action, on: [ChangeTarget(file: file, hunk: $0)]) } ?? false
@@ -59,6 +60,8 @@ struct FileDiffView: View {
     let root: URL
     /// What Open Diff in New Window shows; `nil` inside a diff window.
     var popout: DiffPopout? = nil
+    /// What prompts to Claude Code say about this diff; `nil` leaves out the Claude Code actions.
+    var promptContext: PromptContext? = nil
     /// One side's contents, for image previews and the whole-file view.
     let contents: (Repository.FileSide) async -> Data?
     /// Actions in each hunk's context menu and the hunk bar; none in History mode.
@@ -75,6 +78,9 @@ struct FileDiffView: View {
     @State private var focusLine: Int?
     /// The hunk at the top of the visible rows, for the hunk bar.
     @State private var visibleHunk: Int?
+    /// Lines of the selected rows in the shown diff.
+    @State private var selectedLines: [DiffPosition] = []
+    @Environment(\.claudeCode) private var claudeCode
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -90,7 +96,7 @@ struct FileDiffView: View {
         .padding(.bottom, 12)
         .overlay(alignment: .bottom) {
             if showsTable, !diff.hunks.isEmpty {
-                HunkBar(hunks: diff.hunks, current: visibleHunk ?? 0, actions: hunkActions) { action in
+                HunkBar(hunks: diff.hunks, current: visibleHunk ?? 0, actions: hunkActions, claude: promptTarget) { action in
                     onHunkAction(action, visibleHunk ?? 0)
                 }
                 .padding(.bottom, 24)
@@ -99,6 +105,7 @@ struct FileDiffView: View {
         .focusedSceneValue(\.diffFile, DiffFileTarget(
             url: root.appending(path: diff.path), relativePath: diff.path, line: focusLine))
         .focusedSceneValue(\.diffPopout, popout)
+        .focusedSceneValue(\.diffPrompt, promptTarget)
         .task(id: prefersWholeFile && DiffSettings.canShowWholeFile(diff) ? diff : nil) {
             guard prefersWholeFile, DiffSettings.canShowWholeFile(diff), wholeFile?.source != diff else { return }
             let old = await contents(.old)
@@ -107,6 +114,31 @@ struct FileDiffView: View {
                   !Task.isCancelled
             else { return }
             wholeFile = (diff, expanded.diff, expanded.highlights)
+        }
+    }
+
+    /// Asks Claude Code about the selected lines, else about the hunk at the top of the diff.
+    private var promptTarget: DiffPromptTarget? {
+        guard let promptContext, showsTable else { return nil }
+        let shown = shownWholeFile?.diff ?? diff
+        let hunk = min(visibleHunk ?? 0, shown.hunks.count - 1)
+        let positions = selectedLines.isEmpty ? shown.hunks[hunk].lines.indices.map { DiffPosition(hunk: hunk, line: $0) } : selectedLines
+        return DiffPromptTarget(root: root, scope: selectedLines.isEmpty ? "Hunk" : "Selection") { question in
+            ClaudePrompt.make(question: question, context: promptContext, diff: shown, positions: positions)
+        }
+    }
+
+    private var askClaudeAction: ((ClaudeRequest) -> Void)? {
+        promptContext == nil ? nil : { request in askClaude(request) }
+    }
+
+    private func askClaude(_ request: ClaudeRequest) {
+        guard let promptContext else { return }
+        let prompt = ClaudePrompt.make(
+            question: request.question, context: promptContext, diff: shownWholeFile?.diff ?? diff, positions: request.positions)
+        switch request.kind {
+        case .open: claudeCode.open(prompt, root)
+        case .copy: claudeCode.copy(prompt)
         }
     }
 
@@ -155,7 +187,11 @@ struct FileDiffView: View {
                     onVisibleHunk: { hunk in
                         if hunk != visibleHunk { visibleHunk = hunk }
                     },
-                    hunkActions: hunkActions, onHunkAction: onHunkAction)
+                    hunkActions: hunkActions, onHunkAction: onHunkAction,
+                    onSelectLines: { lines in
+                        if lines != selectedLines { selectedLines = lines }
+                    },
+                    onAskClaude: askClaudeAction)
             }
         }
     }
@@ -245,7 +281,10 @@ private struct HunkBar: View {
     let hunks: [Hunk]
     let current: Int
     let actions: [ChangeAction]
+    let claude: DiffPromptTarget?
     let perform: (ChangeAction) -> Void
+
+    @Environment(\.claudeCode) private var claudeCode
 
     var body: some View {
         HStack(spacing: 10) {
@@ -263,6 +302,9 @@ private struct HunkBar: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: 260, alignment: .leading)
+            if let claude {
+                claudeMenu(claude)
+            }
             if !actions.isEmpty {
                 Divider().frame(height: 22)
                 HStack(spacing: 6) {
@@ -287,7 +329,7 @@ private struct HunkBar: View {
             }
         }
         .padding(.leading, 6)
-        .padding(.trailing, actions.isEmpty ? 16 : 8)
+        .padding(.trailing, actions.isEmpty && claude == nil ? 16 : 8)
         .frame(height: 48)
         .glassEffect(Theme.barGlass, in: .capsule)
     }
@@ -315,6 +357,37 @@ private struct HunkBar: View {
         case .commit: "checkmark"
         case .discard: "trash"
         }
+    }
+
+    private func claudeMenu(_ target: DiffPromptTarget) -> some View {
+        Menu {
+            Section(AppSettings.openClaudeCodeNote(scope: target.scope)) {
+                ForEach(PromptQuestion.asked) { question in
+                    Button(question.title) { claudeCode.open(target.prompt(question), target.root) }
+                }
+            }
+            Menu("Copy Prompt Instead") {
+                ForEach(PromptQuestion.allCases) { question in
+                    Button(question.title) { claudeCode.copy(target.prompt(question)) }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "sparkles")
+                Image(systemName: "arrow.up.forward")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+                .contentShape(.capsule)
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.hoverCapsule())
+        .fixedSize()
+        .focusEffectDisabled()
+        .glassTooltip(AppSettings.openClaudeCodeTitle(), edge: .top)
     }
 
     private func jumpButton(_ title: String, systemImage: String, direction: Int) -> some View {

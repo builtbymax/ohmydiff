@@ -211,6 +211,27 @@ final class AppModel {
         }
     }
 
+    /// Starts Claude Code in the terminal chosen in Settings, in the repository, with the prompt.
+    func openInClaudeCode(prompt: String, root: URL) {
+        Task {
+            guard let toolchain = await toolchain() else { return }
+            do {
+                try await ClaudeCodeLauncher.open(prompt: prompt, in: root, terminal: AppSettings.terminal(), toolchain: toolchain)
+            } catch {
+                errorMessage = String(describing: error)
+            }
+        }
+    }
+
+    func copyPrompt(_ prompt: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(prompt, forType: .string)
+    }
+
+    var claudeCodeActions: ClaudeCodeActions {
+        ClaudeCodeActions(open: { [weak self] in self?.openInClaudeCode(prompt: $0, root: $1) }, copy: { [weak self] in self?.copyPrompt($0) })
+    }
+
     func copyPath(_ target: DiffFileTarget) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(target.relativePath, forType: .string)

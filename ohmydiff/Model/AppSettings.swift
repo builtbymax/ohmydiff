@@ -15,9 +15,27 @@ enum AppSettings {
     /// Width of the file list beside a commit's or branch's diff in History mode.
     static let historyFilesWidthKey = "historyFilesWidth"
     static let historyFilesWidths: ClosedRange<Double> = 200...420
+    /// The terminal Claude Code is started in.
+    static let terminalKey = "terminalApp"
 
     static let defaultEditor = EditorPreset.cursor
     static let fontSizes: ClosedRange<Double> = 9...20
+
+    /// The chosen terminal, else the first installed of Ghostty, iTerm and Terminal.
+    static func terminal(_ defaults: UserDefaults = .standard) -> TerminalApp {
+        if let saved = defaults.string(forKey: terminalKey).flatMap(TerminalApp.init(rawValue:)) { return saved }
+        return [TerminalApp.ghostty, .iterm].first { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0.bundleIdentifier) != nil } ?? .terminal
+    }
+
+    /// Titles for the actions that leave the app: they start `claude` in the chosen terminal rather than
+    /// answering in ohmydiff.
+    static func openClaudeCodeTitle(_ defaults: UserDefaults = .standard) -> String {
+        "Open Claude Code in \(terminal(defaults).displayName)"
+    }
+
+    static func openClaudeCodeNote(scope: String, _ defaults: UserDefaults = .standard) -> String {
+        "Starts claude in a new \(terminal(defaults).displayName) window with the \(scope.lowercased())"
+    }
 
     /// The command template for the chosen editor; `nil` when a custom command is chosen but empty.
     static func editorTemplate(_ defaults: UserDefaults = .standard) -> String? {
@@ -65,6 +83,26 @@ struct DiffFileTarget: Equatable {
     var exists: Bool { FileManager.default.fileExists(atPath: url.path) }
 }
 
+/// Lines of the focused diff to ask Claude Code about: the selection, else the hunk at the top.
+struct DiffPromptTarget {
+    /// The repository root, where Claude Code starts.
+    var root: URL
+    /// "Selection" or "Hunk", for menu titles.
+    var scope: String
+    var prompt: (PromptQuestion) -> String
+}
+
 extension FocusedValues {
     @Entry var diffFile: DiffFileTarget?
+    @Entry var diffPrompt: DiffPromptTarget?
+}
+
+/// Copies a prompt or starts Claude Code with it; set on each window's root view.
+struct ClaudeCodeActions {
+    var open: (_ prompt: String, _ root: URL) -> Void = { _, _ in }
+    var copy: (_ prompt: String) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    @Entry var claudeCode = ClaudeCodeActions()
 }

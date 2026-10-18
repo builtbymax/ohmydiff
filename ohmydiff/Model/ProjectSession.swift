@@ -255,6 +255,21 @@ final class ProjectSession {
         }
     }
 
+    /// What a prompt to Claude Code says about an uncommitted file: the repository and where the change sits.
+    func promptContext(forPath path: String) -> PromptContext {
+        let group = groups.first { $0.files.contains { $0.path == path } }
+        let description: String? = switch group?.kind {
+        case .stack(_, let branches)?: branches.first.map { "assigned to branch `\($0)`" }
+        case .staged?: "staged"
+        case .unstaged?: "not staged"
+        case .untracked?: "a new, untracked file"
+        case .conflicted?: "with merge conflicts"
+        case .unassigned?: "not assigned to a branch yet"
+        case nil: nil
+        }
+        return PromptContext(repositoryPath: rootURL.path, isGitButler: project.kind == .gitButler, source: .uncommitted(group: description))
+    }
+
     /// The top branch of the GitButler stack a file is assigned to; `nil` for unassigned changes.
     func assignedBranch(of path: String) -> String? {
         for group in groups {

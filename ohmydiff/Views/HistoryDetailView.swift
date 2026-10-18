@@ -92,7 +92,9 @@ struct HistoryDetailView: View {
                             popout: .snapshot(
                                 project: root.lastPathComponent, context: context(for: selection), diff: file,
                                 highlights: history.highlights[file.id], root: root,
-                                sources: (history.source(of: file, side: .old), history.source(of: file, side: .new)))
+                                sources: (history.source(of: file, side: .old), history.source(of: file, side: .new)),
+                                promptContext: history.promptContext(root: root)),
+                            promptContext: history.promptContext(root: root)
                         ) { side in
                             await history.contents(of: file, side: side)
                         }

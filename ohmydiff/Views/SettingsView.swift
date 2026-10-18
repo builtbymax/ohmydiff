@@ -3,18 +3,19 @@ import OhMyDiffCore
 import SwiftUI
 
 struct SettingsView: View {
-    private enum Pane: Hashable { case general, diff, commandLine }
+    private enum Pane: Hashable { case general, diff, claudeCode, commandLine }
 
     @State private var pane = Pane.general
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
 
     var body: some View {
         VStack(spacing: 18) {
-            GlassSegmented(selection: $pane, options: [(.general, "General"), (.diff, "Diff"), (.commandLine, "Command Line")])
+            GlassSegmented(selection: $pane, options: [(.general, "General"), (.diff, "Diff"), (.claudeCode, "Claude Code"), (.commandLine, "Command Line")])
             Group {
                 switch pane {
                 case .general: GeneralSettings()
                 case .diff: DiffSettingsPane()
+                case .claudeCode: ClaudeCodeSettings()
                 case .commandLine: CommandLineSettings()
                 }
             }
@@ -177,6 +178,52 @@ private struct GeneralSettings: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+}
+
+private struct ClaudeCodeSettings: View {
+    @AppStorage(AppSettings.terminalKey) private var terminal = AppSettings.terminal()
+
+    var body: some View {
+        VStack(spacing: 14) {
+            SettingsCard(title: "Open Claude Code In") {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 10) {
+                    ForEach(TerminalApp.allCases) { app in
+                        let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleIdentifier)
+                        ChoiceTile(title: app.displayName, isSelected: terminal == app, action: { terminal = app }) {
+                            AppIcon(url: url, fallback: "terminal")
+                                .frame(width: 44, height: 44)
+                                .opacity(url != nil ? 1 : 0.45)
+                                .padding(4)
+                        }
+                    }
+                }
+                Text("Claude Code answers in the terminal, not in ohmydiff: right-clicking diff lines, the ✦↗ button on the hunk bar or ⌥⌘E open a new window of this app in the repository and run `claude` with the selected lines as the prompt. ⌥⇧⌘C copies the prompt instead.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// An app's icon, or a symbol when it is not installed.
+private struct AppIcon: View {
+    let url: URL?
+    let fallback: String
+
+    var body: some View {
+        if let url {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                .resizable()
+                .interpolation(.high)
+        } else {
+            Image(systemName: fallback)
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 38, height: 38)
+                .background(Color.primary.opacity(0.06), in: .rect(cornerRadius: 9))
         }
     }
 }

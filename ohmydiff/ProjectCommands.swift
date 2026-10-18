@@ -9,6 +9,7 @@ struct ProjectCommands: Commands {
     @AppStorage(AppSettings.isListHiddenKey) private var isListHidden = false
     @FocusedValue(\.diffFile) private var diffFile
     @FocusedValue(\.diffPopout) private var diffPopout
+    @FocusedValue(\.diffPrompt) private var diffPrompt
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
@@ -30,6 +31,18 @@ struct ProjectCommands: Commands {
             Button("Copy File Path") { diffFile.map(model.copyPath) }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
                 .disabled(diffFile == nil)
+            Button("Copy Prompt for Claude Code") { diffPrompt.map { model.copyPrompt($0.prompt(.none)) } }
+                .keyboardShortcut("c", modifiers: [.command, .shift, .option])
+                .disabled(diffPrompt == nil)
+            Menu(AppSettings.openClaudeCodeTitle()) {
+                ForEach(PromptQuestion.asked) { question in
+                    Button(question.title(for: diffPrompt?.scope ?? "Selection")) {
+                        diffPrompt.map { model.openInClaudeCode(prompt: $0.prompt(question), root: $0.root) }
+                    }
+                    .keyboardShortcut(question == .explain ? KeyboardShortcut("e", modifiers: [.command, .option]) : nil)
+                }
+            }
+            .disabled(diffPrompt == nil)
         }
 
         CommandGroup(before: .sidebar) {

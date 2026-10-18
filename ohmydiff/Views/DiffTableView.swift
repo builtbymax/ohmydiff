@@ -34,6 +34,10 @@ struct DiffTableView: NSViewRepresentable {
     /// Actions offered in the context menu of a hunk's rows, and what runs when one is picked (with the hunk index).
     var hunkActions: [ChangeAction] = []
     var onHunkAction: (ChangeAction, Int) -> Void = { _, _ in }
+    /// The lines of the selected rows, reported as the selection changes.
+    var onSelectLines: ([DiffPosition]) -> Void = { _ in }
+    /// Asks Claude Code about lines, from the context menu; `nil` leaves those items out.
+    var onAskClaude: ((ClaudeRequest) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -75,6 +79,8 @@ struct DiffTableView: NSViewRepresentable {
         }
         context.coordinator.hunkActions = hunkActions
         context.coordinator.onHunkAction = onHunkAction
+        context.coordinator.onSelectLines = onSelectLines
+        context.coordinator.onAskClaude = onAskClaude
         context.coordinator.show(diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize, isWholeFile: isWholeFile)
     }
 
@@ -101,6 +107,9 @@ struct DiffTableView: NSViewRepresentable {
         private var visibleHunk: Int?
         var hunkActions: [ChangeAction] = []
         var onHunkAction: (ChangeAction, Int) -> Void = { _, _ in }
+        var onSelectLines: ([DiffPosition]) -> Void = { _ in }
+        var onAskClaude: ((ClaudeRequest) -> Void)?
+        private var selectedLines: [DiffPosition] = []
         private var observers: [NSObjectProtocol] = []
 
         private static let oldColumn = NSUserInterfaceItemIdentifier("old")
@@ -180,6 +189,7 @@ struct DiffTableView: NSViewRepresentable {
                 scroll(toRow: max(first - jumpLeadRows, 0))
             }
             reportFocusLine()
+            reportSelectedLines()
             reportVisibleHunk()
         }
 
@@ -197,12 +207,42 @@ struct DiffTableView: NSViewRepresentable {
         // MARK: Hunk actions
 
         func menu(forRow row: Int) -> NSMenu? {
-            guard !hunkActions.isEmpty, let hunk = hunkIndex(atRow: row) else { return nil }
+            guard let hunk = hunkIndex(atRow: row) else { return nil }
             let menu = NSMenu()
             for action in hunkActions {
                 menu.addItem(MenuHandler.item(Self.title(for: action)) { [weak self] in self?.onHunkAction(action, hunk) })
             }
-            return menu
+            if let onAskClaude {
+                // The selection when the clicked row is part of it, else the clicked row's hunk.
+                let isSelection = tableView?.selectedRowIndexes.contains(row) == true && !selectedLines.isEmpty
+                let positions = isSelection
+                    ? selectedLines
+                    : diff.hunks[hunk].lines.indices.map { DiffPosition(hunk: hunk, line: $0) }
+                let scope = isSelection ? "Selection" : "Hunk"
+                if !menu.items.isEmpty { menu.addItem(.separator()) }
+                let open = Self.submenu(AppSettings.openClaudeCodeTitle(), questions: PromptQuestion.asked) { question in
+                    onAskClaude(ClaudeRequest(kind: .open, question: question, positions: positions))
+                }
+                let note = NSMenuItem(title: AppSettings.openClaudeCodeNote(scope: scope), action: nil, keyEquivalent: "")
+                note.isEnabled = false
+                open.submenu?.insertItem(note, at: 0)
+                open.submenu?.insertItem(.separator(), at: 1)
+                menu.addItem(open)
+                menu.addItem(Self.submenu("Copy Prompt for Claude Code", questions: PromptQuestion.allCases) { question in
+                    onAskClaude(ClaudeRequest(kind: .copy, question: question, positions: positions))
+                })
+            }
+            return menu.items.isEmpty ? nil : menu
+        }
+
+        private static func submenu(_ title: String, questions: [PromptQuestion], action: @escaping (PromptQuestion) -> Void) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            let submenu = NSMenu(title: title)
+            for question in questions {
+                submenu.addItem(MenuHandler.item(question.title) { action(question) })
+            }
+            item.submenu = submenu
+            return item
         }
 
         private static func title(for action: ChangeAction) -> String {
@@ -236,6 +276,29 @@ struct DiffTableView: NSViewRepresentable {
 
         func tableViewSelectionDidChange(_ notification: Notification) {
             reportFocusLine()
+            reportSelectedLines()
+        }
+
+        /// Reports the lines of the selected rows when they change; split rows count both sides.
+        private func reportSelectedLines() {
+            var positions: [DiffPosition] = []
+            for row in tableView?.selectedRowIndexes ?? [] {
+                switch mode {
+                case .unified:
+                    if unifiedRows.indices.contains(row), case .line(let h, let l) = unifiedRows[row] {
+                        positions.append(DiffPosition(hunk: h, line: l))
+                    }
+                case .split:
+                    if splitRows.indices.contains(row), case .pair(let h, let old, let new) = splitRows[row] {
+                        positions += Set([old, new].compactMap { $0 }).sorted().map { DiffPosition(hunk: h, line: $0) }
+                    }
+                case nil:
+                    break
+                }
+            }
+            guard positions != selectedLines else { return }
+            selectedLines = positions
+            onSelectLines(positions)
         }
 
         private func reportFocusLine() {
@@ -964,6 +1027,30 @@ private final class DiffCellView: NSTableCellView {
         if drawsTrailingSeparator {
             NSColor.separatorColor.setFill()
             NSRect(x: bounds.maxX - 1, y: bounds.minY, width: 1, height: bounds.height).fill()
+        }
+    }
+}
+
+/// A question about diff lines for Claude Code, from a menu.
+struct ClaudeRequest {
+    enum Kind { case open, copy }
+
+    var kind: Kind
+    var question: PromptQuestion
+    var positions: [DiffPosition]
+}
+
+extension PromptQuestion {
+    /// Questions worth starting Claude Code with; Context Only is for copying.
+    static let asked: [PromptQuestion] = [.explain, .review, .tests]
+
+    /// E.g. "Review Selection for Bugs".
+    func title(for scope: String) -> String {
+        switch self {
+        case .explain: "Explain \(scope)"
+        case .review: "Review \(scope) for Bugs"
+        case .tests: "Suggest Tests for \(scope)"
+        case .none: "\(scope) as Context Only"
         }
     }
 }

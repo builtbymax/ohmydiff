@@ -17,6 +17,8 @@ struct CommandPalette: View {
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
     @FocusedValue(\.diffFile) private var diffFile
     @FocusedValue(\.diffPopout) private var diffPopout
+    @FocusedValue(\.diffPrompt) private var diffPrompt
+    @Environment(\.claudeCode) private var claudeCode
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
@@ -301,6 +303,14 @@ struct CommandPalette: View {
         }
         if let diffFile {
             add("Copy File Path", "doc.on.clipboard", "⇧⌘C") { model.copyPath(diffFile) }
+        }
+        if let diffPrompt {
+            for question in PromptQuestion.asked {
+                add("\(AppSettings.openClaudeCodeTitle()): \(question.title(for: diffPrompt.scope))", "apple.terminal", question == .explain ? "⌥⌘E" : nil) {
+                    claudeCode.open(diffPrompt.prompt(question), diffPrompt.root)
+                }
+            }
+            add("Copy Claude Code Prompt for \(diffPrompt.scope)", "doc.on.clipboard", "⌥⇧⌘C") { claudeCode.copy(diffPrompt.prompt(.none)) }
         }
         if layout == .unified {
             add("Show Side-by-Side Diff", "rectangle.split.2x1", "⌘\\") { layout = .split }
