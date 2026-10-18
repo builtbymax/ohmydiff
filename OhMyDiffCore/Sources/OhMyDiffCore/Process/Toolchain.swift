@@ -43,6 +43,11 @@ public struct Toolchain: Sendable {
 
     private static let pathMarker = "__OHMYDIFF_PATH__"
 
+    /// The `PATH` an interactive login shell sees, e.g. to check that an installed command will be found.
+    public static func loginShellPath() async -> String? {
+        await loginShellPath(environment: ProcessInfo.processInfo.environment, runner: ProcessRunner())
+    }
+
     static func loginShellPath(environment: [String: String], runner: ProcessRunner) async -> String? {
         let shell = environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
         // Markers keep login-shell banners or rc-file output out of the parsed value.
