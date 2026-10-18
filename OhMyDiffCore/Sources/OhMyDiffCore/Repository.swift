@@ -23,11 +23,15 @@ public struct Repository: Sendable {
     public let root: URL
     public let kind: RepositoryKind
     public let toolchain: Toolchain
+    /// Set when the folder is a GitButler workspace but the installed `but` is not supported, so
+    /// `kind` fell back to plain git.
+    public let butIncompatibility: ButIncompatibility?
 
-    public init(root: URL, kind: RepositoryKind, toolchain: Toolchain) {
+    public init(root: URL, kind: RepositoryKind, toolchain: Toolchain, butIncompatibility: ButIncompatibility? = nil) {
         self.root = root
         self.kind = kind
         self.toolchain = toolchain
+        self.butIncompatibility = butIncompatibility
     }
 
     /// Resolves the repository containing `path` and detects whether it is a GitButler workspace.
@@ -40,24 +44,30 @@ public struct Repository: Sendable {
             if case .nonZeroExit = error { throw RepositoryError.notARepository(path.path) }
             throw error
         }
-        let kind = await detectKind(root: root, toolchain: toolchain)
-        return Repository(root: root, kind: kind, toolchain: toolchain)
+        let (kind, incompatibility) = await detectKind(root: root, toolchain: toolchain)
+        return Repository(root: root, kind: kind, toolchain: toolchain, butIncompatibility: incompatibility)
     }
 
     /// GitButler when `<git-common-dir>/gitbutler` exists and `but --json status` succeeds; plain git otherwise.
-    public static func detectKind(root: URL, toolchain: Toolchain) async -> RepositoryKind {
+    /// A `but` release newer than the known-good one must also pass `ButContract`, or the workspace is
+    /// shown as plain git with the reason.
+    public static func detectKind(root: URL, toolchain: Toolchain) async -> (RepositoryKind, ButIncompatibility?) {
         guard toolchain.but != nil,
               let output = try? await toolchain.git(["rev-parse", "--path-format=absolute", "--git-common-dir"], in: root)
-        else { return .git }
+        else { return (.git, nil) }
 
         let commonDir = URL(fileURLWithPath: output.stdoutString.trimmingCharacters(in: .newlines), isDirectory: true)
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: commonDir.appending(path: "gitbutler").path, isDirectory: &isDirectory),
               isDirectory.boolValue
-        else { return .git }
+        else { return (.git, nil) }
 
-        guard (try? await toolchain.but(["--json", "status"], in: root)) != nil else { return .git }
-        return .gitButler
+        guard let status = try? await toolchain.but(["--json", "status"], in: root) else { return (.git, nil) }
+        let version = await ButCompatibility.version(of: toolchain)
+        if let incompatibility = ButCompatibility.check(status: status.stdout, version: version) {
+            return (.git, incompatibility)
+        }
+        return (.gitButler, nil)
     }
 
     // MARK: - Status

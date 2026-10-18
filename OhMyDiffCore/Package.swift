@@ -42,7 +42,8 @@ let package = Package(
                 .product(name: "TreeSitterCSS", package: "tree-sitter-css"),
                 .product(name: "TreeSitterHTML", package: "tree-sitter-html"),
                 .product(name: "TreeSitterBash", package: "tree-sitter-bash"),
-            ]),
+            ],
+            resources: [.copy("GitButler/gitbutler.json")]),
         .testTarget(name: "OhMyDiffCoreTests", dependencies: ["OhMyDiffCore"]),
     ]
 )

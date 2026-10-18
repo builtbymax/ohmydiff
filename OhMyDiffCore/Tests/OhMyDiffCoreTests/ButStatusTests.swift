@@ -4,7 +4,7 @@ import Testing
 
 @Suite struct ButStatusTests {
     /// Captured from `but 0.22.3 --json status -f`.
-    private let sample = """
+    static let sample = """
     {
       "uncommittedChanges": [
         { "cliId": "kl", "filePath": "c.txt", "changeType": "added" },
@@ -60,7 +60,7 @@ import Testing
     """
 
     @Test func decodesCapturedOutput() throws {
-        let status = try ButStatus.decode(Data(sample.utf8))
+        let status = try ButStatus.decode(Data(Self.sample.utf8))
         #expect(status.unassignedChanges.map(\.filePath) == ["c.txt", "d.txt"])
         #expect(status.unassignedChanges.map(\.kind) == [.added, .renamed])
 
@@ -112,7 +112,7 @@ import Testing
     }
 
     @Test func groupsForGitButler() throws {
-        let status = try ButStatus.decode(Data(sample.utf8))
+        let status = try ButStatus.decode(Data(Self.sample.utf8))
         let renamed = StatusEntry(kind: .renamed, path: "d.txt", originalPath: "b.txt", indexStatus: "R")
         let groups = Repository.butChangeGroups(status, gitStatus: [renamed])
 
