@@ -3,7 +3,7 @@ import OhMyDiffCore
 import SwiftUI
 
 enum SettingsPane: String, Hashable {
-    case general, diff, ai, templates, tickets, commandLine
+    case general, appearance, ai, templates, tickets, commandLine
 }
 
 struct SettingsView: View {
@@ -13,13 +13,13 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 18) {
             GlassSegmented(selection: $pane, options: [
-                (.general, "General"), (.diff, "Diff"), (.ai, "AI"), (.templates, "Templates"), (.tickets, "Tickets"),
+                (.general, "General"), (.appearance, "Appearance"), (.ai, "AI"), (.templates, "Templates"), (.tickets, "Tickets"),
                 (.commandLine, "Command Line"),
             ])
             Group {
                 switch pane {
                 case .general: GeneralSettings()
-                case .diff: DiffSettingsPane()
+                case .appearance: AppearanceSettings()
                 case .ai: AISettings()
                 case .templates: TemplateSettings()
                 case .tickets: TicketSettings()
@@ -193,21 +193,11 @@ private struct ChoiceTile<Preview: View>: View {
 }
 
 private struct GeneralSettings: View {
-    @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
     @AppStorage(AppSettings.editorKey) private var editor = AppSettings.defaultEditor
     @AppStorage(AppSettings.customEditorCommandKey) private var customCommand = ""
 
     var body: some View {
         VStack(spacing: 14) {
-            SettingsCard(title: "Appearance") {
-                HStack(spacing: 14) {
-                    ForEach(AppAppearance.allCases) { option in
-                        ChoiceTile(title: option.title, isSelected: appearance == option, action: { appearance = option }) {
-                            AppearancePreview(appearance: option)
-                        }
-                    }
-                }
-            }
             SettingsCard(title: "Open Files In") {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 10) {
                     ForEach(EditorPreset.allCases) { preset in
@@ -1101,7 +1091,8 @@ private struct LayoutPreview: View {
     }
 }
 
-private struct DiffSettingsPane: View {
+private struct AppearanceSettings: View {
+    @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
     @AppStorage(AppSettings.fontSizeKey) private var fontSize = Double(DiffMetrics.defaultFontSize)
     @AppStorage(DiffSettings.layoutKey) private var layout: DiffLayoutMode = .unified
     @AppStorage(AppSettings.lightCodeThemeKey) private var lightTheme = CodeTheme.default.rawValue
@@ -1112,7 +1103,16 @@ private struct DiffSettingsPane: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                SettingsCard(title: "Layout") {
+                SettingsCard(title: "Theme") {
+                    HStack(spacing: 14) {
+                        ForEach(AppAppearance.allCases) { option in
+                            ChoiceTile(title: option.title, isSelected: appearance == option, action: { appearance = option }) {
+                                AppearancePreview(appearance: option)
+                            }
+                        }
+                    }
+                }
+                SettingsCard(title: "Diff Layout") {
                     HStack(spacing: 14) {
                         ChoiceTile(title: "Unified", isSelected: layout == .unified, action: { layout = .unified }) {
                             LayoutPreview(layout: .unified)
@@ -1125,7 +1125,7 @@ private struct DiffSettingsPane: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                SettingsCard(title: "Theme") {
+                SettingsCard(title: "Diff Theme") {
                     HStack {
                         Text("Colors for")
                             .font(.callout)
