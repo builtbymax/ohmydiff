@@ -2,7 +2,7 @@ APP := build/Build/Products/Release/ohmydiff.app
 # Code signing identity (name or SHA-1 from `security find-identity -v -p codesigning`). Ad-hoc by default.
 SIGN_IDENTITY := $(OHMYDIFF_SIGN_IDENTITY)
 
-.PHONY: build run install test clean large-diff
+.PHONY: build run install test compat compat-record clean large-diff
 
 build:
 	xcodebuild -project ohmydiff.xcodeproj -scheme ohmydiff -configuration Release \
@@ -23,6 +23,13 @@ install: build
 
 test:
 	cd OhMyDiffCore && swift test
+
+# Contract tests against the installed `but`; `compat-record` then stores its version as known-good.
+compat:
+	cd OhMyDiffCore && OHMYDIFF_REQUIRE_BUT=1 swift test --filter 'ButContract|ButCompatibility|ButLive|ButStatus|GitButler'
+
+compat-record: compat
+	scripts/but-compat.sh record
 
 # Throwaway repository with large uncommitted changes, for scroll and highlighting checks.
 large-diff:

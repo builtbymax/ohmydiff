@@ -1,0 +1,60 @@
+name: GitButler compatibility
+
+# `but --json` has no versioned schema. Run the contract tests against the latest GitButler daily
+# and on every change, and open an issue when a release breaks them.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  contract:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the latest GitButler
+        run: |
+          brew install --cask gitbutler
+          xattr -dr com.apple.quarantine /Applications/GitButler.app || true
+          mkdir -p "$HOME/.local/bin"
+          ln -sf /Applications/GitButler.app/Contents/MacOS/gitbutler-tauri "$HOME/.local/bin/but"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Show versions
+        run: |
+          but --version
+          swift --version
+
+      - name: Contract tests
+        id: contract
+        working-directory: OhMyDiffCore
+        env:
+          OHMYDIFF_REQUIRE_BUT: "1"
+          OHMYDIFF_COMPAT_REPORT: ${{ runner.temp }}/compat-report.json
+        run: swift test --filter 'ButContract|ButCompatibility|ButLive|ButStatus|GitButler' 2>&1 | tee "$RUNNER_TEMP/contract.log"
+
+      - name: Compare with the known-good version
+        run: scripts/but-compat.sh check
+
+      - name: Open an issue
+        if: failure() && steps.contract.outcome == 'failure' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/but-compat.sh issue "$RUNNER_TEMP/compat-report.json" "$RUNNER_TEMP/contract.log"
+
+      - name: Core tests
+        if: github.event_name != 'schedule'
+        working-directory: OhMyDiffCore
+        run: swift test

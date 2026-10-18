@@ -25,7 +25,17 @@ make run       # build (Release) and launch the app
 make install   # build and copy to /Applications
 make test      # run the OhMyDiffCore tests
 make large-diff # create a throwaway repo with large changes to open in the app
+make compat    # run the GitButler contract tests against the installed `but`
+make compat-record # ...and record its version as known-good
 make clean     # remove build output
 ```
 
 Or open `ohmydiff.xcodeproj` in Xcode.
+
+## GitButler compatibility
+
+`but --json` has no versioned schema. The `GitButler compatibility` workflow runs the contract
+tests daily against the latest GitButler release and opens an issue when one breaks them. The
+last known-good version lives in `OhMyDiffCore/Sources/OhMyDiffCore/GitButler/gitbutler.json`
+and ships with the app: with a newer `but`, the app checks `but --json status` against the
+contract and shows a workspace that fails it as a plain git repository, with a banner.
