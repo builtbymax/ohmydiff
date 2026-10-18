@@ -8,6 +8,9 @@ enum AppSettings {
     static let customEditorCommandKey = "customEditorCommand"
     static let fontSizeKey = "diffFontSize"
     static let appearanceKey = "appearance"
+    /// The code themes for light and dark appearance.
+    static let lightCodeThemeKey = "codeThemeLight"
+    static let darkCodeThemeKey = "codeThemeDark"
     /// Width of the file list column, and whether it is hidden to give the diff the whole panel.
     static let listWidthKey = "listWidth"
     static let isListHiddenKey = "isListHidden"

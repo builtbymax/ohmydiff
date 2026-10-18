@@ -70,6 +70,8 @@ struct FileDiffView: View {
     @AppStorage(DiffSettings.layoutKey) private var preferredLayout: DiffLayoutMode = .unified
     @AppStorage(AppSettings.fontSizeKey) private var fontSize = Double(DiffMetrics.defaultFontSize)
     @AppStorage(DiffSettings.wholeFileKey) private var prefersWholeFile = false
+    @AppStorage(AppSettings.lightCodeThemeKey) private var lightTheme = CodeTheme.default.rawValue
+    @AppStorage(AppSettings.darkCodeThemeKey) private var darkTheme = CodeTheme.default.rawValue
     /// The diff expanded to the whole file, once loaded; `source` is the diff it was expanded from.
     @State private var wholeFile: (source: FileDiff, diff: FileDiff, highlights: SyntaxHighlights?)?
     /// Large diffs the user chose to show anyway.
@@ -173,6 +175,7 @@ struct FileDiffView: View {
                 DiffTableView(
                     fileID: fileID, diff: wholeFile?.diff ?? diff, highlights: wholeFile.map(\.highlights) ?? highlights, mode: mode,
                     fontSize: CGFloat(fontSize.clamped(to: AppSettings.fontSizes)),
+                    theme: SyntaxTheme(light: CodeTheme.resolved(lightTheme, isDark: false), dark: CodeTheme.resolved(darkTheme, isDark: true)),
                     isWholeFile: wholeFile != nil,
                     bottomInset: Theme.hunkBarInset,
                     onFocusLine: { line in

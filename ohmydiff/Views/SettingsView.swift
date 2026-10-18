@@ -1061,46 +1061,126 @@ private struct LayoutPreview: View {
 private struct DiffSettingsPane: View {
     @AppStorage(AppSettings.fontSizeKey) private var fontSize = Double(DiffMetrics.defaultFontSize)
     @AppStorage(DiffSettings.layoutKey) private var layout: DiffLayoutMode = .unified
+    @AppStorage(AppSettings.lightCodeThemeKey) private var lightTheme = CodeTheme.default.rawValue
+    @AppStorage(AppSettings.darkCodeThemeKey) private var darkTheme = CodeTheme.default.rawValue
+    /// Which appearance's theme the tiles pick; starts at the current one.
+    @State private var editsDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
 
     var body: some View {
-        VStack(spacing: 14) {
-            SettingsCard(title: "Layout") {
-                HStack(spacing: 14) {
-                    ChoiceTile(title: "Unified", isSelected: layout == .unified, action: { layout = .unified }) {
-                        LayoutPreview(layout: .unified)
+        ScrollView {
+            VStack(spacing: 14) {
+                SettingsCard(title: "Layout") {
+                    HStack(spacing: 14) {
+                        ChoiceTile(title: "Unified", isSelected: layout == .unified, action: { layout = .unified }) {
+                            LayoutPreview(layout: .unified)
+                        }
+                        ChoiceTile(title: "Side by Side", isSelected: layout == .split, action: { layout = .split }) {
+                            LayoutPreview(layout: .split)
+                        }
                     }
-                    ChoiceTile(title: "Side by Side", isSelected: layout == .split, action: { layout = .split }) {
-                        LayoutPreview(layout: .split)
+                    Text("Side by side wraps long lines; very narrow diffs fall back to unified.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                SettingsCard(title: "Theme") {
+                    HStack {
+                        Text("Colors for")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        SoftSegmented(selection: $editsDark, options: [(false, "Light Appearance"), (true, "Dark Appearance")])
                     }
-                }
-                Text("Side by side wraps long lines; very narrow diffs fall back to unified.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            SettingsCard(title: "Font Size") {
-                HStack(spacing: 10) {
-                    Image(systemName: "textformat.size.smaller")
+                    let selected = CodeTheme.resolved(editsDark ? darkTheme : lightTheme, isDark: editsDark)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
+                        ForEach(CodeTheme.available(isDark: editsDark)) { theme in
+                            ChoiceTile(title: theme.name(isDark: editsDark), isSelected: theme == selected, action: { choose(theme) }) {
+                                CodeThemePreview(theme: theme, isDark: editsDark)
+                            }
+                        }
+                    }
+                    Text("Light and dark appearance each keep their own theme, and diffs switch with the appearance.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                    Slider(value: $fontSize, in: AppSettings.fontSizes, step: 1)
-                    Image(systemName: "textformat.size.larger")
-                        .foregroundStyle(.secondary)
-                    Text("\(Int(fontSize)) pt")
-                        .monospacedDigit()
-                        .frame(width: 40, alignment: .trailing)
                 }
-                // A sample line at the chosen size.
-                HStack(spacing: 0) {
-                    Text("+")
-                        .foregroundStyle(Theme.addition)
-                        .frame(width: 22)
-                    Text("let greeting = \"Hello, diff\"")
+                SettingsCard(title: "Font Size") {
+                    HStack(spacing: 10) {
+                        Image(systemName: "textformat.size.smaller")
+                            .foregroundStyle(.secondary)
+                        Slider(value: $fontSize, in: AppSettings.fontSizes, step: 1)
+                        Image(systemName: "textformat.size.larger")
+                            .foregroundStyle(.secondary)
+                        Text("\(Int(fontSize)) pt")
+                            .monospacedDigit()
+                            .frame(width: 40, alignment: .trailing)
+                    }
+                    // A sample line at the chosen size.
+                    HStack(spacing: 0) {
+                        Text("+")
+                            .foregroundStyle(Theme.addition)
+                            .frame(width: 22)
+                        Text("let greeting = \"Hello, diff\"")
+                    }
+                    .font(.system(size: CGFloat(fontSize), design: .monospaced))
+                    .lineLimit(1)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.addition.opacity(0.1), in: .rect(cornerRadius: 6))
                 }
-                .font(.system(size: CGFloat(fontSize), design: .monospaced))
-                .lineLimit(1)
-                .padding(.vertical, 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.addition.opacity(0.1), in: .rect(cornerRadius: 6))
             }
+        }
+        .scrollIndicators(.automatic)
+    }
+
+    private func choose(_ theme: CodeTheme) {
+        if editsDark { darkTheme = theme.rawValue } else { lightTheme = theme.rawValue }
+    }
+}
+
+/// A few lines of a diff in a theme's colors, on the diff background of its appearance.
+private struct CodeThemePreview: View {
+    let theme: CodeTheme
+    let isDark: Bool
+
+    private typealias Part = (text: String, token: SyntaxToken?)
+
+    private static let lines: [(kind: DiffLine.Kind, parts: [Part])] = [
+        (.context, [("func", .keyword), (" ", nil), ("greet", .function), ("(n: ", nil), ("Int", .type), (") {", nil)]),
+        (.deletion, [("    ", nil), ("print", .function), ("(", nil), ("\"Hi\"", .string), (")", nil)]),
+        (.addition, [("    ", nil), ("let", .keyword), (" count = ", nil), ("42", .number)]),
+        (.addition, [("    ", nil), ("print", .function), ("(", nil), ("\"Hi ", .string), ("\\(", .escape), ("n", nil), (")", .escape),
+                     ("\"", .string), (")", nil)]),
+        (.context, [("    ", nil), ("// Done", .comment)]),
+    ]
+
+    var body: some View {
+        let palette = theme.palette(isDark: isDark) ?? [:]
+        VStack(alignment: .leading, spacing: 1) {
+            ForEach(Self.lines.indices, id: \.self) { index in
+                let line = Self.lines[index]
+                Text(text(line.kind, line.parts, palette: palette))
+                    .font(.system(size: 8.5, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6)
+                    .frame(maxWidth: .infinity, minHeight: 11, alignment: .leading)
+                    .background(DiffRowFormatter.tint(for: line.kind).map { Color(nsColor: $0) } ?? .clear)
+            }
+        }
+        .padding(.vertical, 7)
+        .frame(height: 74, alignment: .top)
+        .background(Theme.panel)
+        .clipShape(.rect(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.hairline))
+        .environment(\.colorScheme, isDark ? .dark : .light)
+    }
+
+    private func text(_ kind: DiffLine.Kind, _ parts: [Part], palette: [SyntaxToken: UInt32]) -> AttributedString {
+        var marker = AttributedString(kind == .addition ? "+ " : kind == .deletion ? "− " : "  ")
+        marker.foregroundColor = kind == .addition ? Theme.addition : Theme.deletion
+        return parts.reduce(into: marker) { result, part in
+            var run = AttributedString(part.text)
+            if let value = part.token.flatMap({ palette[$0] }) { run.foregroundColor = Color(nsColor: CodeTheme.rgb(value)) }
+            result += run
         }
     }
 }

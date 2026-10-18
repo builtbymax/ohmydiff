@@ -23,6 +23,7 @@ struct DiffTableView: NSViewRepresentable {
     let highlights: SyntaxHighlights?
     let mode: DiffLayoutMode
     let fontSize: CGFloat
+    var theme = SyntaxTheme()
     /// The diff is expanded to the whole file: hunk headers are left out and `n` / `p` jump to each hunk's first change.
     var isWholeFile = false
     /// Room below the last row, e.g. for a bar floating over the bottom of the diff.
@@ -83,7 +84,8 @@ struct DiffTableView: NSViewRepresentable {
         context.coordinator.onHunkAction = onHunkAction
         context.coordinator.onSelectLines = onSelectLines
         context.coordinator.onAskClaude = onAskClaude
-        context.coordinator.show(diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize, isWholeFile: isWholeFile)
+        context.coordinator.show(
+            diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize, theme: theme, isWholeFile: isWholeFile)
         if let reveal { context.coordinator.reveal(reveal) }
     }
 
@@ -106,6 +108,7 @@ struct DiffTableView: NSViewRepresentable {
         private var unifiedCharacters = 0
         private var formatter = DiffRowFormatter()
         private var fontSize: CGFloat?
+        private var theme = SyntaxTheme()
         private var isWholeFile = false
         var onFocusLine: (Int?) -> Void = { _ in }
         var onVisibleHunk: (Int?) -> Void = { _ in }
@@ -146,11 +149,11 @@ struct DiffTableView: NSViewRepresentable {
 
         func show(
             _ diff: FileDiff, highlights: SyntaxHighlights?, fileID: ChangedFile.ID, mode: DiffLayoutMode, fontSize: CGFloat,
-            isWholeFile: Bool
+            theme: SyntaxTheme, isWholeFile: Bool
         ) {
             guard let tableView,
                   diff != self.diff || highlights != self.highlights || fileID != self.fileID || mode != self.mode
-                    || fontSize != self.fontSize || isWholeFile != self.isWholeFile
+                    || fontSize != self.fontSize || theme != self.theme || isWholeFile != self.isWholeFile
             else { return }
             // Rows of the other layout do not line up with the current ones, so start over at the top.
             let isNewFile = fileID != self.fileID || mode != self.mode
@@ -158,7 +161,7 @@ struct DiffTableView: NSViewRepresentable {
             // when still at the top, show the first change.
             let isTogglingWholeFile = !isNewFile && isWholeFile != self.isWholeFile
             let anchor = isTogglingWholeFile && topRow() != 0 ? topLine() : nil
-            // Syntax colors arrive after the diff and font changes keep the rows; only a new diff or
+            // Syntax colors arrive after the diff, and font and theme changes keep the rows; only a new diff or
             // layout lays the rows out again.
             let needsLayout = diff != self.diff || mode != self.mode || isWholeFile != self.isWholeFile
             if mode != self.mode { configureColumns(for: mode) }
@@ -166,11 +169,13 @@ struct DiffTableView: NSViewRepresentable {
             self.fileID = fileID
             self.mode = mode
             self.fontSize = fontSize
+            self.theme = theme
             self.isWholeFile = isWholeFile
-            // Word highlights only depend on the diff, so they are kept when just the colors or font change.
+            // Word highlights only depend on the diff, so they are kept when just the colors, theme or font change.
             let words = diff == self.diff ? formatter.words : WordHighlights(diff: diff)
             self.diff = diff
-            formatter = DiffRowFormatter(diff: diff, highlights: highlights, metrics: DiffMetrics(fontSize: fontSize), words: words)
+            formatter = DiffRowFormatter(
+                diff: diff, highlights: highlights, theme: theme, metrics: DiffMetrics(fontSize: fontSize), words: words)
             tableView.rowHeight = formatter.metrics.rowHeight
 
             if needsLayout {
@@ -655,13 +660,18 @@ struct DiffRowFormatter {
     /// Changed character ranges, worked out per hunk as its rows are first shown.
     private(set) var words = WordHighlights(diff: FileDiff(oldPath: nil, newPath: nil, kind: .unknown))
     private var syntax: SyntaxHighlights?
+    private var theme = SyntaxTheme()
 
     private(set) var metrics = DiffMetrics()
 
     init() {}
 
-    init(diff: FileDiff, highlights: SyntaxHighlights? = nil, metrics: DiffMetrics = DiffMetrics(), words: WordHighlights? = nil) {
+    init(
+        diff: FileDiff, highlights: SyntaxHighlights? = nil, theme: SyntaxTheme = SyntaxTheme(), metrics: DiffMetrics = DiffMetrics(),
+        words: WordHighlights? = nil
+    ) {
         self.diff = diff
+        self.theme = theme
         self.metrics = metrics
         self.syntax = highlights
         self.words = words ?? WordHighlights(diff: diff)
@@ -760,7 +770,7 @@ struct DiffRowFormatter {
 
         func flush() {
             guard !run.isEmpty else { return }
-            append(run, runToken.map(SyntaxTheme.color(for:)) ?? .labelColor, background: runIsHighlighted ? tint : nil, to: result)
+            append(run, runToken.map(theme.color(for:)) ?? .labelColor, background: runIsHighlighted ? tint : nil, to: result)
             run = ""
         }
 
@@ -856,42 +866,6 @@ final class WordHighlights {
         let ranges = WordDiff.highlights(for: hunks[hunk])
         cache[hunk] = ranges
         return ranges[line]
-    }
-}
-
-// MARK: - Syntax colors
-
-/// Token colors close to Xcode's default themes, with a light and a dark variant each.
-enum SyntaxTheme {
-    private static let colors: [SyntaxToken: NSColor] = [
-        .keyword: dynamic(light: 0x9B2393, dark: 0xFC5FA3),
-        .string: dynamic(light: 0xC41A16, dark: 0xFC6A5D),
-        .comment: dynamic(light: 0x5D6C79, dark: 0x7F8C98),
-        .number: dynamic(light: 0x1C00CF, dark: 0xD0BF69),
-        .constant: dynamic(light: 0x326D74, dark: 0x67B7A4),
-        .type: dynamic(light: 0x0B4F79, dark: 0x5DD8FF),
-        .function: dynamic(light: 0x326D74, dark: 0x67B7A4),
-        .property: dynamic(light: 0x3900A0, dark: 0xA167E6),
-        .attribute: dynamic(light: 0x815F03, dark: 0xBF8555),
-        .tag: dynamic(light: 0x9B2393, dark: 0xFC5FA3),
-        .escape: dynamic(light: 0x815F03, dark: 0xBF8555),
-        .heading: dynamic(light: 0x0B4F79, dark: 0x5DD8FF),
-        .link: dynamic(light: 0x0E0EFF, dark: 0x6699FF),
-    ]
-
-    static func color(for token: SyntaxToken) -> NSColor { colors[token] ?? .labelColor }
-
-    private static func dynamic(light: UInt32, dark: UInt32) -> NSColor {
-        NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            return rgb(isDark ? dark : light)
-        }
-    }
-
-    private static func rgb(_ value: UInt32) -> NSColor {
-        NSColor(
-            srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
-            blue: CGFloat(value & 0xFF) / 255, alpha: 1)
     }
 }
 
