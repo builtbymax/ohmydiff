@@ -58,7 +58,7 @@ struct ProjectDropdown: View {
     private func action(
         _ title: String, systemImage: String, shortcut: String? = nil, role: ButtonRole? = nil, perform: @escaping () -> Void
     ) -> some View {
-        let tint: Color = role == .destructive ? Theme.deletion : .primary
+        let tint: Color = role == .destructive ? .red : .primary
         return Button(role: role) {
             dismiss()
             perform()
