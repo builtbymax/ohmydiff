@@ -13,6 +13,7 @@ struct HistoryListView: View {
 
     var body: some View {
         content
+            .butCompatibilityBanner(session.butIncompatibility)
             .navigationTitle(session.project.displayName)
             .navigationSubtitle(history.isRefreshing ? "History · Refreshing…" : "History")
             // Runs on appear and after every refresh of the project, so live updates reach History too.

@@ -37,6 +37,8 @@ final class ProjectSession {
     private(set) var isRefreshing = false
     private(set) var lastRefreshed: Date?
     private(set) var diff: DiffState?
+    /// Why a GitButler workspace is shown as plain git; `nil` when it is not one or `but` is supported.
+    private(set) var butIncompatibility: ButIncompatibility?
     let history = HistoryModel()
 
     var selectedFileID: ChangedFile.ID? {
@@ -164,6 +166,7 @@ final class ProjectSession {
         if let repository { return repository }
         let repository = try await Repository.open(project.url, toolchain: toolchain)
         self.repository = repository
+        if repository.butIncompatibility != butIncompatibility { butIncompatibility = repository.butIncompatibility }
         if repository.kind != project.kind {
             project.kind = repository.kind
             onKindChange?(repository.kind)

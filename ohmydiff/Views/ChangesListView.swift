@@ -11,6 +11,7 @@ struct ChangesListView: View {
 
     var body: some View {
         content
+            .butCompatibilityBanner(session.butIncompatibility)
             .navigationTitle(session.project.displayName)
             .navigationSubtitle(subtitle)
             .fileImporter(isPresented: $isLocating, allowedContentTypes: [.folder]) { result in
