@@ -69,7 +69,7 @@ struct DiffDetailView: View {
             GeometryReader { proxy in
                 // Side by side needs room for two readable columns.
                 let mode: DiffLayoutMode = preferredLayout == .split && proxy.size.width >= DiffSettings.minimumSplitWidth ? .split : .unified
-                DiffTableView(fileID: file.id, diff: diff, mode: mode)
+                DiffTableView(fileID: file.id, diff: diff, highlights: session.diff?.highlights, mode: mode)
             }
         }
     }

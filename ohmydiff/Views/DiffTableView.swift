@@ -20,6 +20,7 @@ extension Notification.Name {
 struct DiffTableView: NSViewRepresentable {
     let fileID: ChangedFile.ID
     let diff: FileDiff
+    let highlights: SyntaxHighlights?
     let mode: DiffLayoutMode
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -52,7 +53,7 @@ struct DiffTableView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.show(diff, fileID: fileID, mode: mode)
+        context.coordinator.show(diff, highlights: highlights, fileID: fileID, mode: mode)
     }
 
     @MainActor
@@ -62,6 +63,7 @@ struct DiffTableView: NSViewRepresentable {
         private var fileID: ChangedFile.ID?
         private var mode: DiffLayoutMode?
         private var diff = FileDiff(oldPath: nil, newPath: nil, kind: .unknown)
+        private var highlights: SyntaxHighlights?
         private var unifiedRows: [DiffLayout.UnifiedRow] = []
         private var splitRows: [DiffLayout.SplitRow] = []
         private var hunkRows: [Int] = []
@@ -91,15 +93,18 @@ struct DiffTableView: NSViewRepresentable {
             observers.forEach(NotificationCenter.default.removeObserver)
         }
 
-        func show(_ diff: FileDiff, fileID: ChangedFile.ID, mode: DiffLayoutMode) {
-            guard let tableView, diff != self.diff || fileID != self.fileID || mode != self.mode else { return }
+        func show(_ diff: FileDiff, highlights: SyntaxHighlights?, fileID: ChangedFile.ID, mode: DiffLayoutMode) {
+            guard let tableView,
+                  diff != self.diff || highlights != self.highlights || fileID != self.fileID || mode != self.mode
+            else { return }
             // Rows of the other layout do not line up with the current ones, so start over at the top.
             let isNewFile = fileID != self.fileID || mode != self.mode
             if mode != self.mode { configureColumns(for: mode) }
             self.diff = diff
+            self.highlights = highlights
             self.fileID = fileID
             self.mode = mode
-            formatter = DiffRowFormatter(diff: diff)
+            formatter = DiffRowFormatter(diff: diff, highlights: highlights)
 
             switch mode {
             case .unified:
@@ -294,11 +299,13 @@ struct DiffRowFormatter {
     private var gutterDigits = 3
     /// Changed character ranges per hunk, keyed by line index.
     private var wordHighlights: [[Int: [Range<Int>]]] = []
+    private var syntax: SyntaxHighlights?
 
     init() {}
 
-    init(diff: FileDiff) {
+    init(diff: FileDiff, highlights: SyntaxHighlights? = nil) {
         self.diff = diff
+        self.syntax = highlights
         let largest = diff.hunks.map { max($0.oldStart + $0.oldCount, $0.newStart + $0.newCount) }.max() ?? 0
         gutterDigits = max(String(largest).count, 3)
         wordHighlights = diff.hunks.map(WordDiff.highlights(for:))
@@ -352,12 +359,15 @@ struct DiffRowFormatter {
             append("  ", .tertiaryLabelColor, to: result)
             wordTint = nil
         }
-        appendText(line.text, highlights: highlights ?? [], tint: wordTint, to: result)
+        appendText(line.text, highlights: highlights ?? [], tint: wordTint, syntax: syntax?.spans(for: line) ?? [], to: result)
     }
 
-    /// Appends `text` with tabs expanded, giving the highlighted character ranges a background.
-    private func appendText(_ text: String, highlights: [Range<Int>], tint: NSColor?, to result: NSMutableAttributedString) {
-        guard let tint, !highlights.isEmpty else {
+    /// Appends `text` with tabs expanded, coloring syntax spans and giving the changed word ranges a background.
+    private func appendText(
+        _ text: String, highlights: [Range<Int>], tint: NSColor?, syntax: [SyntaxSpan], to result: NSMutableAttributedString
+    ) {
+        let highlights = tint == nil ? [] : highlights
+        guard !highlights.isEmpty || !syntax.isEmpty else {
             append(Self.expandingTabs(text), .labelColor, to: result)
             return
         }
@@ -365,20 +375,25 @@ struct DiffRowFormatter {
         var offset = 0
         var run = ""
         var runIsHighlighted = false
+        var runToken: SyntaxToken?
         var nextRange = 0
+        var nextSpan = 0
 
         func flush() {
             guard !run.isEmpty else { return }
-            append(run, .labelColor, background: runIsHighlighted ? tint : nil, to: result)
+            append(run, runToken.map(SyntaxTheme.color(for:)) ?? .labelColor, background: runIsHighlighted ? tint : nil, to: result)
             run = ""
         }
 
         for character in text {
             while nextRange < highlights.count, highlights[nextRange].upperBound <= offset { nextRange += 1 }
+            while nextSpan < syntax.count, syntax[nextSpan].range.upperBound <= offset { nextSpan += 1 }
             let isHighlighted = nextRange < highlights.count && highlights[nextRange].contains(offset)
-            if isHighlighted != runIsHighlighted {
+            let token = nextSpan < syntax.count && syntax[nextSpan].range.contains(offset) ? syntax[nextSpan].token : nil
+            if isHighlighted != runIsHighlighted || token != runToken {
                 flush()
                 runIsHighlighted = isHighlighted
+                runToken = token
             }
             if character == "\t" {
                 let spaces = Self.tabWidth - column % Self.tabWidth
@@ -453,6 +468,42 @@ struct DiffRowFormatter {
     private static func expandedLength(_ text: String) -> Int {
         guard text.contains("\t") else { return text.count }
         return expandingTabs(text).count
+    }
+}
+
+// MARK: - Syntax colors
+
+/// Token colors close to Xcode's default themes, with a light and a dark variant each.
+enum SyntaxTheme {
+    private static let colors: [SyntaxToken: NSColor] = [
+        .keyword: dynamic(light: 0x9B2393, dark: 0xFC5FA3),
+        .string: dynamic(light: 0xC41A16, dark: 0xFC6A5D),
+        .comment: dynamic(light: 0x5D6C79, dark: 0x7F8C98),
+        .number: dynamic(light: 0x1C00CF, dark: 0xD0BF69),
+        .constant: dynamic(light: 0x326D74, dark: 0x67B7A4),
+        .type: dynamic(light: 0x0B4F79, dark: 0x5DD8FF),
+        .function: dynamic(light: 0x326D74, dark: 0x67B7A4),
+        .property: dynamic(light: 0x3900A0, dark: 0xA167E6),
+        .attribute: dynamic(light: 0x815F03, dark: 0xBF8555),
+        .tag: dynamic(light: 0x9B2393, dark: 0xFC5FA3),
+        .escape: dynamic(light: 0x815F03, dark: 0xBF8555),
+        .heading: dynamic(light: 0x0B4F79, dark: 0x5DD8FF),
+        .link: dynamic(light: 0x0E0EFF, dark: 0x6699FF),
+    ]
+
+    static func color(for token: SyntaxToken) -> NSColor { colors[token] ?? .labelColor }
+
+    private static func dynamic(light: UInt32, dark: UInt32) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return rgb(isDark ? dark : light)
+        }
+    }
+
+    private static func rgb(_ value: UInt32) -> NSColor {
+        NSColor(
+            srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
+            blue: CGFloat(value & 0xFF) / 255, alpha: 1)
     }
 }
 
