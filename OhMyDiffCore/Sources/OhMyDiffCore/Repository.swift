@@ -211,7 +211,7 @@ public struct Repository: Sendable {
 
     // MARK: - Diffs
 
-    private static let diffOptions = ["--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-M"]
+    static let diffOptions = ["--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-M"]
 
     /// The parsed diff of one uncommitted file, or `nil` if it no longer differs.
     public func diff(for file: ChangedFile) async throws -> FileDiff? {
@@ -274,12 +274,17 @@ public struct Repository: Sendable {
             guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= limit else { return nil }
             return try? Data(contentsOf: url)
         }
+        return try await self.blob(blob, limit: limit)
+    }
+
+    /// The object `spec` names (e.g. `HEAD:path`), or `nil` when it does not exist or is larger than `limit` bytes.
+    func blob(_ spec: String, limit: Int) async throws -> Data? {
         // `cat-file -s` fails with 128 when the object does not exist, e.g. for an added file.
-        let sizeOutput = try await toolchain.git(["cat-file", "-s", blob], in: root, allowedExitCodes: [0, 128])
+        let sizeOutput = try await toolchain.git(["cat-file", "-s", spec], in: root, allowedExitCodes: [0, 128])
         guard sizeOutput.exitCode == 0,
               let size = Int(sizeOutput.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)), size <= limit
         else { return nil }
-        return try await toolchain.git(["cat-file", "blob", blob], in: root).stdout
+        return try await toolchain.git(["cat-file", "blob", spec], in: root).stdout
     }
 
     private func isUntracked(_ path: String) async throws -> Bool {
