@@ -489,9 +489,12 @@ private struct DiffSettingsPane: View {
 }
 
 private struct CommandLineSettings: View {
-    @State private var isInstalled = CLILauncher.isInstalled()
+    @State private var state = CLILauncher.installState(app: Self.app)
     @State private var isOnPath: Bool?
     @State private var error: String?
+
+    /// The app's executable, which `ohmydiff mcp` runs.
+    private static var app: String { Bundle.main.executableURL?.path ?? "" }
 
     private var directory: String {
         (CLILauncher.defaultDirectory.path as NSString).abbreviatingWithTildeInPath
@@ -500,58 +503,80 @@ private struct CommandLineSettings: View {
     private static let pathExport = "export PATH=\"$HOME/.local/bin:$PATH\""
 
     var body: some View {
-        VStack(spacing: 14) {
-            SettingsCard(title: "Command Line") {
-                HStack(spacing: 14) {
-                    Image(systemName: "apple.terminal.fill")
-                        .font(.system(size: 22, weight: .medium))
-                        .foregroundStyle(.black)
-                        .frame(width: 48, height: 48)
-                        .background(Theme.logo.gradient, in: .rect(cornerRadius: 12))
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 8) {
-                            Text("ohmydiff").font(.body.monospaced().weight(.semibold))
-                            StatusPill(isInstalled: isInstalled)
+        ScrollView {
+            VStack(spacing: 14) {
+                SettingsCard(title: "Command Line") {
+                    HStack(spacing: 14) {
+                        Image(systemName: "apple.terminal.fill")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(.black)
+                            .frame(width: 48, height: 48)
+                            .background(Theme.logo.gradient, in: .rect(cornerRadius: 12))
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 8) {
+                                Text("ohmydiff").font(.body.monospaced().weight(.semibold))
+                                StatusPill(state: state)
+                            }
+                            Text("Open repositories, files, branches and commits from your terminal.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                        Text("Open any repository from your terminal.")
+                        Spacer(minLength: 8)
+                        Button { install() } label: {
+                            Label(state == .missing ? "Install" : "Reinstall", systemImage: state == .missing ? "arrow.down" : "arrow.clockwise")
+                        }
+                        .buttonStyle(.pill(state == .current ? .normal : .prominent, height: 32))
+                        .focusEffectDisabled()
+                    }
+                    if state == .outdated {
+                        Label("The installed command is from an older version or another copy of the app. Reinstall it.", systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    Spacer(minLength: 8)
-                    Button { install() } label: {
-                        Label(isInstalled ? "Reinstall" : "Install", systemImage: isInstalled ? "arrow.clockwise" : "arrow.down")
+                    if let error {
+                        Label(error, systemImage: "xmark.octagon.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red)
                     }
-                    .buttonStyle(.pill(isInstalled ? .normal : .prominent, height: 32))
-                    .focusEffectDisabled()
                 }
-                if let error {
-                    Label(error, systemImage: "xmark.octagon.fill")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-            }
 
-            SettingsCard(title: "Usage") {
-                VStack(alignment: .leading, spacing: 6) {
-                    TerminalLine(command: "ohmydiff", comment: "the current folder")
-                    TerminalLine(command: "ohmydiff ~/code/project", comment: "any repository")
-                }
-                Text("Installs to \(directory). Each run opens the repository here, adding it as a project if it is new.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if isOnPath == false {
-                SettingsCard(title: "Add to PATH") {
-                    Label("\(directory) is not on your shell's PATH yet. Add this line to your shell profile:", systemImage: "exclamationmark.triangle.fill")
+                SettingsCard(title: "Usage") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        TerminalLine(command: "ohmydiff", comment: "the current repository")
+                        TerminalLine(command: "ohmydiff show src/app.ts:42", comment: "a changed file at a line")
+                        TerminalLine(command: "ohmydiff branch feature/login", comment: "a branch in History")
+                        TerminalLine(command: "ohmydiff commit 1a2b3c4", comment: "a commit in History")
+                    }
+                    Text("Installs to \(directory). Each run brings ohmydiff to the front, adding the repository as a project if it is new.")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    TerminalLine(command: Self.pathExport, prompt: false)
+                }
+
+                SettingsCard(title: "Coding Agents") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        TerminalLine(command: "claude mcp add ohmydiff -- ohmydiff mcp", comment: "Claude Code")
+                        TerminalLine(command: "codex mcp add ohmydiff -- ohmydiff mcp", comment: "Codex")
+                    }
+                    Text("`ohmydiff mcp` is a local MCP server. Agents can list changes, branches and commits, read diffs, and point ohmydiff at the exact file, line, branch or commit for you to review.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if isOnPath == false {
+                    SettingsCard(title: "Add to PATH") {
+                        Label("\(directory) is not on your shell's PATH yet. Add this line to your shell profile:", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                        TerminalLine(command: Self.pathExport, prompt: false)
+                    }
                 }
             }
         }
+        .scrollIndicators(.automatic)
         .task {
             isOnPath = await Toolchain.loginShellPath().map { CLILauncher.searchPath($0, contains: CLILauncher.defaultDirectory) }
         }
@@ -559,27 +584,32 @@ private struct CommandLineSettings: View {
 
     private func install() {
         do {
-            try CLILauncher.install()
+            try CLILauncher.install(app: Self.app)
             error = nil
         } catch {
             self.error = "Could not install: \(error.localizedDescription)"
         }
-        isInstalled = CLILauncher.isInstalled()
+        state = CLILauncher.installState(app: Self.app)
     }
 }
 
-/// `Installed` in green or `Not installed` in gray.
+/// `Installed` in green, `Outdated` in orange or `Not installed` in gray.
 private struct StatusPill: View {
-    let isInstalled: Bool
+    let state: CLILauncher.InstallState
 
     var body: some View {
-        Label(isInstalled ? "Installed" : "Not installed", systemImage: isInstalled ? "checkmark.circle.fill" : "circle.dashed")
+        let (title, symbol, color): (String, String, Color) = switch state {
+        case .current: ("Installed", "checkmark.circle.fill", Theme.addition)
+        case .outdated: ("Outdated", "exclamationmark.circle.fill", .orange)
+        case .missing: ("Not installed", "circle.dashed", .secondary)
+        }
+        Label(title, systemImage: symbol)
             .labelStyle(.titleAndIcon)
             .font(.caption2.weight(.semibold))
-            .foregroundStyle(isInstalled ? Theme.addition : .secondary)
+            .foregroundStyle(color)
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
-            .background((isInstalled ? Theme.addition : Color.secondary).opacity(0.14), in: .capsule)
+            .background(color.opacity(0.14), in: .capsule)
     }
 }
 

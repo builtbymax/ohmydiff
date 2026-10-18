@@ -69,6 +69,7 @@ final class AppModel {
         let project = projects.first { $0.id == id } ?? Project(id: id, path: "")
         let session = ProjectSession(project: project) { [weak self] in await self?.toolchain() }
         session.onKindChange = { [weak self] kind in self?.update(id) { $0.kind = kind } }
+        session.onRevealFailure = { [weak self] message in self?.errorMessage = message }
         sessions[id] = session
         return session
     }
@@ -115,15 +116,7 @@ final class AppModel {
 
         for url in urls {
             do {
-                let repository = try await Repository.open(url, toolchain: toolchain)
-                let path = repository.root.standardizedFileURL.path
-                if let existing = projects.first(where: { $0.url.standardizedFileURL.path == path }) {
-                    lastID = existing.id
-                    continue
-                }
-                let project = Project(path: path, kind: repository.kind)
-                projects.append(project)
-                lastID = project.id
+                lastID = try await addProject(containing: url, toolchain: toolchain)
             } catch {
                 failures.append(url.lastPathComponent)
             }
@@ -134,6 +127,16 @@ final class AppModel {
         if !failures.isEmpty {
             errorMessage = "Not a git repository: \(failures.joined(separator: ", "))"
         }
+    }
+
+    /// The project of the repository containing `url`, added to the list (unsaved) when it is new.
+    private func addProject(containing url: URL, toolchain: Toolchain) async throws -> Project.ID {
+        let repository = try await Repository.open(url, toolchain: toolchain)
+        let path = repository.root.standardizedFileURL.path
+        if let existing = projects.first(where: { $0.url.standardizedFileURL.path == path }) { return existing.id }
+        let project = Project(path: path, kind: repository.kind)
+        projects.append(project)
+        return project.id
     }
 
     func remove(_ id: Project.ID) {
@@ -187,12 +190,57 @@ final class AppModel {
 
     // MARK: - Integration
 
-    /// Handles `ohmydiff://open?path=…` from the `ohmydiff` command: adds the folder's repository if it
-    /// is new and selects it.
+    /// Handles the `ohmydiff://…` URLs of the `ohmydiff` command and the MCP server: selects the repository,
+    /// adding it if it is new, and shows the file, branch or commit asked for.
     func handle(_ url: URL) {
-        guard let path = CLILauncher.openRequestPath(url) else { return }
+        guard let request = CLIRequest(url: url) else { return }
         NSApp.activate()
-        Task { await addProjects([URL(fileURLWithPath: path, isDirectory: true)]) }
+        isSwitcherPresented = false
+        isProjectMenuPresented = false
+        Task { await perform(request) }
+    }
+
+    private func perform(_ request: CLIRequest) async {
+        switch request {
+        case .open(let path):
+            await addProjects([URL(fileURLWithPath: path, isDirectory: true)])
+        case .show(let path, let line):
+            let file = URL(fileURLWithPath: path)
+            guard let session = await focusProject(containing: file.deletingLastPathComponent()) else { return }
+            // Compare without symlinks, e.g. /var and /private/var; the file itself may be deleted.
+            let root = session.project.url.resolvingSymlinksInPath().path + "/"
+            let directory = file.deletingLastPathComponent().resolvingSymlinksInPath().path + "/"
+            guard directory.hasPrefix(root) else { return }
+            mode = .changes
+            session.reveal(path: String(directory.dropFirst(root.count)) + file.lastPathComponent, line: line)
+        case .branch(let path, let name):
+            guard let session = await focusProject(containing: URL(fileURLWithPath: path, isDirectory: true)) else { return }
+            mode = .history
+            session.history.reveal(.branch(name))
+            await session.refreshHistory()
+        case .commit(let path, let sha):
+            guard let session = await focusProject(containing: URL(fileURLWithPath: path, isDirectory: true)) else { return }
+            mode = .history
+            session.history.reveal(.commit(sha))
+            await session.refreshHistory()
+        }
+    }
+
+    /// Selects the project of the repository containing `url`, adding it when it is new.
+    private func focusProject(containing url: URL) async -> ProjectSession? {
+        guard let toolchain = await toolchain() else {
+            errorMessage = "git was not found on your login shell PATH."
+            return nil
+        }
+        do {
+            let id = try await addProject(containing: url, toolchain: toolchain)
+            save()
+            selectedProjectID = id
+            return session(for: id)
+        } catch {
+            errorMessage = "Not a git repository: \(url.path)"
+            return nil
+        }
     }
 
     /// Opens the file at its line with the editor chosen in Settings.

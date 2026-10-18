@@ -2,6 +2,14 @@ import Foundation
 import Observation
 import OhMyDiffCore
 
+/// A file selected from outside the list, e.g. by `ohmydiff show`: the list scrolls to it and its diff
+/// to `line` of the new file, once per request.
+struct FileReveal: Equatable {
+    let id = UUID()
+    var fileID: ChangedFile.ID
+    var line: Int?
+}
+
 /// In-memory state of one project. Kept for the app's lifetime so switching back shows the
 /// cached state at once while a background refresh brings it up to date.
 @Observable
@@ -54,6 +62,14 @@ final class ProjectSession {
 
     /// Called when detection finds a different kind than the saved one.
     @ObservationIgnored var onKindChange: ((RepositoryKind) -> Void)?
+    /// Called when a file, branch or commit asked for by `ohmydiff` or an agent is not there.
+    @ObservationIgnored var onRevealFailure: ((String) -> Void)? {
+        didSet { history.onRevealFailure = onRevealFailure }
+    }
+    /// The last file selected from outside the list.
+    private(set) var fileReveal: FileReveal?
+    /// A file to select once the next refresh lists it.
+    @ObservationIgnored private var pendingReveal: (path: String, line: Int?)?
 
     @ObservationIgnored private let toolchain: () async -> Toolchain?
     @ObservationIgnored private var repository: Repository?
@@ -149,6 +165,7 @@ final class ProjectSession {
             apply(try await repository.changeGroups())
             phase = .ready
             lastRefreshed = .now
+            resolvePendingReveal(isFinal: true)
             if isActive, watcher == nil { await startWatching(repository) }
         } catch is CancellationError {
             return
@@ -290,6 +307,31 @@ final class ProjectSession {
     @ObservationIgnored private var lastCommitBranch: String?
 
     // MARK: - Selection and diff
+
+    /// Selects the changed file at `path` (relative to the root) and scrolls its diff to `line` of the new
+    /// file. Refreshes first, since the change may be newer than the list.
+    func reveal(path: String, line: Int?) {
+        pendingReveal = (path, line)
+        // Already listed: show it at once; the refresh only confirms it.
+        resolvePendingReveal(isFinal: false)
+        refresh()
+    }
+
+    private func resolvePendingReveal(isFinal: Bool) {
+        guard let (path, line) = pendingReveal else { return }
+        let files = groups.allFiles.filter { $0.path == path }
+        // Plain git lists a file both staged and unstaged; the worktree side is the one with the latest line numbers.
+        guard let file = files.first(where: { $0.source != .staged }) ?? files.first else {
+            if isFinal {
+                pendingReveal = nil
+                onRevealFailure?("\(path) has no uncommitted changes in \(project.displayName).")
+            }
+            return
+        }
+        pendingReveal = nil
+        selectedFileID = file.id
+        fileReveal = FileReveal(fileID: file.id, line: line)
+    }
 
     /// One side of a changed file, e.g. for image previews; `nil` when it does not exist or cannot be read.
     func contents(of file: ChangedFile, side: Repository.FileSide) async -> Data? {

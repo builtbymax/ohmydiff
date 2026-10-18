@@ -55,6 +55,16 @@ final class HistoryModel {
         }
     }
 
+    /// A branch or commit asked for by `ohmydiff` or an agent.
+    enum RevealTarget: Equatable {
+        case branch(String)
+        /// A full or abbreviated SHA.
+        case commit(String)
+    }
+
+    /// Called when a revealed branch or commit is not listed.
+    @ObservationIgnored var onRevealFailure: ((String) -> Void)?
+    @ObservationIgnored private var pendingReveal: RevealTarget?
     @ObservationIgnored private var repository: Repository?
     /// The repository `remoteURL` was looked up for.
     @ObservationIgnored private var remoteRoot: URL?
@@ -99,12 +109,49 @@ final class HistoryModel {
             return
         }
 
+        resolvePendingReveal(isFinal: true)
         if let selection, let branch = selectedBranch, selection.isValid(in: branch) {
             // Same selection; reload its files only if the branch moved.
             if revisions(for: selection) != loadedRevisions { loadFiles(isReload: true) }
         } else {
             selection = groups.lazy.flatMap(\.branches).first.map { .branch($0.name) }
         }
+    }
+
+    /// Selects a branch or commit, now when it is listed, else after the next refresh.
+    func reveal(_ target: RevealTarget) {
+        pendingReveal = target
+        resolvePendingReveal(isFinal: false)
+    }
+
+    private func resolvePendingReveal(isFinal: Bool) {
+        guard let target = pendingReveal else { return }
+        let branches = groups.flatMap(\.branches)
+        let found: Selection?
+        switch target {
+        case .branch(let name):
+            found = branches.contains { $0.name == name } ? .branch(name) : nil
+        case .commit(let sha):
+            let prefix = sha.lowercased()
+            // The checked-out branch first, since plain git lists a commit under every branch containing it.
+            let ordered = branches.filter(\.isCurrent) + branches.filter { !$0.isCurrent }
+            found = prefix.count < 4 ? nil : ordered.lazy.compactMap { branch in
+                branch.commits.first { $0.sha.hasPrefix(prefix) }.map { Selection.commit(sha: $0.sha, branch: branch.name) }
+            }.first
+        }
+        guard let found else {
+            if isFinal, phase == .ready {
+                pendingReveal = nil
+                let message = switch target {
+                case .branch(let name): "No branch named \(name) is listed in History."
+                case .commit(let sha): "Commit \(sha.prefix(12)) is not on a branch listed in History."
+                }
+                onRevealFailure?(message)
+            }
+            return
+        }
+        pendingReveal = nil
+        selection = found
     }
 
     func close() {

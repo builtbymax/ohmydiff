@@ -168,17 +168,7 @@ extension Repository {
     }
 
     static func patch(path: String, hunk: Hunk) -> String {
-        var patch = "diff --git a/\(path) b/\(path)\n--- a/\(path)\n+++ b/\(path)\n\(hunk.header)\n"
-        for line in hunk.lines {
-            let marker = switch line.kind {
-            case .context: " "
-            case .addition: "+"
-            case .deletion: "-"
-            }
-            patch += marker + line.text + "\n"
-            if line.noNewlineAtEnd { patch += "\\ No newline at end of file\n" }
-        }
-        return patch
+        "diff --git a/\(path) b/\(path)\n--- a/\(path)\n+++ b/\(path)\n" + hunk.patch
     }
 
     /// The `but` CLI IDs of files (from `but --json status`) or hunks (from `but --json diff`, matched by

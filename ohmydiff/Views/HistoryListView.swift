@@ -58,6 +58,10 @@ struct HistoryListView: View {
                 .focusEffectDisabled()
                 .onKeyPress(.downArrow) { moveSelection(1, proxy: proxy) }
                 .onKeyPress(.upArrow) { moveSelection(-1, proxy: proxy) }
+                // Also brings a branch or commit revealed by `ohmydiff` or an agent into view.
+                .onChange(of: history.selection) { _, selection in
+                    if let selection { withAnimation(.snappy) { proxy.scrollTo(selection) } }
+                }
             }
         }
     }

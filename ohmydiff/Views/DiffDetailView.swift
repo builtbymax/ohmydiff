@@ -34,6 +34,7 @@ struct DiffDetailView: View {
                 fileID: file.id, diff: diff, highlights: session.diff?.highlights, root: session.rootURL,
                 popout: .change(projectID: session.project.id, path: file.path),
                 promptContext: session.promptContext(forPath: file.path),
+                reveal: session.fileReveal?.fileID == file.id ? session.fileReveal : nil,
                 contents: { side in await session.contents(of: file, side: side) },
                 hunkActions: ChangeAction.allCases.filter { action in
                     diff.hunks.first.map { session.supports(action, on: [ChangeTarget(file: file, hunk: $0)]) } ?? false
@@ -58,6 +59,8 @@ struct FileDiffView: View {
     var popout: DiffPopout? = nil
     /// What prompts to Claude Code say about this diff; `nil` leaves out the Claude Code actions.
     var promptContext: PromptContext? = nil
+    /// A line to scroll to, e.g. from `ohmydiff show`.
+    var reveal: FileReveal? = nil
     /// One side's contents, for image previews and the whole-file view.
     let contents: (Repository.FileSide) async -> Data?
     /// Actions in each hunk's context menu and the hunk bar; none in History mode.
@@ -182,7 +185,8 @@ struct FileDiffView: View {
                     onSelectLines: { lines in
                         if lines != selectedLines { selectedLines = lines }
                     },
-                    onAskClaude: askClaudeAction)
+                    onAskClaude: askClaudeAction,
+                    reveal: reveal)
             }
         }
     }

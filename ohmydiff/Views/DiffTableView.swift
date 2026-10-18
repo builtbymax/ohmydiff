@@ -38,6 +38,8 @@ struct DiffTableView: NSViewRepresentable {
     var onSelectLines: ([DiffPosition]) -> Void = { _ in }
     /// Asks Claude Code about lines, from the context menu; `nil` leaves those items out.
     var onAskClaude: ((ClaudeRequest) -> Void)?
+    /// A line of the new file to scroll to and select, once per request.
+    var reveal: FileReveal?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -82,6 +84,7 @@ struct DiffTableView: NSViewRepresentable {
         context.coordinator.onSelectLines = onSelectLines
         context.coordinator.onAskClaude = onAskClaude
         context.coordinator.show(diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize, isWholeFile: isWholeFile)
+        if let reveal { context.coordinator.reveal(reveal) }
     }
 
     @MainActor
@@ -201,6 +204,18 @@ struct DiffTableView: NSViewRepresentable {
             reportFocusLine()
             reportSelectedLines()
             reportVisibleHunk()
+        }
+
+        private var handledReveal: UUID?
+
+        /// Scrolls to the request's line, a few rows below the top, and selects it; each request once.
+        func reveal(_ request: FileReveal) {
+            guard request.id != handledReveal, let line = request.line, let tableView, rowCount > 0 else { return }
+            handledReveal = request.id
+            guard let row = row(showing: (old: nil, new: line)) else { return }
+            scroll(toRow: max(row - 4, 0))
+            tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            tableView.window?.makeFirstResponder(tableView)
         }
 
         /// Reports the hunk of the topmost visible row when it changes.

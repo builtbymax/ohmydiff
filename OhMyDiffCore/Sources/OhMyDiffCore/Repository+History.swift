@@ -131,6 +131,14 @@ extension Repository {
         return UnifiedDiffParser.parse(output.stdout)
     }
 
+    /// The full SHA of the commit `revision` names, e.g. an abbreviated SHA; `nil` when there is none.
+    public func resolveCommit(_ revision: String) async throws -> String? {
+        guard !revision.hasPrefix("-") else { return nil }
+        let output = try await toolchain.git(["rev-parse", "--verify", "--quiet", "\(revision)^{commit}"], in: root, allowedExitCodes: [0, 1, 128])
+        let sha = output.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+        return output.exitCode == 0 && !sha.isEmpty ? sha : nil
+    }
+
     /// A file's contents at `revision`, or `nil` when it does not exist there or is larger than `limit` bytes.
     public func contents(at revision: String, path: String, limit: Int = 16 << 20) async throws -> Data? {
         try await blob("\(revision):\(path)", limit: limit)

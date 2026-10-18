@@ -96,7 +96,7 @@ public enum ClaudePrompt {
         }
 
         let body = hunks.map { hunk in
-            ([hunk.header] + hunk.lines.map { marker($0.kind) + $0.text }).joined(separator: "\n")
+            ([hunk.header] + hunk.lines.map { $0.marker + $0.text }).joined(separator: "\n")
         }
         .joined(separator: "\n")
         sections.append(fenced(body, language: "diff"))
@@ -143,14 +143,6 @@ public enum ClaudePrompt {
         }
         let parts = [range(lines.compactMap(\.newLineNumber), "new"), range(lines.compactMap(\.oldLineNumber), "old")].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
-    }
-
-    private static func marker(_ kind: DiffLine.Kind) -> String {
-        switch kind {
-        case .context: " "
-        case .addition: "+"
-        case .deletion: "-"
-        }
     }
 
     /// A fenced code block whose fence is longer than any backtick run inside it.

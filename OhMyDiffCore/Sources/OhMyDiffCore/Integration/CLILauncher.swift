@@ -1,6 +1,70 @@
 import Foundation
 
-/// The `ohmydiff [path]` shell command and the `ohmydiff://open?path=…` URLs it opens.
+/// What an `ohmydiff://…` URL asks the app to show. The `ohmydiff` command and the MCP server build them.
+public enum CLIRequest: Sendable, Hashable {
+    /// The repository containing `path`, added as a project if it is new.
+    case open(path: String)
+    /// The uncommitted diff of the file at the absolute `path`, scrolled to `line` of the new file.
+    case show(path: String, line: Int?)
+    /// A branch of the repository containing `path`, in History mode.
+    case branch(path: String, name: String)
+    /// A commit of the repository containing `path`, in History mode; `sha` may be abbreviated.
+    case commit(path: String, sha: String)
+
+    /// Parses `ohmydiff://open?path=…`, `show?path=…&line=…`, `branch?path=…&name=…` and `commit?path=…&sha=…`.
+    public init?(url: URL) {
+        guard url.scheme?.lowercased() == CLILauncher.urlScheme,
+              let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+        else { return nil }
+        func value(_ name: String) -> String? {
+            items.first { $0.name == name }?.value.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        guard let path = value("path") else { return nil }
+        switch url.host() {
+        case "open":
+            self = .open(path: path)
+        case "show":
+            self = .show(path: path, line: value("line").flatMap(Int.init).flatMap { $0 > 0 ? $0 : nil })
+        case "branch":
+            guard let name = value("name") else { return nil }
+            self = .branch(path: path, name: name)
+        case "commit":
+            guard let sha = value("sha") else { return nil }
+            self = .commit(path: path, sha: sha)
+        default:
+            return nil
+        }
+    }
+
+    public var url: URL {
+        var components = URLComponents()
+        components.scheme = CLILauncher.urlScheme
+        let items: [URLQueryItem]
+        switch self {
+        case .open(let path):
+            components.host = "open"
+            items = [URLQueryItem(name: "path", value: path)]
+        case .show(let path, let line):
+            components.host = "show"
+            items = [URLQueryItem(name: "path", value: path)] + (line.map { [URLQueryItem(name: "line", value: String($0))] } ?? [])
+        case .branch(let path, let name):
+            components.host = "branch"
+            items = [URLQueryItem(name: "path", value: path), URLQueryItem(name: "name", value: name)]
+        case .commit(let path, let sha):
+            components.host = "commit"
+            items = [URLQueryItem(name: "path", value: path), URLQueryItem(name: "sha", value: sha)]
+        }
+        // Plain `queryItems` leave `&`, `=` and `+` alone, which would split or change the values.
+        components.percentEncodedQueryItems = items.map {
+            URLQueryItem(name: $0.name, value: $0.value?.addingPercentEncoding(withAllowedCharacters: Self.queryValueCharacters))
+        }
+        return components.url!
+    }
+
+    private static let queryValueCharacters = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&=+#?"))
+}
+
+/// The `ohmydiff` shell command and the `ohmydiff://…` URLs it opens.
 public enum CLILauncher {
     public static let urlScheme = "ohmydiff"
 
@@ -9,44 +73,110 @@ public enum CLILauncher {
         FileManager.default.homeDirectoryForCurrentUser.appending(path: ".local/bin", directoryHint: .isDirectory)
     }
 
-    /// Resolves the folder (default `.`) and hands it to the app, which adds it if it is new and focuses it.
-    /// Every byte of the path is percent-encoded, which needs nothing beyond POSIX tools.
-    public static let script = """
+    /// The command. `app` is the app's executable, which `ohmydiff mcp` runs as the MCP server.
+    ///
+    /// Paths are resolved here, so the app gets absolute ones. Every byte of a value is percent-encoded,
+    /// which needs nothing beyond POSIX tools.
+    public static func script(app: String) -> String {
+        """
         #!/bin/sh
-        # ohmydiff: open a git repository in ohmydiff. Installed from ohmydiff's Settings.
+        # ohmydiff: open repositories, files, branches and commits in ohmydiff. Installed from ohmydiff's Settings.
         set -eu
 
+        app=\(EditorCommand.shellQuoted(app))
+
+        usage() {
+            cat <<'EOF'
+        usage: ohmydiff [path]               open the repository containing path (default: .)
+               ohmydiff open [path]          the same
+               ohmydiff show <file>[:line]   show a changed file's diff, at a line of the new file
+               ohmydiff branch <name> [path] show a branch of the repository in History
+               ohmydiff commit <sha> [path]  show a commit of the repository in History
+               ohmydiff mcp                  run the MCP server on stdin and stdout, for coding agents
+        EOF
+        }
+
+        fail() {
+            echo "ohmydiff: $1" >&2
+            exit 1
+        }
+
+        encode() {
+            printf '%s' "$1" | od -An -tx1 -v | tr -d ' \\n' | sed 's/../%&/g'
+        }
+
+        # The absolute, symlink-free form of a folder.
+        folder() {
+            [ -d "$1" ] || fail "$1 is not a directory"
+            (cd "$1" && pwd -P)
+        }
+
         case "${1:-}" in
-            -h|--help)
-                echo "usage: ohmydiff [path]   open the repository containing path (default: .) in ohmydiff"
+            -h|--help|help)
+                usage
                 exit 0
+                ;;
+            open)
+                shift
+                ;;
+            show)
+                [ $# -ge 2 ] || { usage >&2; exit 2; }
+                target=$2
+                line=
+                # `file:12` names line 12, unless a file is really called that.
+                if [ ! -e "$target" ]; then
+                    case "$target" in
+                        *:*[0-9])
+                            line=${target##*:}
+                            case "$line" in *[!0-9]*) line= ;; *) target=${target%:*} ;; esac
+                            ;;
+                    esac
+                fi
+                # A deleted file no longer exists, but its folder does.
+                dir=$(folder "$(dirname "$target")")
+                [ -d "$target" ] && fail "$target is a directory"
+                path="$dir/$(basename "$target")"
+                exec open "ohmydiff://show?path=$(encode "$path")&line=$line"
+                ;;
+            branch|commit)
+                [ $# -ge 2 ] && [ -n "$2" ] || { usage >&2; exit 2; }
+                key=name
+                [ "$1" = commit ] && key=sha
+                path=$(folder "${3:-.}")
+                exec open "ohmydiff://$1?path=$(encode "$path")&$key=$(encode "$2")"
+                ;;
+            mcp)
+                [ -x "$app" ] || fail "the app is no longer at $app. Reinstall the command from ohmydiff's Settings."
+                exec "$app" --mcp
                 ;;
         esac
 
-        target=${1:-.}
-        if [ ! -d "$target" ]; then
-            echo "ohmydiff: $target is not a directory" >&2
-            exit 1
-        fi
-        path=$(cd "$target" && pwd -P)
-        encoded=$(printf '%s' "$path" | od -An -tx1 -v | tr -d ' \\n' | sed 's/../%&/g')
-        exec open "ohmydiff://open?path=$encoded"
+        path=$(folder "${1:-.}")
+        exec open "ohmydiff://open?path=$(encode "$path")"
 
         """
+    }
+
+    public enum InstallState: Sendable {
+        case missing
+        case current
+        /// An earlier version, or one pointing at the app in another place.
+        case outdated
+    }
 
     /// Writes the command to `directory`/ohmydiff as an executable, replacing an earlier copy.
     @discardableResult
-    public static func install(in directory: URL = defaultDirectory) throws -> URL {
+    public static func install(app: String, in directory: URL = defaultDirectory) throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "ohmydiff")
-        try Data(script.utf8).write(to: url, options: .atomic)
+        try Data(script(app: app).utf8).write(to: url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         return url
     }
 
-    /// Whether `directory`/ohmydiff exists and matches the current script.
-    public static func isInstalled(in directory: URL = defaultDirectory) -> Bool {
-        (try? Data(contentsOf: directory.appending(path: "ohmydiff"))) == Data(script.utf8)
+    public static func installState(app: String, in directory: URL = defaultDirectory) -> InstallState {
+        guard let data = try? Data(contentsOf: directory.appending(path: "ohmydiff")) else { return .missing }
+        return data == Data(script(app: app).utf8) ? .current : .outdated
     }
 
     /// Whether a colon-separated search path contains `directory`.
@@ -55,14 +185,5 @@ public enum CLILauncher {
         return path.split(separator: ":").contains {
             URL(fileURLWithPath: String($0), isDirectory: true).standardizedFileURL.path == target
         }
-    }
-
-    /// The folder an `ohmydiff://open?path=…` URL asks for; `nil` for other URLs.
-    public static func openRequestPath(_ url: URL) -> String? {
-        guard url.scheme?.lowercased() == urlScheme, url.host() == "open",
-              let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "path" })?.value,
-              !path.isEmpty
-        else { return nil }
-        return path
     }
 }

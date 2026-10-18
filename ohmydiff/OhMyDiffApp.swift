@@ -1,6 +1,26 @@
+import OhMyDiffCore
 import SwiftUI
 
+/// Starts the app, or with `--mcp` (from `ohmydiff mcp`) the MCP server for coding agents, without any UI.
 @main
+enum Entry {
+    static func main() {
+        if CommandLine.arguments.dropFirst().first == "--mcp" {
+            Task.detached {
+                let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+                let server = MCPServer(
+                    toolchain: try? await Toolchain.discover(),
+                    workingDirectory: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true),
+                    version: version)
+                await server.serve()
+                exit(0)
+            }
+            dispatchMain()
+        }
+        OhMyDiffApp.main()
+    }
+}
+
 struct OhMyDiffApp: App {
     @State private var model = AppModel()
 

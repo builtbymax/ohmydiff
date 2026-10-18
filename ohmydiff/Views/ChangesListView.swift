@@ -57,6 +57,9 @@ struct ChangesListView: View {
                 .onKeyPress(.upArrow) { moveSelection(-1, proxy: proxy) }
                 .onKeyPress("n") { jumpToHunk(1) }
                 .onKeyPress("p") { jumpToHunk(-1) }
+                .onChange(of: session.fileReveal) { _, reveal in
+                    if let reveal { withAnimation(.snappy) { proxy.scrollTo(reveal.fileID) } }
+                }
             }
         }
     }
