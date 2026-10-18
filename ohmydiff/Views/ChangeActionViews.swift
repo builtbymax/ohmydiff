@@ -370,28 +370,13 @@ struct SoftSegmented<Value: Hashable>: View {
     var disabled: Set<Value> = []
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(options, id: \.value) { option in
-                let isSelected = option.value == selection
-                Button { withAnimation(.snappy(duration: 0.18)) { selection = option.value } } label: {
-                    Text(option.title)
-                        .font(.caption.weight(isSelected ? .semibold : .medium))
-                        .foregroundStyle(isSelected ? .primary : .secondary)
-                        .padding(.horizontal, 11)
-                        .frame(height: 22)
-                        .background {
-                            if isSelected {
-                                Capsule()
-                                    .fill(Theme.cardRow)
-                                    .shadow(color: .black.opacity(0.08), radius: 1, y: 1)
-                            }
-                        }
-                        .contentShape(.capsule)
-                }
-                .buttonStyle(.plain)
-                .disabled(disabled.contains(option.value))
-                .opacity(disabled.contains(option.value) ? 0.4 : 1)
-            }
+        // Animated, so what the choice shows or hides around the control animates with it.
+        let animated = Binding { selection } set: { value in withAnimation(.snappy(duration: 0.18)) { selection = value } }
+        MagneticSegments(selection: animated, options: options, disabled: disabled, font: .caption, horizontalPadding: 11,
+                         height: 22, hoverFill: Color.primary.opacity(0.05)) {
+            Capsule()
+                .fill(Theme.cardRow)
+                .shadow(color: .black.opacity(0.08), radius: 1, y: 1)
         }
         .padding(2)
         .background(Color.primary.opacity(0.06), in: .capsule)

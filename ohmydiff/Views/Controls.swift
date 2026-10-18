@@ -172,7 +172,11 @@ private struct PillButtonBody: View {
             .background(fill, in: .capsule)
             .overlay {
                 // A flat lime fill needs no edge; the others get a hairline so they hold their shape on glass.
-                if kind != .prominent { Capsule().strokeBorder(Theme.hairline) }
+                switch kind {
+                case .normal: Capsule().strokeBorder(Theme.hairline)
+                case .destructive: Capsule().strokeBorder(Color.red.opacity(0.3))
+                case .prominent: EmptyView()
+                }
             }
             .contentShape(.capsule)
             .opacity(isEnabled ? 1 : 0.45)
@@ -186,7 +190,7 @@ private struct PillButtonBody: View {
         switch kind {
         case .normal: .primary
         case .prominent: .black
-        case .destructive: Theme.deletion
+        case .destructive: .red
         }
     }
 
@@ -195,7 +199,7 @@ private struct PillButtonBody: View {
         switch kind {
         case .normal: return Color.primary.opacity(0.06 + 0.05 * boost)
         case .prominent: return Theme.logo.mix(with: .black, by: 0.06 * boost)
-        case .destructive: return Theme.deletion.opacity(0.12 + 0.08 * boost)
+        case .destructive: return Color.red.opacity(0.2 + 0.1 * boost)
         }
     }
 }

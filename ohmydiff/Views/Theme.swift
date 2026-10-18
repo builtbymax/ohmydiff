@@ -122,22 +122,62 @@ struct GlassSegmented<Value: Hashable>: View {
     let options: [(value: Value, title: String)]
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(options, id: \.value) { option in
-                let isSelected = option.value == selection
-                Button { selection = option.value } label: {
-                    Text(option.title)
-                        .font(.callout.weight(isSelected ? .semibold : .medium))
-                        .foregroundStyle(isSelected ? .primary : .secondary)
-                        .padding(.horizontal, 13)
-                        .frame(height: 30)
-                }
-                .buttonStyle(.hoverCapsule(isSelected: isSelected))
-                .focusEffectDisabled()
-            }
+        MagneticSegments(selection: $selection, options: options, font: .callout, horizontalPadding: 13, height: 30,
+                         hoverFill: Color.primary.opacity(0.06)) {
+            Capsule().fill(Theme.glassSelection)
         }
         .padding(4)
         .glassEffect(.regular, in: .capsule)
+    }
+}
+
+/// Text segments whose selection pill and hover highlight glide from one segment to the next.
+struct MagneticSegments<Value: Hashable, Pill: View>: View {
+    @Binding var selection: Value
+    let options: [(value: Value, title: String)]
+    var disabled: Set<Value> = []
+    let font: Font
+    let horizontalPadding: CGFloat
+    let height: CGFloat
+    let hoverFill: Color
+    @ViewBuilder var pill: Pill
+
+    @Namespace private var namespace
+    @State private var hovered: Value?
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(options, id: \.value) { option in
+                let isSelected = option.value == selection
+                let isDisabled = disabled.contains(option.value)
+                Button { selection = option.value } label: {
+                    Text(option.title)
+                        .font(font.weight(isSelected ? .semibold : .medium))
+                        .foregroundStyle(isSelected ? .primary : .secondary)
+                        .padding(.horizontal, horizontalPadding)
+                        .frame(height: height)
+                        .background {
+                            if isSelected { pill.matchedGeometryEffect(id: "selection", in: namespace) }
+                        }
+                        .background {
+                            if hovered == option.value {
+                                Capsule().fill(hoverFill).matchedGeometryEffect(id: "hover", in: namespace)
+                            }
+                        }
+                        .contentShape(.capsule)
+                }
+                .buttonStyle(.plain)
+                .disabled(isDisabled)
+                .opacity(isDisabled ? 0.4 : 1)
+                // Only entering sets it, and leaving the whole control clears it, so the highlight
+                // moves between neighbors instead of fading out and in.
+                .onHover { if $0, !isDisabled { hovered = option.value } }
+            }
+        }
+        .onHover { if !$0 { hovered = nil } }
+        .animation(.snappy(duration: 0.28), value: selection)
+        .animation(.snappy(duration: 0.22), value: hovered)
+        .focusEffectDisabled()
     }
 }
 

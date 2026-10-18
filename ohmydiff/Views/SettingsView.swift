@@ -45,13 +45,24 @@ private struct TitlelessWindow: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {}
 
     private final class WindowObserver: NSView {
+        private var escapeMonitor: Any?
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            escapeMonitor.map(NSEvent.removeMonitor)
+            escapeMonitor = nil
             guard let window else { return }
             SettingsWindow.window = window
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
             window.isMovableByWindowBackground = true
+            // Escape closes Settings, like a sheet.
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak window] event in
+                guard let window, event.window === window, event.keyCode == 53,
+                      event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return event }
+                window.performClose(nil)
+                return nil
+            }
         }
     }
 }
@@ -90,6 +101,15 @@ enum SettingsWindow {
             window?.orderFrontRegardless()
         }
     }
+}
+
+/// What the panes looked up last, so switching back to one shows it complete at once instead of growing
+/// as its lookups finish.
+@MainActor
+private enum SettingsLookups {
+    static var installedProviders: Set<AIProvider>?
+    static var models: [AIProvider: [ModelOption]] = [:]
+    static var forgeTools: Set<String>?
 }
 
 /// A titled settings card with its rows.
@@ -154,7 +174,8 @@ private struct ChoiceTile<Preview: View>: View {
                         .font(.callout.weight(isSelected ? .semibold : .regular))
                         .foregroundStyle(isSelected ? .primary : .secondary)
                     if let subtitle {
-                        Text(subtitle)
+                        // An empty subtitle still takes its line, so tiles keep their height when one appears.
+                        Text(subtitle.isEmpty ? " " : subtitle)
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }
@@ -200,9 +221,7 @@ private struct GeneralSettings: View {
                     }
                 }
                 if editor == .custom {
-                    TextField("Command", text: $customCommand, prompt: Text("myeditor --goto {file}:{line}"))
-                        .textFieldStyle(.roundedBorder)
-                        .font(.body.monospaced())
+                    DraftField(label: "Command", text: $customCommand, prompt: "myeditor --goto {file}:{line}", font: .callout.monospaced())
                 }
                 Text(editor.template.map { "Runs `\($0)`. ⌘O opens the selected file at the selected line." }
                     ?? "`{file}` and `{line}` are replaced with the file path and line. ⌘O opens the selected file at the selected line.")
@@ -220,7 +239,7 @@ private struct AISettings: View {
     @AppStorage(AppSettings.suggestionProviderKey) private var suggestionProvider = ""
     @AppStorage(AppSettings.suggestionModelKey) private var model = ""
     /// Providers found on the login shell PATH; `nil` until looked up.
-    @State private var installed: Set<AIProvider>?
+    @State private var installed = SettingsLookups.installedProviders
 
     private static func columns(_ count: Int) -> [GridItem] { Array(repeating: GridItem(.flexible(), spacing: 10), count: count) }
 
@@ -280,13 +299,15 @@ private struct AISettings: View {
         .focusEffectDisabled()
         .task {
             let path = await Toolchain.loginShellPath() ?? ProcessInfo.processInfo.environment["PATH"] ?? ""
-            installed = Set(AIProvider.allCases.filter { ClaudeCodeLauncher.locate($0, environment: ["PATH": path]) != nil })
+            let found = Set(AIProvider.allCases.filter { ClaudeCodeLauncher.locate($0, environment: ["PATH": path]) != nil })
+            SettingsLookups.installedProviders = found
+            if installed != found { installed = found }
         }
     }
 
     private func providerTile(_ option: AIProvider, isSelected: Bool, action: @escaping () -> Void) -> some View {
         let isMissing = installed.map { !$0.contains(option) } ?? false
-        return ChoiceTile(title: option.displayName, subtitle: isMissing ? "Not installed" : nil, isSelected: isSelected, action: action) {
+        return ChoiceTile(title: option.displayName, subtitle: isMissing ? "Not installed" : "", isSelected: isSelected, action: action) {
             ProviderIcon(provider: option)
                 .frame(width: 44, height: 44)
                 .opacity(isMissing ? 0.45 : 1)
@@ -319,53 +340,55 @@ private struct ModelField: View {
 
     /// `nil` while loading.
     @State private var options: [ModelOption]?
+    /// What is typed; saved to `model` with Return or the checkmark.
+    @State private var draft: String
+    @State private var isPickerPresented = false
     @FocusState private var isFocused: Bool
+
+    init(provider: AIProvider, model: Binding<String>) {
+        self.provider = provider
+        _model = model
+        _draft = State(initialValue: model.wrappedValue)
+        _options = State(initialValue: SettingsLookups.models[provider])
+    }
 
     /// Quick picks: models matching the text, hidden once it names one exactly.
     private var suggestions: [ModelOption] {
-        guard let options, !options.contains(where: { $0.id == model }) else { return [] }
-        return Array(ModelCatalog.matching(model, in: options).prefix(6))
+        guard let options, !options.contains(where: { $0.id == draft }) else { return [] }
+        return Array(ModelCatalog.matching(draft, in: options).prefix(6))
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 4) {
-                TextField("Model", text: $model, prompt: Text("Default"))
+                TextField("Model", text: $draft, prompt: Text("Default"))
                     .textFieldStyle(.plain)
                     .font(.callout.monospaced())
                     .focused($isFocused)
-                if !model.isEmpty {
-                    Button { model = "" } label: {
+                    .onSubmit { choose(draft.trimmingCharacters(in: .whitespaces)) }
+                if !draft.isEmpty {
+                    Button { choose("") } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.plain)
                     .help("Use the provider's default model")
                 }
-                Menu {
-                    Button("Default") { model = "" }
-                    if let options, !options.isEmpty {
-                        Divider()
-                        ForEach(options) { option in
-                            Button { model = option.id } label: {
-                                Text(option.id == model ? "✓ \(option.name)" : option.name)
-                                if !option.detail.isEmpty || option.name != option.id {
-                                    Text([option.name != option.id ? option.id : nil, option.detail.isEmpty ? nil : option.detail].compactMap(\.self).joined(separator: " · "))
-                                }
-                            }
-                        }
-                    }
-                } label: {
+                Button { isPickerPresented.toggle() } label: {
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .frame(width: 22, height: 22)
                         .contentShape(.rect)
                 }
-                .menuStyle(.button)
-                .buttonStyle(.plain)
-                .menuIndicator(.hidden)
-                .fixedSize()
+                .buttonStyle(.hover(cornerRadius: 6, isSelected: isPickerPresented))
                 .help("Known \(provider.displayName) models")
+                .popover(isPresented: $isPickerPresented, arrowEdge: .bottom) {
+                    ModelPicker(provider: provider, options: options, selection: model, dismiss: { isPickerPresented = false }) {
+                        isPickerPresented = false
+                        choose($0)
+                    }
+                }
+                SaveButton(isSaved: draft == model) { choose(draft.trimmingCharacters(in: .whitespaces)) }
             }
             .padding(.leading, 10)
             .padding(.trailing, 4)
@@ -379,14 +402,13 @@ private struct ModelField: View {
             } else if !suggestions.isEmpty {
                 FlowRow(spacing: 6) {
                     ForEach(suggestions) { option in
-                        Button { model = option.id } label: {
+                        Button { choose(option.id) } label: {
                             Text(option.id)
-                                .font(.caption.monospaced().weight(.medium))
-                                .foregroundStyle(Theme.logoText)
+                                .font(.caption2.monospaced().weight(.semibold))
+                                .foregroundStyle(.green)
                                 .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(Theme.logo.opacity(0.14), in: .capsule)
-                                .overlay(Capsule().strokeBorder(Theme.logoText.opacity(0.2)))
+                                .padding(.vertical, 2)
+                                .background(Color.green.opacity(0.14), in: .capsule)
                         }
                         .buttonStyle(.plain)
                         .help(option.detail.isEmpty ? option.name : "\(option.name): \(option.detail)")
@@ -398,11 +420,124 @@ private struct ModelField: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .onChange(of: model) { draft = model }
         .task(id: provider) {
-            options = nil
+            // Models looked up before show at once, so the field keeps its height; the lookup only refreshes them.
+            options = SettingsLookups.models[provider]
             let toolchain = provider == .opencode ? try? await Toolchain.discover() : nil
-            options = await ModelCatalog.models(for: provider, toolchain: toolchain)
+            let found = await ModelCatalog.models(for: provider, toolchain: toolchain)
+            SettingsLookups.models[provider] = found
+            if options != found { options = found }
         }
+    }
+
+    /// Saves `id` as the model; picks from the menu and quick picks save at once.
+    private func choose(_ id: String) {
+        model = id
+        draft = id
+    }
+}
+
+/// The provider's known models in a panel like the hunk bar's: the default first, then each model with its ID
+/// and what it is for. Arrow keys and Return pick one.
+private struct ModelPicker: View {
+    let provider: AIProvider
+    /// `nil` while loading.
+    let options: [ModelOption]?
+    let selection: String
+    let dismiss: () -> Void
+    let choose: (String) -> Void
+
+    @State private var highlighted = 0
+
+    /// The default as `""`, then the models.
+    private var ids: [String] { [""] + (options ?? []).map(\.id) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            row(id: "", title: "Default", subtitle: "Whatever `\(provider.executable)` uses", index: 0)
+            Divider().padding(.vertical, 4).padding(.horizontal, 10)
+            if let options {
+                if options.isEmpty {
+                    Text("No known models; type one in the field.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 2) {
+                                ForEach(Array(options.enumerated()), id: \.element.id) { offset, option in
+                                    row(id: option.id, title: option.name, subtitle: subtitle(for: option), index: offset + 1)
+                                        .id(option.id)
+                                }
+                            }
+                        }
+                        .scrollIndicators(.automatic)
+                        .frame(maxHeight: 340)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .onChange(of: highlighted) { proxy.scrollTo(ids[highlighted]) }
+                        .onAppear { if !selection.isEmpty { proxy.scrollTo(selection, anchor: .center) } }
+                    }
+                }
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Looking up \(provider.displayName) models…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+            }
+        }
+        .padding(6)
+        .frame(width: 300)
+        .focusEffectDisabled()
+        .onAppear { highlighted = ids.firstIndex(of: selection) ?? 0 }
+        .paletteKeys(
+            up: { move(-1) }, down: { move(1) },
+            choose: { choose(ids[highlighted]) },
+            dismiss: dismiss)
+    }
+
+    private func row(id: String, title: String, subtitle: String?, index: Int) -> some View {
+        Button { choose(id) } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                    if let subtitle {
+                        Text(LocalizedStringKey(subtitle))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                if id == selection {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.green)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.hover(cornerRadius: 10, isSelected: index == highlighted))
+        .onHover { if $0 { highlighted = index } }
+    }
+
+    private func subtitle(for option: ModelOption) -> String? {
+        let parts = [option.name != option.id ? "`\(option.id)`" : nil, option.detail.isEmpty ? nil : option.detail].compactMap(\.self)
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private func move(_ delta: Int) {
+        highlighted = (highlighted + delta + ids.count) % ids.count
     }
 }
 
@@ -453,12 +588,11 @@ private struct TemplateSettings: View {
                             copied = placeholder.name
                         } label: {
                             Text(copied == placeholder.name ? "Copied" : "{{\(placeholder.name)}}")
-                                .font(.caption.monospaced().weight(.medium))
-                                .foregroundStyle(Theme.logoText)
+                                .font(.caption2.monospaced().weight(.semibold))
+                                .foregroundStyle(.green)
                                 .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(Theme.logo.opacity(0.14), in: .capsule)
-                                .overlay(Capsule().strokeBorder(Theme.logoText.opacity(0.2)))
+                                .padding(.vertical, 2)
+                                .background(Color.green.opacity(0.14), in: .capsule)
                         }
                         .buttonStyle(.plain)
                         .help("\(placeholder.description). Click to copy.")
@@ -529,7 +663,7 @@ private struct TicketSettings: View {
     @State private var linearKey = Keychain.read(.linear) ?? ""
     @State private var jiraToken = Keychain.read(.jira) ?? ""
     /// `gh` and `glab` found on the login shell PATH; `nil` until looked up.
-    @State private var tools: Set<String>?
+    @State private var tools = SettingsLookups.forgeTools
 
     var body: some View {
         ScrollView {
@@ -563,7 +697,9 @@ private struct TicketSettings: View {
         .focusEffectDisabled()
         .task {
             let path = await Toolchain.loginShellPath() ?? ProcessInfo.processInfo.environment["PATH"] ?? ""
-            tools = Set(["gh", "glab"].filter { Toolchain.locate($0, in: path) != nil })
+            let found = Set(["gh", "glab"].filter { Toolchain.locate($0, in: path) != nil })
+            SettingsLookups.forgeTools = found
+            if tools != found { tools = found }
         }
     }
 
@@ -603,7 +739,6 @@ private struct SettingsField: View {
     @Binding var text: String
     var prompt = ""
     var isSecure = false
-    @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -611,20 +746,80 @@ private struct SettingsField: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .frame(width: 72, alignment: .leading)
+            DraftField(label: label, text: $text, prompt: prompt, isSecure: isSecure)
+        }
+    }
+}
+
+/// A soft input well whose edits stay a draft until saved with Return or its checkmark.
+private struct DraftField: View {
+    let label: String
+    /// The saved value, written only on save.
+    @Binding var text: String
+    var prompt = ""
+    var isSecure = false
+    var font: Font = .callout
+    @State private var draft: String
+    @FocusState private var isFocused: Bool
+
+    init(label: String, text: Binding<String>, prompt: String = "", isSecure: Bool = false, font: Font = .callout) {
+        self.label = label
+        _text = text
+        self.prompt = prompt
+        self.isSecure = isSecure
+        self.font = font
+        _draft = State(initialValue: text.wrappedValue)
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
             Group {
                 if isSecure {
-                    SecureField(label, text: $text, prompt: Text(prompt))
+                    SecureField(label, text: $draft, prompt: Text(prompt))
                 } else {
-                    TextField(label, text: $text, prompt: Text(prompt))
+                    TextField(label, text: $draft, prompt: Text(prompt))
                 }
             }
             .textFieldStyle(.plain)
-            .font(.callout)
+            .font(font)
             .focused($isFocused)
-            .padding(.horizontal, 10)
-            .frame(height: 30)
-            .fieldBackground(isFocused: isFocused)
+            .onSubmit(save)
+            SaveButton(isSaved: draft == text, isEmpty: text.isEmpty, action: save)
         }
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
+        .frame(height: 30)
+        .fieldBackground(isFocused: isFocused)
+        .onChange(of: text) { draft = text }
+    }
+
+    private func save() {
+        text = draft.trimmingCharacters(in: .whitespaces)
+        draft = text
+    }
+}
+
+/// A ghost checkmark at the end of a field: saves its pending edit, and shows when there is none.
+private struct SaveButton: View {
+    let isSaved: Bool
+    /// Nothing is saved yet, so there is nothing to confirm either.
+    var isEmpty = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: isSaved ? "checkmark.circle.fill" : "checkmark")
+                .font(.system(size: isSaved ? 13 : 11, weight: .bold))
+                .foregroundStyle(isSaved ? (isEmpty ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.green)) : AnyShapeStyle(Theme.logoText))
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 22, height: 22)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.hover(cornerRadius: 6, tint: isSaved ? .primary : Theme.logoText))
+        .allowsHitTesting(!isSaved)
+        .animation(.snappy(duration: 0.2), value: isSaved)
+        .help(isSaved ? (isEmpty ? "Nothing saved" : "Saved") : "Save (↩)")
+        .accessibilityLabel(isSaved ? "Saved" : "Save")
     }
 }
 
@@ -642,7 +837,7 @@ private struct Badge: View {
 
     static func connection(_ isConnected: Bool) -> Badge {
         isConnected
-            ? Badge("Connected", systemImage: "checkmark.circle.fill", color: Theme.addition)
+            ? Badge("Connected", systemImage: "checkmark.circle.fill", color: .green)
             : Badge("Not connected", systemImage: "circle.dashed", color: .secondary)
     }
 
@@ -1021,7 +1216,7 @@ private struct StatusPill: View {
 
     var body: some View {
         switch state {
-        case .current: Badge("Installed", systemImage: "checkmark.circle.fill", color: Theme.addition)
+        case .current: Badge("Installed", systemImage: "checkmark.circle.fill", color: .green)
         case .outdated: Badge("Outdated", systemImage: "exclamationmark.circle.fill", color: .orange)
         case .missing: Badge("Not installed", systemImage: "circle.dashed", color: .secondary)
         }
