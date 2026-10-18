@@ -6,10 +6,6 @@ import UniformTypeIdentifiers
 struct DiffDetailView: View {
     let session: ProjectSession
 
-    @AppStorage(DiffSettings.layoutKey) private var preferredLayout: DiffLayoutMode = .unified
-    /// Large diffs the user chose to show anyway.
-    @State private var revealedFiles: Set<ChangedFile.ID> = []
-
     var body: some View {
         if let state = session.diff, let file = session.selectedFile {
             content(state.content, file: file)
@@ -40,36 +36,56 @@ struct DiffDetailView: View {
                 Button("Try Again") { session.refresh() }
             }
         case .diff(let diff):
-            body(for: diff, file: file)
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    DiffHeader(file: file, diff: diff)
-                }
+            FileDiffView(fileID: file.id, diff: diff, highlights: session.diff?.highlights) { side in
+                await session.contents(of: file, side: side)
+            }
         }
+    }
+}
+
+/// One file's diff with its header: the table, or a placeholder for binary, empty and collapsed large diffs.
+struct FileDiffView: View {
+    /// Identifies the file across reloads, e.g. to keep a revealed large diff open.
+    let fileID: String
+    let diff: FileDiff
+    let highlights: SyntaxHighlights?
+    /// One side's contents, for image previews.
+    let contents: (Repository.FileSide) async -> Data?
+
+    @AppStorage(DiffSettings.layoutKey) private var preferredLayout: DiffLayoutMode = .unified
+    /// Large diffs the user chose to show anyway.
+    @State private var revealedFiles: Set<String> = []
+
+    var body: some View {
+        content
+            .safeAreaInset(edge: .top, spacing: 0) {
+                DiffHeader(diff: diff)
+            }
     }
 
     @ViewBuilder
-    private func body(for diff: FileDiff, file: ChangedFile) -> some View {
-        if diff.isBinary, DiffSettings.isImage(file.path) {
-            ImageDiffView(session: session, file: file)
+    private var content: some View {
+        if diff.isBinary, DiffSettings.isImage(diff.path) {
+            ImageDiffView(fileID: fileID, contents: contents)
         } else if diff.isBinary {
             ContentUnavailableView("Binary File", systemImage: "doc.zipper", description: Text("Binary changes cannot be shown."))
         } else if diff.hunks.isEmpty {
             ContentUnavailableView(
                 diff.isModeChange ? "Mode Changed" : "Empty File", systemImage: "doc",
                 description: Text(diff.isModeChange ? "\(diff.oldMode ?? "") → \(diff.newMode ?? "")" : "The file has no content."))
-        } else if DiffSettings.isLarge(diff), !revealedFiles.contains(file.id) {
+        } else if DiffSettings.isLarge(diff), !revealedFiles.contains(fileID) {
             ContentUnavailableView {
                 Label("Large Diff", systemImage: "doc.text.magnifyingglass")
             } description: {
                 Text("\(diff.additions + diff.deletions) changed lines are hidden to keep things fast.")
             } actions: {
-                Button("Show Diff") { revealedFiles.insert(file.id) }
+                Button("Show Diff") { revealedFiles.insert(fileID) }
             }
         } else {
             GeometryReader { proxy in
                 // Side by side needs room for two readable columns.
                 let mode: DiffLayoutMode = preferredLayout == .split && proxy.size.width >= DiffSettings.minimumSplitWidth ? .split : .unified
-                DiffTableView(fileID: file.id, diff: diff, highlights: session.diff?.highlights, mode: mode)
+                DiffTableView(fileID: fileID, diff: diff, highlights: highlights, mode: mode)
             }
         }
     }
@@ -92,7 +108,6 @@ enum DiffSettings {
 }
 
 private struct DiffHeader: View {
-    let file: ChangedFile
     let diff: FileDiff
 
     var body: some View {
@@ -120,14 +135,14 @@ private struct DiffHeader: View {
         if let oldPath = diff.oldPath, let newPath = diff.newPath, oldPath != newPath {
             return "\(oldPath) → \(newPath)"
         }
-        return file.path
+        return diff.path
     }
 }
 
 /// Before and after previews of a changed image.
 private struct ImageDiffView: View {
-    let session: ProjectSession
-    let file: ChangedFile
+    let fileID: String
+    let contents: (Repository.FileSide) async -> Data?
 
     @State private var images: (old: NSImage?, new: NSImage?)?
 
@@ -147,10 +162,10 @@ private struct ImageDiffView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: file) {
-            async let old = session.contents(of: file, side: .old)
-            async let new = session.contents(of: file, side: .new)
-            images = (await old.flatMap(NSImage.init(data:)), await new.flatMap(NSImage.init(data:)))
+        .task(id: fileID) {
+            let old = await contents(.old)
+            let new = await contents(.new)
+            images = (old.flatMap(NSImage.init(data:)), new.flatMap(NSImage.init(data:)))
         }
     }
 

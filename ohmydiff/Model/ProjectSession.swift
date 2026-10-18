@@ -37,6 +37,7 @@ final class ProjectSession {
     private(set) var isRefreshing = false
     private(set) var lastRefreshed: Date?
     private(set) var diff: DiffState?
+    let history = HistoryModel()
 
     var selectedFileID: ChangedFile.ID? {
         didSet {
@@ -97,6 +98,13 @@ final class ProjectSession {
         deactivate()
         refreshTask?.cancel()
         diffTask?.cancel()
+        history.close()
+    }
+
+    /// Reloads History mode's branches; a no-op until the first refresh opened the repository.
+    func refreshHistory() async {
+        guard let repository else { return }
+        await history.refresh(repository)
     }
 
     /// Coalesces requests: while a refresh runs, further requests schedule exactly one more.
@@ -224,30 +232,13 @@ final class ProjectSession {
             let isReload = diff?.fileID == file.id && diff?.content != .loading
             if !isReload { diff = state }
 
-            let highlights = await Self.highlights(for: fileDiff, file: file, language: language, repository: repository)
+            let highlights = await DiffHighlighting.highlights(for: fileDiff, language: language) { side in
+                try? await repository.contents(of: file, side: side, limit: SyntaxHighlighter.maximumLength)
+            }
             guard !Task.isCancelled, selectedFileID == file.id else { return }
             state.highlights = highlights
             if state != diff { diff = state }
         }
-    }
-
-    /// Highlights both sides of a file in the background.
-    @concurrent
-    private nonisolated static func highlights(
-        for diff: FileDiff, file: ChangedFile, language: SyntaxLanguage, repository: Repository
-    ) async -> SyntaxHighlights {
-        let lines = diff.hunks.flatMap(\.lines)
-        func text(_ side: Repository.FileSide) async -> String? {
-            guard let data = try? await repository.contents(of: file, side: side, limit: SyntaxHighlighter.maximumLength) else {
-                return nil
-            }
-            return String(data: data, encoding: .utf8)
-        }
-        // Skip the git call for a side the diff does not show, e.g. the old side of an added file.
-        async let old = lines.contains { $0.kind != .addition } ? text(.old) : nil
-        async let new = lines.contains { $0.kind != .deletion } ? text(.new) : nil
-        let (oldText, newText) = await (old, new)
-        return SyntaxHighlighter.highlights(for: diff, language: language, old: oldText, new: newText)
     }
 
     // MARK: - Watching

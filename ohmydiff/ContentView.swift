@@ -69,8 +69,7 @@ private struct ListPaneView: View {
             case .changes:
                 ChangesListView(model: model, session: session)
             case .history:
-                ContentUnavailableView("No History", systemImage: "clock")
-                    .navigationTitle(session.project.displayName)
+                HistoryListView(session: session)
             }
         } else {
             ContentUnavailableView("No Project Selected", systemImage: "folder")
@@ -84,8 +83,11 @@ private struct DetailPaneView: View {
     let mode: WorkspaceMode
 
     var body: some View {
-        if let session = model.selectedSession, mode == .changes {
-            DiffDetailView(session: session)
+        if let session = model.selectedSession {
+            switch mode {
+            case .changes: DiffDetailView(session: session)
+            case .history: HistoryDetailView(history: session.history)
+            }
         } else {
             ContentUnavailableView("No Selection", systemImage: "text.alignleft")
                 .backgroundExtensionEffect()

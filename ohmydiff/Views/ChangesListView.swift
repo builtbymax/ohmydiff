@@ -51,7 +51,7 @@ struct ChangesListView: View {
                 ForEach(visibleGroups) { group in
                     Section {
                         ForEach(group.files) { file in
-                            ChangedFileRow(file: file)
+                            FileRow(path: file.path, previousPath: file.previousPath, kind: file.kind, stats: file.stats)
                                 .tag(file.id)
                         }
                         if group.files.isEmpty {
@@ -112,8 +112,13 @@ private struct ChangeGroupHeader: View {
     }
 }
 
-private struct ChangedFileRow: View {
-    let file: ChangedFile
+/// A changed file: its kind badge, name, directory and line counts.
+struct FileRow: View {
+    let path: String
+    /// Source path of a rename or copy.
+    let previousPath: String?
+    let kind: FileChangeKind
+    let stats: LineStats?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -133,18 +138,18 @@ private struct ChangedFileRow: View {
                 }
             }
             Spacer(minLength: 4)
-            if let stats = file.stats {
+            if let stats {
                 LineStatsLabel(stats: stats)
             }
         }
-        .help(file.previousPath.map { "\($0) → \(file.path)" } ?? file.path)
+        .help(previousPath.map { "\($0) → \(path)" } ?? path)
     }
 
-    private var name: String { (file.path as NSString).lastPathComponent }
-    private var directory: String { (file.path as NSString).deletingLastPathComponent }
+    private var name: String { (path as NSString).lastPathComponent }
+    private var directory: String { (path as NSString).deletingLastPathComponent }
 
     private var badge: (letter: String, color: Color) {
-        switch file.kind {
+        switch kind {
         case .added: ("A", .green)
         case .untracked: ("U", .green)
         case .deleted: ("D", .red)
