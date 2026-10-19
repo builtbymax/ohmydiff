@@ -194,21 +194,23 @@ final class HistoryModel {
         return pullRequest
     }
 
-    /// Branches with commits the remote does not have yet.
+    /// Branches with commits the remote does not have yet. A diverged plain-git branch is force pushed;
+    /// one with a conflicted GitButler commit is refused by `but push`, so it is not offered.
     func canPush(_ branch: HistoryBranch) -> Bool {
-        guard !branch.commits.isEmpty else { return false }
+        guard !branch.commits.isEmpty, !branch.isConflicted else { return false }
         switch branch.status {
         case .unpushed, .unpushedCommits, .requiresForce: return true
-        case .tracking(let ahead, let behind): return ahead > 0 && behind == 0
+        case .tracking(let ahead, _): return ahead > 0
         case nil: return !isGitButler && !branch.isDefault
         case .upToDate, .integrated, .upstreamGone: return false
         }
     }
 
     /// Branches with their own commits that are not the main line, merged, deleted upstream, or already in a pull request.
+    /// A diverged plain-git branch is force pushed first, since creating the pull request pushes without force.
     func canOpenPullRequest(_ branch: HistoryBranch) -> Bool {
         !branch.isDefault && !branch.commits.isEmpty && branch.status != .integrated && branch.status != .upstreamGone
-            && pullRequest(of: branch) == nil
+            && !(branch.needsForcePush && !isGitButler) && pullRequest(of: branch) == nil
     }
 
     /// Plain git: branches whose upstream was deleted, typically after their pull request was merged.
@@ -266,7 +268,7 @@ final class HistoryModel {
 
     /// Pushes, asking first when a plain-git branch needs a force push.
     func requestPush(_ branch: HistoryBranch) {
-        if branch.status == .requiresForce, !isGitButler {
+        if branch.needsForcePush, !isGitButler {
             forcePushBranch = branch
         } else {
             Task { await push(branch) }
@@ -289,7 +291,7 @@ final class HistoryModel {
 
     func push(_ branch: HistoryBranch) async {
         await perform("Pushing…", branch: branch.name) { repository in
-            try await repository.push(branch: branch.name, force: branch.status == .requiresForce)
+            try await repository.push(branch: branch.name, force: branch.needsForcePush)
         }
     }
 

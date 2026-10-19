@@ -14,7 +14,7 @@ struct BranchActions: View {
     var body: some View {
         HStack(spacing: style == .compact ? 2 : 6) {
             if history.canPush(branch) {
-                let title = branch.status == .requiresForce ? "Force Push" : "Push"
+                let title = branch.needsForcePush ? "Force Push" : "Push"
                 action(title, help: history.isGitButler ? "\(title) with `but push`" : title) {
                     Image(systemName: "arrow.up").font(.system(size: style == .compact ? 11 : 12, weight: .semibold))
                 } perform: {
@@ -330,8 +330,12 @@ private struct BranchActionPresentation: ViewModifier {
             ) { branch in
                 Button("Force Push", role: .destructive) { Task { await history.push(branch) } }
                 Button("Cancel", role: .cancel) {}
-            } message: { _ in
-                Text("The branch's history was rewritten. Its remote copy is replaced, unless someone else pushed to it meanwhile.")
+            } message: { branch in
+                if case .tracking(_, let behind) = branch.status {
+                    Text("The branch and its remote copy have diverged, e.g. after an amend or rebase. The remote's \(behind == 1 ? "commit" : "\(behind) commits") not in the branch \(behind == 1 ? "is" : "are") replaced, unless someone else pushed to it since the last fetch.")
+                } else {
+                    Text("The branch's history was rewritten. Its remote copy is replaced, unless someone else pushed to it meanwhile.")
+                }
             }
             .confirmationDialog(
                 history.pendingMerge.map { "Merge #\($0.pullRequest.number) into \($0.pullRequest.baseRefName)?" } ?? "",

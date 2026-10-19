@@ -21,6 +21,10 @@ import Testing
         #expect(HistoryBranch.Status.tracking("", hasUpstream: true) == .upToDate)
         #expect(HistoryBranch.Status.tracking("[gone]", hasUpstream: true) == .upstreamGone)
         #expect(HistoryBranch.Status.tracking("", hasUpstream: false) == nil)
+
+        func branch(_ status: HistoryBranch.Status) -> HistoryBranch { HistoryBranch(name: "b", status: status, tip: "t") }
+        #expect(branch(.tracking(ahead: 1, behind: 1)).needsForcePush && branch(.requiresForce).needsForcePush)
+        #expect(!branch(.tracking(ahead: 2, behind: 0)).needsForcePush && !branch(.tracking(ahead: 0, behind: 1)).needsForcePush)
     }
 
     @Test func basesStackedBranchesOnTheBranchBelow() {

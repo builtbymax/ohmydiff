@@ -79,6 +79,15 @@ public struct HistoryBranch: Sendable, Hashable, Identifiable {
 
     public var id: String { name }
     public var isConflicted: Bool { commits.contains(where: \.isConflicted) }
+    /// Pushing replaces commits on the remote: GitButler says the history was rewritten, or a plain-git
+    /// branch diverged from its upstream, e.g. after an amend or rebase of pushed commits.
+    public var needsForcePush: Bool {
+        switch status {
+        case .requiresForce: true
+        case .tracking(let ahead, let behind): ahead > 0 && behind > 0
+        default: false
+        }
+    }
 }
 
 /// A titled list of branches: a GitButler stack (top branch first) or a repository's local branches.
