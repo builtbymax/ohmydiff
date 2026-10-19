@@ -49,12 +49,25 @@ struct ChangesListView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
-                    .padding(.bottom, 16)
+                    .padding(.bottom, session.selectedFiles.count > 1 ? 72 : 16)
                 }
+                .overlay(alignment: .bottom) {
+                    if session.selectedFiles.count > 1 {
+                        SelectionBar(session: session)
+                            .padding(.bottom, 14)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.snappy(duration: 0.25), value: session.selectedFiles.count > 1)
                 .focusable()
                 .focusEffectDisabled()
                 .onKeyPress(.downArrow) { moveSelection(1, proxy: proxy) }
                 .onKeyPress(.upArrow) { moveSelection(-1, proxy: proxy) }
+                .onKeyPress(.escape) {
+                    guard !session.extraSelectedFileIDs.isEmpty else { return .ignored }
+                    session.clearExtraSelection()
+                    return .handled
+                }
                 .onKeyPress("n") { jumpToHunk(1) }
                 .onKeyPress("p") { jumpToHunk(-1) }
                 .onChange(of: session.fileReveal) { _, reveal in
@@ -107,7 +120,7 @@ private struct ChangeGroupCard: View {
                     .padding(.vertical, 12)
             } else {
                 // Lazy, so a group of thousands of untracked files only builds the rows on screen.
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: 3) {
                     ForEach(group.files) { file in
                         ChangeFileRow(file: file, session: session)
                     }
@@ -125,15 +138,78 @@ private struct ChangeFileRow: View {
     let session: ProjectSession
 
     var body: some View {
-        let isSelected = session.selectedFileID == file.id
-        Button { session.selectedFileID = file.id } label: {
+        let isSelected = session.isSelected(file.id)
+        Button { select() } label: {
             FileRow(path: file.path, previousPath: file.previousPath, kind: file.kind, stats: file.stats, isSelected: isSelected)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 7)
         }
         .buttonStyle(.row(isSelected: isSelected))
         .id(file.id)
-        .contextMenu { ChangeActionMenu(session: session, targets: [ChangeTarget(file: file)], isGroup: false) }
+        .contextMenu { ChangeActionMenu(session: session, targets: menuTargets(isSelected: isSelected), isGroup: false) }
+    }
+
+    /// ⌘-click toggles the file in the selection, ⇧-click selects the range up to it.
+    private func select() {
+        let modifiers = NSApp.currentEvent?.modifierFlags.intersection(.deviceIndependentFlagsMask) ?? []
+        session.select(file.id, extending: modifiers.contains(.command) ? .toggle : modifiers.contains(.shift) ? .range : nil)
+    }
+
+    /// The whole selection when the file is part of it, else just the file.
+    private func menuTargets(isSelected: Bool) -> [ChangeTarget] {
+        let selected = session.selectedFiles
+        guard isSelected, selected.count > 1 else { return [ChangeTarget(file: file)] }
+        return selected.map { ChangeTarget(file: $0) }
+    }
+}
+
+/// `3 files selected` with the actions every selected file supports, over the bottom of the list.
+private struct SelectionBar: View {
+    let session: ProjectSession
+
+    var body: some View {
+        let targets = session.selectedFiles.map { ChangeTarget(file: $0) }
+        HStack(spacing: 8) {
+            Button { session.clearExtraSelection() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.hoverCapsule())
+            .focusEffectDisabled()
+            .glassTooltip("Clear Selection  esc", edge: .top)
+            Text("\(targets.count) files")
+                .font(.callout.weight(.semibold))
+                .monospacedDigit()
+                .fixedSize()
+            Spacer(minLength: 4)
+            if session.supports(.stage, on: targets) {
+                Button("Stage") { session.request(.stage, on: targets) }
+                    .buttonStyle(.pill(height: 30))
+            }
+            if session.supports(.unstage, on: targets) {
+                Button("Unstage") { session.request(.unstage, on: targets) }
+                    .buttonStyle(.pill(height: 30))
+            }
+            if session.supports(.commit, on: targets) {
+                Button { session.request(.commit, on: targets) } label: { Label("Commit…", systemImage: "checkmark") }
+                    .buttonStyle(.pill(.prominent, height: 30))
+            }
+            if session.supports(.discard, on: targets) {
+                Button { session.request(.discard, on: targets) } label: {
+                    Image(systemName: "trash").font(.system(size: 12, weight: .semibold))
+                }
+                .buttonStyle(.pill(.destructive, height: 30))
+                .glassTooltip("Discard Changes…", edge: .top)
+            }
+        }
+        .focusEffectDisabled()
+        .padding(.leading, 6)
+        .padding(.trailing, 8)
+        .frame(height: 44)
+        .glassEffect(Theme.barGlass, in: .capsule)
+        .shadow(color: Theme.overlayShadow, radius: 12, y: 4)
+        .padding(.horizontal, 12)
     }
 }
 

@@ -56,9 +56,16 @@ final class ProjectSession {
     var selectedFileID: ChangedFile.ID? {
         didSet {
             guard oldValue != selectedFileID else { return }
+            // Moving the selection any other way than `select(_:extending:)` drops the files picked along.
+            extraSelectedFileIDs = []
             loadDiff()
         }
     }
+
+    /// Files picked along with the selected one with ⌘- or ⇧-click, e.g. to commit several at once.
+    private(set) var extraSelectedFileIDs: Set<ChangedFile.ID> = []
+    /// Where a ⇧-click range starts: the last file clicked without ⇧.
+    @ObservationIgnored private var selectionAnchor: ChangedFile.ID?
 
     /// Called when detection finds a different kind than the saved one.
     @ObservationIgnored var onKindChange: ((RepositoryKind) -> Void)?
@@ -93,6 +100,54 @@ final class ProjectSession {
     var selectedFile: ChangedFile? {
         guard let selectedFileID else { return nil }
         return groups.lazy.flatMap(\.files).first { $0.id == selectedFileID }
+    }
+
+    /// The selected file and the ones picked along with it, in list order.
+    var selectedFiles: [ChangedFile] {
+        guard let selectedFileID else { return [] }
+        if extraSelectedFileIDs.isEmpty { return selectedFile.map { [$0] } ?? [] }
+        return groups.allFiles.filter { $0.id == selectedFileID || extraSelectedFileIDs.contains($0.id) }
+    }
+
+    func isSelected(_ id: ChangedFile.ID) -> Bool {
+        id == selectedFileID || extraSelectedFileIDs.contains(id)
+    }
+
+    enum SelectionExtension { case toggle, range }
+
+    /// Selects a clicked file: alone, toggled in or out of the selection (⌘), or with every file from the
+    /// last clicked one (⇧). The clicked file's diff is shown.
+    func select(_ id: ChangedFile.ID, extending: SelectionExtension? = nil) {
+        let previous = extraSelectedFileIDs.union(selectedFileID.map { [$0] } ?? [])
+        switch extending {
+        case nil:
+            selectedFileID = id
+            selectionAnchor = id
+        case .toggle:
+            if previous.contains(id), previous.count > 1 {
+                let remaining = previous.subtracting([id])
+                // Show the nearest remaining file in list order.
+                let next = groups.allFiles.first { remaining.contains($0.id) }?.id
+                selectedFileID = id == selectedFileID ? next : selectedFileID
+                extraSelectedFileIDs = remaining.subtracting([selectedFileID].compactMap(\.self))
+            } else {
+                selectedFileID = id
+                extraSelectedFileIDs = previous.subtracting([id])
+            }
+            selectionAnchor = id
+        case .range:
+            let files = groups.allFiles.map(\.id)
+            guard let anchor = selectionAnchor ?? selectedFileID, let from = files.firstIndex(of: anchor),
+                  let to = files.firstIndex(of: id)
+            else { return select(id) }
+            selectedFileID = id
+            extraSelectedFileIDs = Set(files[min(from, to)...max(from, to)]).subtracting([id])
+        }
+    }
+
+    /// Keeps only the selected file.
+    func clearExtraSelection() {
+        extraSelectedFileIDs = []
     }
 
     /// Starts live updates and refreshes; the cached state stays visible meanwhile.
@@ -407,6 +462,9 @@ final class ProjectSession {
     private func apply(_ newGroups: [ChangeGroup]) {
         let previous = groups
         if newGroups != previous { groups = newGroups }
+        if !extraSelectedFileIDs.isEmpty {
+            extraSelectedFileIDs.formIntersection(newGroups.allFiles.map(\.id))
+        }
         let reselected = newGroups.reselecting(selectedFileID, previous: previous)
         if reselected != selectedFileID {
             selectedFileID = reselected
