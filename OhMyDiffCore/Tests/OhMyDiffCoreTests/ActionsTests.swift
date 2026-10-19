@@ -295,4 +295,21 @@ struct GitButlerActionTests {
             try await repository.commit([], toBranch: "feature/a", message: "x")
         }
     }
+
+    @Test func stacksAndUnstacksBranches() async throws {
+        let repo = try await TestRepo(gitButler: true)
+        try repo.write("a.txt", "a\n")
+        try await repo.but("commit", "-b", "feature/a", "-m", "add a")
+        try repo.write("b.txt", "b\n")
+        try await repo.but("commit", "-b", "feature/b", "-m", "add b")
+        let repository = try await repo.open()
+        #expect(try await repository.butStatus().stacks.count == 2)
+
+        try await repository.stack("feature/b", onto: "feature/a")
+        let stacked = try await repository.butStatus().stacks
+        #expect(stacked.map { $0.branches.map(\.name) } == [["feature/b", "feature/a"]])
+
+        try await repository.unstack("feature/b")
+        #expect(try await repository.butStatus().stacks.map { $0.branches.map(\.name) }.sorted { $0[0] < $1[0] } == [["feature/a"], ["feature/b"]])
+    }
 }

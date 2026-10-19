@@ -108,6 +108,18 @@ extension Repository {
         _ = try await toolchain.git(["branch", "-D", "--"] + names, in: root)
     }
 
+    /// GitButler: moves `branch` on top of `target`, so it builds on it in `target`'s stack.
+    public func stack(_ branch: String, onto target: String) async throws {
+        guard kind == .gitButler else { throw RepositoryError.notGitButler }
+        _ = try await toolchain.but(["move", branch, "--above", target], in: root, timeout: .seconds(60))
+    }
+
+    /// GitButler: takes `branch` out of its stack into a stack of its own.
+    public func unstack(_ branch: String) async throws {
+        guard kind == .gitButler else { throw RepositoryError.notGitButler }
+        _ = try await toolchain.but(["move", branch, "--unstack"], in: root, timeout: .seconds(60))
+    }
+
     /// The checked-out branch; `nil` on a detached HEAD.
     public func currentBranch() async throws -> String? {
         let output = try await toolchain.git(["symbolic-ref", "--quiet", "--short", "HEAD"], in: root, allowedExitCodes: [0, 1])

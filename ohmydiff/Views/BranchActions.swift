@@ -21,6 +21,25 @@ struct BranchActions: View {
                     history.requestPush(branch)
                 }
             }
+            if history.canChangeStack(branch) {
+                StackMenu(branch: branch, history: history) {
+                    switch style {
+                    case .compact:
+                        Image(systemName: "square.stack.3d.up")
+                            .font(.system(size: 10, weight: .semibold))
+                            .frame(width: 22, height: 22)
+                            .contentShape(.capsule)
+                    case .bar:
+                        Label("Stack", systemImage: "square.stack.3d.up")
+                            .font(.callout.weight(.medium))
+                            .padding(.horizontal, 12)
+                            .frame(height: 30)
+                            .background(Color.primary.opacity(0.06), in: .capsule)
+                            .contentShape(.capsule)
+                    }
+                }
+                .glassTooltip("Stack or Unstack")
+            }
             if history.canDelete(branch) {
                 action("Delete", help: "Delete Branch…", isDestructive: true) {
                     Image(systemName: "trash").font(.system(size: style == .compact ? 10 : 11, weight: .semibold))
@@ -44,6 +63,7 @@ struct BranchActions: View {
     /// Whether the branch has any action to show.
     static func hasActions(_ branch: HistoryBranch, in history: HistoryModel) -> Bool {
         history.canPush(branch) || history.pullRequest(of: branch) != nil || history.canOpenPullRequest(branch) || history.canDelete(branch)
+            || history.canChangeStack(branch)
     }
 
     @ViewBuilder
@@ -68,6 +88,56 @@ struct BranchActions: View {
             }
             .buttonStyle(.pill(isDestructive ? .destructive : title.hasPrefix("Pull") ? .prominent : .normal, height: 30))
             .focusEffectDisabled()
+        }
+    }
+}
+
+/// GitButler: put a branch on top of another stack, or take it out of its own.
+struct StackMenu<MenuLabel: View>: View {
+    let branch: HistoryBranch
+    let history: HistoryModel
+    @ViewBuilder var label: MenuLabel
+
+    var body: some View {
+        Menu {
+            StackMenuItems(branch: branch, history: history)
+        } label: {
+            label
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+    }
+}
+
+/// The items of the stack menu, also used in a branch's context menu.
+struct StackMenuItems: View {
+    let branch: HistoryBranch
+    let history: HistoryModel
+
+    var body: some View {
+        let targets = history.stackTargets(for: branch)
+        if !targets.isEmpty {
+            Section("Stack \(branch.name) on") {
+                ForEach(targets) { stack in
+                    // The top branch, so the moved branch builds on the whole stack.
+                    if let top = stack.branches.first {
+                        Button {
+                            Task { await history.stack(branch, onto: top.name) }
+                        } label: {
+                            Text(stack.branches.count > 1 ? "\(top.name)  (+\(stack.branches.count - 1) below)" : top.name)
+                        }
+                    }
+                }
+            }
+        }
+        if history.isStacked(branch) {
+            Button {
+                Task { await history.unstack(branch) }
+            } label: {
+                Label("Remove from Stack", systemImage: "square.stack.3d.down.forward")
+            }
         }
     }
 }

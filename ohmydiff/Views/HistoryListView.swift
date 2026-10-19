@@ -149,6 +149,11 @@ private struct BranchCard: View {
         Card {
             SelectableHistoryRow(selection: .branch(branch.name), history: history) {
                 BranchRow(branch: branch, history: history)
+                    .contextMenu {
+                        if history.canChangeStack(branch) {
+                            StackMenuItems(branch: branch, history: history)
+                        }
+                    }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 7)
             }

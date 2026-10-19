@@ -226,6 +226,42 @@ final class HistoryModel {
         }
     }
 
+    // MARK: Stacks
+
+    /// GitButler: the stack a branch is in.
+    func stack(of branch: HistoryBranch) -> HistoryGroup? {
+        groups.first { $0.kind == .stack && $0.branches.contains { $0.name == branch.name } }
+    }
+
+    /// GitButler: whether the branch shares its stack with other branches.
+    func isStacked(_ branch: HistoryBranch) -> Bool {
+        (stack(of: branch)?.branches.count ?? 0) > 1
+    }
+
+    /// GitButler: the other stacks a branch can go on top of, by their branches, top first.
+    func stackTargets(for branch: HistoryBranch) -> [HistoryGroup] {
+        guard isGitButler else { return [] }
+        let own = stack(of: branch)?.id
+        return groups.filter { $0.kind == .stack && $0.id != own && !$0.branches.isEmpty }
+    }
+
+    /// GitButler: whether the branch can be stacked onto another stack or taken out of its own.
+    func canChangeStack(_ branch: HistoryBranch) -> Bool {
+        isStacked(branch) || !stackTargets(for: branch).isEmpty
+    }
+
+    func stack(_ branch: HistoryBranch, onto target: String) async {
+        await perform("Stacking…", branch: nil) { repository in
+            try await repository.stack(branch.name, onto: target)
+        }
+    }
+
+    func unstack(_ branch: HistoryBranch) async {
+        await perform("Removing from stack…", branch: nil) { repository in
+            try await repository.unstack(branch.name)
+        }
+    }
+
     /// Pushes, asking first when a plain-git branch needs a force push.
     func requestPush(_ branch: HistoryBranch) {
         if branch.status == .requiresForce, !isGitButler {
