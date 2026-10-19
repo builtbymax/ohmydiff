@@ -339,6 +339,10 @@ struct PullRequestSummary {
         case .passed(let total): total == 1 ? "1 check passed" : "\(total) checks passed"
         }
         switch (status, status.checks) {
+        case (_, .failed) where pullRequest.isDraft:
+            (title, detail, systemImage, color) = ("Draft · Checks Failed", checks, "xmark.octagon.fill", .red)
+        case (_, .pending) where pullRequest.isDraft:
+            (title, detail, systemImage, color) = ("Draft · Checks Running", checks, "clock.fill", .orange)
         case _ where pullRequest.isDraft:
             (title, detail, systemImage, color) = ("Draft", "\(checks) · Mark it ready for review to merge", "circle.dashed", .secondary)
         case _ where status.isMergeable == false || status.mergeState == "DIRTY":

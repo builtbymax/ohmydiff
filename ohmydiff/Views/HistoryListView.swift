@@ -150,7 +150,7 @@ private struct BranchCard: View {
             SelectableHistoryRow(selection: .branch(branch.name), history: history) {
                 BranchRow(branch: branch, history: history)
                     .padding(.horizontal, 6)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 7)
             }
             .padding(-6)
         } content: {

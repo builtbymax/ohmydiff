@@ -21,6 +21,7 @@ struct HistoryDetailView: View {
                     if let pullRequest = history.pullRequest(of: branch), pullRequest.state == .open {
                         PullRequestBanner(pullRequest: pullRequest, history: history)
                             .padding(.horizontal, 20)
+                            .padding(.top, 8)
                             .padding(.bottom, 6)
                     }
                 }
