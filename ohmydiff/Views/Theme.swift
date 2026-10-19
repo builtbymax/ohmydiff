@@ -60,11 +60,19 @@ enum Theme {
     /// Room below the diff for the floating hunk bar.
     static let hunkBarInset: CGFloat = 72
 
-    /// A stable color for a name, e.g. for project monograms and author avatars.
+    /// A stable color for a name, e.g. for author avatars.
     static func nameColor(_ name: String) -> Color {
         let palette: [Color] = [.blue, .purple, .pink, .orange, .teal, .indigo, .green, .mint]
         let hash = name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
         return palette[hash % palette.count]
+    }
+
+    /// A project's Pantone color.
+    static func projectColor(_ color: ProjectColor) -> Color {
+        Color(
+            red: Double((color.hex >> 16) & 0xFF) / 255,
+            green: Double((color.hex >> 8) & 0xFF) / 255,
+            blue: Double(color.hex & 0xFF) / 255)
     }
 
     static func dynamic(light: UInt32, dark: UInt32, lightAlpha: CGFloat = 1, darkAlpha: CGFloat = 1) -> Color {

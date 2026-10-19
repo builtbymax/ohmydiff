@@ -24,9 +24,63 @@ import Testing
         #expect(json.contains("\"path\" : \"/Users/me/code/lib\""))
     }
 
+    @Test func decodesListsWithoutOrWithUnknownColors() throws {
+        let id = UUID()
+        let json = """
+        {"version": 1, "projects": [
+          {"id": "\(id)", "path": "/a", "displayName": "a", "kind": "git"},
+          {"id": "\(UUID())", "path": "/b", "displayName": "b", "kind": "git", "color": "notAColor"},
+          {"id": "\(UUID())", "path": "/c", "displayName": "c", "kind": "git", "color": "greenery"}
+        ]}
+        """
+        let directory = FileManager.default.temporaryDirectory.appending(path: "ohmydiff-store-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ProjectStore(fileURL: directory.appending(path: "projects.json"))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: store.fileURL)
+
+        let loaded = try store.load()
+        #expect(loaded.map(\.color) == [nil, nil, .greenery])
+        #expect(loaded[0].id == id)
+    }
+
     @Test func detectsMissingFolder() {
         #expect(Project(path: NSTemporaryDirectory()).exists)
         #expect(!Project(path: "/nonexistent/ohmydiff/\(UUID().uuidString)").exists)
+    }
+}
+
+@Suite struct ProjectColorTests {
+    @Test func avoidsColorsInUse() {
+        var generator = SystemRandomNumberGenerator()
+        let taken = Array(ProjectColor.allCases.dropLast())
+        for _ in 0..<20 {
+            #expect(ProjectColor.pick(avoiding: taken, using: &generator) == ProjectColor.allCases.last)
+        }
+    }
+
+    @Test func reusesTheLeastUsedOnceAllAreTaken() {
+        var generator = SystemRandomNumberGenerator()
+        let taken = ProjectColor.allCases + ProjectColor.allCases.filter { $0 != .emerald }
+        #expect(ProjectColor.pick(avoiding: taken, using: &generator) == .emerald)
+    }
+
+    @Test func assignsDistinctColorsToProjectsWithout() {
+        var projects = (0..<ProjectColor.allCases.count).map { Project(path: "/p\($0)") }
+        projects[0].color = .mimosa
+        let changed = projects.assignMissingColors()
+        #expect(changed)
+        #expect(Set(projects.compactMap(\.color)).count == ProjectColor.allCases.count)
+        #expect(projects[0].color == .mimosa)
+        let changedAgain = projects.assignMissingColors()
+        #expect(!changedAgain)
+    }
+
+    @Test func namesAndContrast() {
+        #expect(ProjectColor.classicBlue.name == "Classic Blue")
+        #expect(ProjectColor.tangerineTango.name == "Tangerine Tango")
+        #expect(ProjectColor.illuminating.isLight)
+        #expect(!ProjectColor.classicBlue.isLight)
     }
 }
 

@@ -114,7 +114,7 @@ struct ProjectRow: View {
     var body: some View {
         let session = model.session(for: project.id)
         HStack(spacing: 10) {
-            ProjectMonogram(name: project.displayName, isCurrent: isCurrent)
+            ProjectMonogram(project: project)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     Text(highlightedName)
@@ -159,19 +159,18 @@ struct ProjectRow: View {
     }
 }
 
-/// A project's two letters: lime for the open project, a soft color from its name otherwise.
+/// A project's two letters on its Pantone color.
 struct ProjectMonogram: View {
-    let name: String
-    var isCurrent = false
+    let project: Project
     var size: CGFloat = 30
 
     var body: some View {
-        let color = Theme.nameColor(name)
-        Text(projectMonogram(name))
+        let color = project.color ?? ProjectColor.allCases[0]
+        Text(projectMonogram(project.displayName))
             .font(.system(size: size * 0.38, weight: .bold))
-            .foregroundStyle(isCurrent ? AnyShapeStyle(.black) : AnyShapeStyle(color))
+            .foregroundStyle(color.isLight ? Color.black.opacity(0.8) : .white)
             .frame(width: size, height: size)
-            .background(isCurrent ? Theme.logo : color.opacity(0.15), in: .rect(cornerRadius: size * 0.28))
+            .background(Theme.projectColor(color).gradient, in: .rect(cornerRadius: size * 0.28))
     }
 }
 

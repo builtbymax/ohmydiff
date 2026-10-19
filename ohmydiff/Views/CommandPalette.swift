@@ -181,9 +181,9 @@ struct CommandPalette: View {
                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                 .foregroundStyle(color)
                 .frame(width: 30, height: 30)
-                .background(color.opacity(0.14), in: .rect(cornerRadius: 8))
+                .badgeTile(color, cornerRadius: 8)
         case .project(let project):
-            ProjectMonogram(name: project.displayName)
+            ProjectMonogram(project: project)
         }
     }
 

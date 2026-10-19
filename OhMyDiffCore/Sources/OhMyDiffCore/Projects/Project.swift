@@ -8,12 +8,29 @@ public struct Project: Sendable, Hashable, Codable, Identifiable {
     public var displayName: String
     /// Last detected kind; re-detected whenever the project is opened.
     public var kind: RepositoryKind
+    /// Set when the project is added; older lists get one on load.
+    public var color: ProjectColor?
 
-    public init(id: UUID = UUID(), path: String, displayName: String? = nil, kind: RepositoryKind = .git) {
+    public init(id: UUID = UUID(), path: String, displayName: String? = nil, kind: RepositoryKind = .git, color: ProjectColor? = nil) {
         self.id = id
         self.path = path
         self.displayName = displayName ?? URL(fileURLWithPath: path).lastPathComponent
         self.kind = kind
+        self.color = color
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, path, displayName, kind, color
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        path = try container.decode(String.self, forKey: .path)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        kind = try container.decode(RepositoryKind.self, forKey: .kind)
+        // A color a newer or older version no longer knows is reassigned instead of failing the whole list.
+        color = try? container.decodeIfPresent(ProjectColor.self, forKey: .color)
     }
 
     public var url: URL { URL(fileURLWithPath: path, isDirectory: true) }

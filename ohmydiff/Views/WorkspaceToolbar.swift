@@ -103,7 +103,7 @@ private struct ProjectMenu: View {
         Button { model.isProjectMenuPresented.toggle() } label: {
             HStack(spacing: 7) {
                 if let project = model.selectedProject {
-                    ProjectMonogram(name: project.displayName, isCurrent: true, size: 26)
+                    ProjectMonogram(project: project, size: 26)
                 } else {
                     Image(systemName: "plus")
                         .font(.system(size: 11, weight: .bold))

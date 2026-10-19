@@ -40,6 +40,7 @@ final class AppModel {
         self.defaults = defaults
         do {
             projects = try store.load()
+            if projects.assignMissingColors() { save() }
         } catch {
             errorMessage = "Could not read the project list: \(error.localizedDescription)"
         }
@@ -134,7 +135,7 @@ final class AppModel {
         let repository = try await Repository.open(url, toolchain: toolchain)
         let path = repository.root.standardizedFileURL.path
         if let existing = projects.first(where: { $0.url.standardizedFileURL.path == path }) { return existing.id }
-        let project = Project(path: path, kind: repository.kind)
+        let project = Project(path: path, kind: repository.kind, color: ProjectColor.pick(avoiding: projects.compactMap(\.color)))
         projects.append(project)
         return project.id
     }
