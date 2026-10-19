@@ -238,6 +238,17 @@ extension TestRepo {
         #expect(try await repo.git("log", "-1", "--format=%s") == "init\n")
     }
 
+    @Test func ignoresTheUsersDiffContextConfig() async throws {
+        let repo = try await setUp()
+        try await repo.git("config", "diff.context", "5")
+        try await repo.git("config", "diff.interHunkContext", "10")
+        try repo.write("a.txt", "ONE\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nTEN\n")
+        let repository = try await repo.open()
+        let diff = try #require(try await repository.diff(for: repo.file("a.txt", in: .unstaged, of: repository)))
+        // Three lines of context and no merging, like `but diff`.
+        #expect(diff.hunks.map(\.oldCount) == [4, 4])
+    }
+
     @Test func commitsToANewBranchButNotAnotherExistingOne() async throws {
         let repo = try await setUp()
         try await repo.git("branch", "other")

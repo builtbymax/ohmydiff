@@ -232,7 +232,9 @@ public struct Repository: Sendable {
 
     // MARK: - Diffs
 
-    static let diffOptions = ["--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-M"]
+    /// Context is pinned, so `diff.context` / `diff.interHunkContext` in the user's config cannot make hunks differ
+    /// from the ones `but` reports, which GitButler hunk actions are matched against.
+    static let diffOptions = ["--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-M", "-U3", "--inter-hunk-context=0"]
 
     /// The parsed diff of one uncommitted file, or `nil` if it no longer differs.
     public func diff(for file: ChangedFile) async throws -> FileDiff? {
