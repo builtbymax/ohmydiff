@@ -31,6 +31,8 @@ public enum ChangeActionError: Error, Sendable, CustomStringConvertible {
     case emptyMessage
     /// The change is no longer in `but`'s view of the workspace, e.g. it changed since the diff loaded.
     case changeNotFound(String)
+    /// Plain git commits only to the checked-out branch.
+    case notCheckedOut(String)
 
     public var description: String {
         switch self {
@@ -39,6 +41,7 @@ public enum ChangeActionError: Error, Sendable, CustomStringConvertible {
         case .invalidBranchName(let name): "\"\(name)\" is not a valid branch name."
         case .emptyMessage: "The commit message is empty."
         case .changeNotFound(let path): "\(path) changed since it was shown. Refresh and try again."
+        case .notCheckedOut(let name): "\(name) is not checked out. Commit to the checked-out branch or a new one."
         }
     }
 }
@@ -53,6 +56,10 @@ extension Repository {
         case (.git, .stage, .unstaged), (.git, .unstage, .staged), (.git, .discard, .unstaged):
             return true
         case (.git, .stage, .untracked), (.git, .discard, .untracked):
+            return target.hunk == nil
+        case (.git, .commit, .unstaged):
+            return true
+        case (.git, .commit, .staged), (.git, .commit, .untracked):
             return target.hunk == nil
         case (.gitButler, .commit, .workspace), (.gitButler, .discard, .workspace):
             return true
@@ -90,20 +97,79 @@ extension Repository {
         for target in hunks { try await apply(target, arguments: ["--cached", "--reverse"]) }
     }
 
-    // MARK: - GitButler
+    /// The checked-out branch; `nil` on a detached HEAD.
+    public func currentBranch() async throws -> String? {
+        let output = try await toolchain.git(["symbolic-ref", "--quiet", "--short", "HEAD"], in: root, allowedExitCodes: [0, 1])
+        let name = output.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+        return output.exitCode == 0 && !name.isEmpty ? name : nil
+    }
 
-    /// Commits files or hunks to `branch` with `but commit -b`, creating the branch if it does not exist.
-    /// Only the given changes are passed, by their CLI IDs, so nothing else lands in the commit.
+    /// Commits exactly `targets` to the checked-out branch, leaving everything else staged or not as it was.
+    ///
+    /// The commit is built in a temporary index that starts from HEAD and gets only the selected changes:
+    /// staged files as staged, unstaged and untracked files as they are in the worktree, hunks applied on top
+    /// of the file's staged version. `git commit` then runs with that index, so hooks still run, and the real
+    /// index is brought in line for the committed paths afterwards.
+    private func gitCommit(_ targets: [ChangeTarget], message: String) async throws {
+        let index = FileManager.default.temporaryDirectory.appending(path: "ohmydiff-index-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: index) }
+        let temporary = ["GIT_INDEX_FILE": index.path]
+
+        _ = try await toolchain.git(["read-tree"] + (try await hasHead() ? ["HEAD"] : ["--empty"]), in: root, environment: temporary)
+        let (files, hunks) = Self.split(targets)
+
+        // Staged files and the base of hunks: the real index's entries, or none for staged deletions.
+        let fromIndex = files.filter { $0.file.source == .staged } + hunks
+        let indexPaths = Array(Set(fromIndex.flatMap(Self.paths))).sorted()
+        if !indexPaths.isEmpty {
+            _ = try await toolchain.git(["update-index", "--force-remove", "--"] + indexPaths, in: root, environment: temporary)
+            let entries = try await toolchain.git(["ls-files", "--stage", "-z", "--"] + indexPaths, in: root)
+            let info = entries.stdout.split(separator: 0).map { String(decoding: $0, as: UTF8.self) + "\n" }.joined()
+            if !info.isEmpty {
+                _ = try await toolchain.git(["update-index", "--index-info"], in: root, input: Data(info.utf8), environment: temporary)
+            }
+        }
+        let fromWorktree = files.filter { $0.file.source != .staged }
+        if !fromWorktree.isEmpty {
+            _ = try await toolchain.git(["add", "-A", "--"] + fromWorktree.flatMap(Self.paths), in: root, environment: temporary)
+        }
+        for target in hunks {
+            guard let hunk = target.hunk else { continue }
+            _ = try await toolchain.git(
+                ["apply", "--cached", "--whitespace=nowarn", "-"], in: root,
+                input: Data(Self.patch(path: target.file.path, hunk: hunk).utf8), environment: temporary)
+        }
+
+        _ = try await toolchain.git(["commit", "--quiet", "--file=-"], in: root, input: Data(message.utf8), environment: temporary, timeout: .seconds(120))
+        // The committed paths now match HEAD in the real index too, so they do not show as staged in reverse.
+        _ = try await toolchain.git(["reset", "--quiet", "--"] + Array(Set(targets.flatMap(Self.paths))).sorted(), in: root)
+    }
+
+    // MARK: - Both
+
+    /// Commits files or hunks. GitButler: to `branch` with `but commit -b`, creating the branch if it does
+    /// not exist; only the given changes are passed, by their CLI IDs. Plain git: to the checked-out branch,
+    /// or to a new branch `branch` switched to first; see `gitCommit`.
     public func commit(_ targets: [ChangeTarget], toBranch branch: String, message: String) async throws {
         try check(.commit, targets)
         let branch = branch.trimmingCharacters(in: .whitespaces)
         guard try await isValidBranchName(branch) else { throw ChangeActionError.invalidBranchName(branch) }
         guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ChangeActionError.emptyMessage }
-        let ids = try await butIDs(for: targets)
-        _ = try await toolchain.but(["commit", "-b", branch, "-m", message] + ids, in: root, timeout: .seconds(60))
+        switch kind {
+        case .gitButler:
+            let ids = try await butIDs(for: targets)
+            _ = try await toolchain.but(["commit", "-b", branch, "-m", message] + ids, in: root, timeout: .seconds(60))
+        case .git:
+            if try await currentBranch() != branch {
+                let exists = try await toolchain.git(
+                    ["show-ref", "--verify", "--quiet", "refs/heads/\(branch)"], in: root, allowedExitCodes: [0, 1]).exitCode == 0
+                // Commits only go to the checked-out branch; another existing one would need a checkout.
+                guard !exists else { throw ChangeActionError.notCheckedOut(branch) }
+                _ = try await toolchain.git(["switch", "--quiet", "--create", branch], in: root)
+            }
+            try await gitCommit(targets, message: message)
+        }
     }
-
-    // MARK: - Both
 
     /// Throws away files or hunks. Plain git restores tracked files from the index and moves untracked
     /// ones to the Trash; GitButler runs `but discard`, which `but undo` can revert.

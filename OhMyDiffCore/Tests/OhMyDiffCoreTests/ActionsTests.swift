@@ -115,13 +115,13 @@ extension TestRepo {
         let untracked = ChangedFile(path: "b", kind: .untracked, source: .untracked)
         let staged = ChangedFile(path: "c", kind: .added, source: .staged)
 
-        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: unstaged)) } == [.stage, .discard])
-        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: unstaged, hunk: hunk)) } == [.stage, .discard])
-        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: untracked)) } == [.stage, .discard])
-        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: staged)) } == [.unstage])
+        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: unstaged)) } == [.stage, .commit, .discard])
+        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: unstaged, hunk: hunk)) } == [.stage, .commit, .discard])
+        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: untracked)) } == [.stage, .commit, .discard])
+        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: staged)) } == [.unstage, .commit])
         // Hunks of added files would need a full new-file patch.
         #expect(!repository.supports(.unstage, on: ChangeTarget(file: staged, hunk: hunk)))
-        #expect(!repository.supports(.commit, on: ChangeTarget(file: unstaged)))
+        #expect(!repository.supports(.commit, on: ChangeTarget(file: staged, hunk: hunk)))
     }
 
     @Test func buildsOneHunkPatches() {
@@ -142,6 +142,99 @@ extension TestRepo {
             \\ No newline at end of file
 
             """)
+    }
+}
+
+@Suite struct GitCommitTests {
+    private func setUp() async throws -> TestRepo {
+        let repo = try await TestRepo()
+        try repo.write("a.txt", "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n")
+        try repo.write("b.txt", "b\n")
+        try await repo.commitAll("init")
+        return repo
+    }
+
+    private func committedFiles(_ repo: TestRepo) async throws -> [String] {
+        try await repo.git("show", "--name-only", "--format=", "HEAD").split(separator: "\n").map(String.init).sorted()
+    }
+
+    @Test func commitsStagedFilesAndLeavesOtherStagedChanges() async throws {
+        let repo = try await setUp()
+        try repo.write("a.txt", "changed\n")
+        try repo.write("b.txt", "changed b\n")
+        try await repo.git("add", "a.txt", "b.txt")
+        let repository = try await repo.open()
+
+        try await repository.commit([ChangeTarget(file: repo.file("a.txt", in: .staged, of: repository))], toBranch: "main", message: "change a")
+        #expect(try await committedFiles(repo) == ["a.txt"])
+        #expect(try await repo.git("log", "-1", "--format=%s") == "change a\n")
+        // b.txt is still staged, a.txt is clean.
+        #expect(try await repo.paths(in: .staged, of: repository) == ["b.txt"])
+        #expect(try await repo.paths(in: .unstaged, of: repository).isEmpty)
+    }
+
+    @Test func commitsUnstagedAndUntrackedFilesDirectly() async throws {
+        let repo = try await setUp()
+        try repo.write("b.txt", "changed b\n")
+        try repo.write("new.txt", "new\n")
+        try repo.write("other.txt", "untouched\n")
+        let repository = try await repo.open()
+
+        try await repository.commit([
+            ChangeTarget(file: repo.file("b.txt", in: .unstaged, of: repository)),
+            ChangeTarget(file: repo.file("new.txt", in: .untracked, of: repository)),
+        ], toBranch: "main", message: "b and new")
+        #expect(try await committedFiles(repo) == ["b.txt", "new.txt"])
+        #expect(try await repository.changeGroups().map(\.kind) == [.untracked])
+        #expect(try await repo.paths(in: .untracked, of: repository) == ["other.txt"])
+    }
+
+    @Test func commitsOneHunk() async throws {
+        let repo = try await setUp()
+        try repo.write("a.txt", "ONE\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nTEN\n")
+        let repository = try await repo.open()
+        let file = try await repo.file("a.txt", in: .unstaged, of: repository)
+        let diff = try #require(try await repository.diff(for: file))
+        #expect(diff.hunks.count == 2)
+
+        try await repository.commit([ChangeTarget(file: file, hunk: diff.hunks[0])], toBranch: "main", message: "first line")
+        #expect(try await repo.git("show", "HEAD:a.txt").hasPrefix("ONE\ntwo"))
+        #expect(try await repo.git("show", "HEAD:a.txt").hasSuffix("nine\nten\n"))
+        // The other hunk is still an unstaged change, not a staged reversal.
+        #expect(try await repo.paths(in: .staged, of: repository).isEmpty)
+        let rest = try #require(try await repository.diff(for: repo.file("a.txt", in: .unstaged, of: repository)))
+        #expect(rest.hunks.count == 1 && rest.hunks[0].newStart > 5)
+    }
+
+    @Test func commitsToANewBranchButNotAnotherExistingOne() async throws {
+        let repo = try await setUp()
+        try await repo.git("branch", "other")
+        try repo.write("b.txt", "changed b\n")
+        let repository = try await repo.open()
+        let target = ChangeTarget(file: try await repo.file("b.txt", in: .unstaged, of: repository))
+
+        await #expect(throws: ChangeActionError.self) {
+            try await repository.commit([target], toBranch: "other", message: "x")
+        }
+        try await repository.commit([target], toBranch: "feature/b", message: "b on a branch")
+        #expect(try await repository.currentBranch() == "feature/b")
+        #expect(try await repo.git("log", "-1", "--format=%s", "feature/b") == "b on a branch\n")
+        #expect(try await repo.git("log", "-1", "--format=%s", "main") == "init\n")
+    }
+
+    @Test func runsCommitHooks() async throws {
+        let repo = try await setUp()
+        let hook = repo.root.appending(path: ".git/hooks/commit-msg")
+        try Data("#!/bin/sh\necho 'rejected by hook' >&2\nexit 1\n".utf8).write(to: hook)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
+        try repo.write("b.txt", "changed b\n")
+        let repository = try await repo.open()
+
+        await #expect(throws: ProcessError.self) {
+            try await repository.commit([ChangeTarget(file: repo.file("b.txt", in: .unstaged, of: repository))], toBranch: "main", message: "x")
+        }
+        #expect(try await repo.git("log", "-1", "--format=%s") == "init\n")
+        #expect(try await repo.paths(in: .unstaged, of: repository) == ["b.txt"])
     }
 }
 
