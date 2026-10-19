@@ -159,11 +159,13 @@ final class HistoryModel {
 
     /// Reads every open pull request's status at once, then keeps polling while checks run.
     private func loadOpenStatuses() async {
-        guard let repository, let statuses = try? await repository.openPullRequestStatuses() else { return }
-        for (number, status) in statuses where pullRequestStatuses[number] != status {
-            pullRequestStatuses[number] = status
+        guard let repository else { return }
+        // What GitHub reports now replaces everything, so pull requests that closed meanwhile drop out.
+        if let statuses = try? await repository.openPullRequestStatuses(), statuses != pullRequestStatuses {
+            pullRequestStatuses = statuses
         }
-        guard statuses.values.contains(where: \.hasPendingChecks), statusPollTask == nil else { return }
+        // Keep polling while anything is known to run, also after a failed lookup, so a spinner never sticks.
+        guard pullRequestStatuses.values.contains(where: \.hasPendingChecks), statusPollTask == nil else { return }
         statusPollTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(20))
             guard let self, !Task.isCancelled else { return }
