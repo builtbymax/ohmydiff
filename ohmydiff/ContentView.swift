@@ -70,6 +70,11 @@ struct ContentView: View {
             guard case .success(let urls) = result else { return }
             Task { await model.addProjects(urls) }
         }
+        .sheet(isPresented: $model.isUpstreamUpdatePresented) {
+            if let session = model.selectedSession {
+                UpstreamUpdateSheet(session: session)
+            }
+        }
         .alert(
             "Something went wrong",
             isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })

@@ -25,6 +25,8 @@ final class AppModel {
     /// The project dropdown below the breadcrumb.
     var isProjectMenuPresented = false
     var isImporterPresented = false
+    /// The sheet that updates the selected project from its remote.
+    var isUpstreamUpdatePresented = false
     var errorMessage: String?
     /// What each open diff window shows, by the ID its window was opened with.
     private(set) var popouts: [UUID: DiffPopout] = [:]

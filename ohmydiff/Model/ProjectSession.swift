@@ -53,6 +53,14 @@ final class ProjectSession {
     var actionError: String?
     let history = HistoryModel()
 
+    /// What the last fetch found on the remote; `nil` before the first fetch or without a tracked upstream.
+    private(set) var upstream: UpstreamStatus?
+    private(set) var lastFetched: Date?
+    private(set) var isFetching = false
+    private(set) var fetchError: String?
+    private(set) var isUpdatingFromUpstream = false
+    @ObservationIgnored private var fetchLoop: Task<Void, Never>?
+
     var selectedFileID: ChangedFile.ID? {
         didSet {
             guard oldValue != selectedFileID else { return }
@@ -156,12 +164,14 @@ final class ProjectSession {
         // Re-detect the kind in case `but setup` or `but teardown` ran while we were away.
         repository = nil
         refresh()
+        startFetchLoop()
     }
 
     /// Stops live updates; the cached state is kept.
     func deactivate() {
         isActive = false
         stopWatching()
+        stopFetchLoop()
     }
 
     /// Points the project at a new folder after it was moved.
@@ -255,6 +265,74 @@ final class ProjectSession {
         repository = nil
         apply([])
         phase = .missing
+    }
+
+    // MARK: - Upstream
+
+    /// How often the open project fetches in the background.
+    static let fetchInterval: TimeInterval = 10 * 60
+
+    /// Fetches now, then again whenever the last fetch is older than `fetchInterval`, while the project is open.
+    private func startFetchLoop() {
+        stopFetchLoop()
+        fetchLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if lastFetched.map({ Date.now.timeIntervalSince($0) >= Self.fetchInterval }) ?? true {
+                    await fetch()
+                }
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
+    }
+
+    private func stopFetchLoop() {
+        fetchLoop?.cancel()
+        fetchLoop = nil
+    }
+
+    /// Fetches from the remote and works out what an update would bring in.
+    func fetch() async {
+        guard !isFetching, !isUpdatingFromUpstream, let repository = await openedRepository() else { return }
+        isFetching = true
+        defer { isFetching = false }
+        do {
+            applyFetch(try await repository.fetchUpstream())
+            // A fetch moves remote branches, which History shows.
+            refresh()
+        } catch is CancellationError {
+            return
+        } catch {
+            fetchError = String(describing: error)
+        }
+    }
+
+    /// Updates the workspace from the remote, then reads what is left to update.
+    func updateFromUpstream() async throws -> UpstreamUpdateResult {
+        guard !isUpdatingFromUpstream, let repository = await openedRepository() else { return UpstreamUpdateResult() }
+        isUpdatingFromUpstream = true
+        defer {
+            isUpdatingFromUpstream = false
+            refresh()
+        }
+        let result = try await repository.updateFromUpstream()
+        if let status = try? await repository.fetchUpstream() { applyFetch(status) }
+        return result
+    }
+
+    private func applyFetch(_ status: UpstreamStatus?) {
+        if status != upstream { upstream = status }
+        fetchError = nil
+        lastFetched = .now
+    }
+
+    /// The repository, waiting for the refresh that opens it; `nil` when the project cannot be opened.
+    private func openedRepository() async -> Repository? {
+        while repository == nil, phase == .idle || isRefreshing {
+            try? await Task.sleep(for: .milliseconds(100))
+            if Task.isCancelled { return nil }
+        }
+        return repository
     }
 
     // MARK: - Actions

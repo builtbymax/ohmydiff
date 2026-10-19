@@ -289,8 +289,14 @@ struct CommandPalette: View {
         } else {
             add("Go to Changes", "plusminus") { model.mode = .changes }
         }
-        if session != nil {
+        if let session {
             add("Refresh", "arrow.clockwise", "⌘R") { model.refreshSelected() }
+            add("Fetch from Remote", "arrow.triangle.2.circlepath") { Task { await session.fetch() } }
+            if session.upstream?.hasUpdates == true {
+                add(session.project.kind == .gitButler ? "Update Workspace…" : "Update Branches…", "arrow.down.circle") {
+                    model.isUpstreamUpdatePresented = true
+                }
+            }
         }
         if let diffFile, diffFile.exists {
             add("Open in Editor", "arrow.up.forward.square", "⌘O") { model.openInEditor(diffFile) }

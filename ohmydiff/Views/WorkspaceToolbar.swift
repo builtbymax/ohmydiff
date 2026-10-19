@@ -18,6 +18,9 @@ struct WorkspaceToolbar: View {
         GlassEffectContainer(spacing: 10) {
             HStack(spacing: 10) {
                 ProjectBreadcrumb(model: model, mode: mode)
+                if let session = model.selectedSession, session.phase == .ready {
+                    UpstreamControls(model: model, session: session)
+                }
                 UpdatingPill(isRefreshing: model.selectedSession?.isRefreshing == true)
                 // The empty stretch moves the window, like a title bar.
                 Color.clear
