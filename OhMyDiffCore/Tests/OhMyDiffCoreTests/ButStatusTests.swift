@@ -65,7 +65,7 @@ import Testing
         #expect(status.unassignedChanges.map(\.kind) == [.added, .renamed])
 
         let branch = try #require(status.stacks.first?.branches.first)
-        #expect(status.stacks.first?.id == "i0")
+        #expect(status.stacks.first?.id == "feature/x")
         #expect(branch.name == "feature/x")
         #expect(branch.branchStatus == "completelyUnpushed")
 
@@ -116,7 +116,7 @@ import Testing
         let renamed = StatusEntry(kind: .renamed, path: "d.txt", originalPath: "b.txt", indexStatus: "R")
         let groups = Repository.butChangeGroups(status, gitStatus: [renamed])
 
-        #expect(groups.map(\.kind) == [.unassigned, .stack(id: "i0", branches: ["feature/x"])])
+        #expect(groups.map(\.kind) == [.unassigned, .stack(id: "feature/x", branches: ["feature/x"])])
         #expect(groups[1].title == "feature/x")
         let files = groups[0].files
         #expect(files.map(\.path) == ["c.txt", "d.txt"])

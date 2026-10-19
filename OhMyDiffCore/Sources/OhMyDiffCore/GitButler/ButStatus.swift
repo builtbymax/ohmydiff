@@ -40,7 +40,9 @@ public struct ButStack: Sendable, Hashable, Decodable, Identifiable {
     /// Branches from the top of the stack down to its base.
     public var branches: [ButBranch]
 
-    public var id: String { cliId.isEmpty ? branches.map(\.name).joined(separator: "/") : cliId }
+    /// The bottom branch's name. `cliId` is positional: `but` reassigns it whenever stacks or even uncommitted
+    /// files change, so it would make views reuse one stack's state for another.
+    public var id: String { branches.last(where: { !$0.name.isEmpty })?.name ?? cliId }
 
     enum CodingKeys: String, CodingKey {
         case cliId, assignedChanges, branches
