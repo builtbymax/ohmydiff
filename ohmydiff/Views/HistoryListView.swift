@@ -45,8 +45,18 @@ struct HistoryListView: View {
                                 .foregroundStyle(.secondary)
                                 .padding(.leading, 6)
                                 .padding(.top, 4)
-                            ForEach(group.branches) { branch in
-                                BranchCard(branch: branch, showsCommits: showsCommits(of: branch, in: group), history: history)
+                            if group.kind == .stack, group.branches.count > 1 {
+                                // A stack's branches hang together on a line, top branch first like `but status`.
+                                VStack(spacing: 0) {
+                                    ForEach(Array(group.branches.enumerated()), id: \.element.id) { index, branch in
+                                        if index > 0 { StackConnector() }
+                                        BranchCard(branch: branch, showsCommits: showsCommits(of: branch, in: group), history: history)
+                                    }
+                                }
+                            } else {
+                                ForEach(group.branches) { branch in
+                                    BranchCard(branch: branch, showsCommits: showsCommits(of: branch, in: group), history: history)
+                                }
                             }
                         }
                     }
@@ -128,6 +138,22 @@ private struct BranchCard: View {
                 .padding(4)
             }
         }
+    }
+}
+
+/// The line between two branches of a stack, under the branch icons.
+private struct StackConnector: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            Rectangle().frame(width: 2)
+            Circle().frame(width: 6, height: 6)
+            Rectangle().frame(width: 2)
+        }
+        .foregroundStyle(Color.secondary.opacity(0.55))
+        .frame(width: 6, height: 20)
+        .padding(.leading, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityHidden(true)
     }
 }
 
