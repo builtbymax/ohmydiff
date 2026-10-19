@@ -68,8 +68,12 @@ extension Repository {
                 // Unrelated histories: fall back to the parent of the oldest listed commit.
                 base = try await parent(of: oldest.sha)
             }
+            // A branch without upstream was never pushed, unless it is the main line of a local-only repository.
+            let status: HistoryBranch.Status? = upstream.isEmpty
+                ? (name == defaultBranch ? nil : .unpushed)
+                : .tracking(track, hasUpstream: true)
             branches.append(HistoryBranch(
-                name: name, status: .tracking(track, hasUpstream: !upstream.isEmpty), commits: commits,
+                name: name, status: status, commits: commits,
                 base: base, tip: tip, baseName: compare?.name, isCurrent: fields[4] == "*", isDefault: name == defaultBranch))
         }
         // The default branch first, then the checked-out one, then alphabetical as git lists them.
