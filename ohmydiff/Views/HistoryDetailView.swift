@@ -95,11 +95,12 @@ struct HistoryDetailView: View {
                     if let file = history.selectedFile {
                         FileDiffView(
                             fileID: "\(selection):\(file.id)", diff: file, highlights: history.highlights[file.id], root: root,
-                            popout: .snapshot(
-                                project: root.lastPathComponent, context: context(for: selection), diff: file,
-                                highlights: history.highlights[file.id], root: root,
-                                sources: (history.source(of: file, side: .old), history.source(of: file, side: .new)),
-                                promptContext: history.promptContext(root: root)),
+                            popout: .snapshot(DiffSnapshot(
+                                project: root.lastPathComponent, context: context(for: selection), root: root,
+                                files: diffs.map { diff in
+                                    DiffSnapshot.File(diff: diff, sources: (history.source(of: diff, side: .old), history.source(of: diff, side: .new)))
+                                },
+                                selectedID: file.id, highlights: history.highlights, promptContext: history.promptContext(root: root))),
                             promptContext: history.promptContext(root: root)
                         ) { side in
                             await history.contents(of: file, side: side)
