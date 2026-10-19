@@ -40,7 +40,7 @@ struct HistoryListView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         ForEach(history.groups) { group in
-                            Text(group.kind == .stack ? "Stack" : "Branches")
+                            Text(title(of: group))
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                                 .padding(.leading, 6)
@@ -84,6 +84,12 @@ struct HistoryListView: View {
         history.selection = items[next]
         proxy.scrollTo(items[next])
         return .handled
+    }
+
+    /// `Stack` only when the GitButler stack holds several branches; a lone applied branch is a `Branch`.
+    private func title(of group: HistoryGroup) -> String {
+        guard group.kind == .stack else { return "Branches" }
+        return group.branches.count > 1 ? "Stack" : "Branch"
     }
 
     /// GitButler stacks are short, so all their commits are listed; plain-git branches list theirs
