@@ -216,12 +216,12 @@ private struct Lossy<Value: Decodable>: Decodable {
 
 extension KeyedDecodingContainer {
     /// Decodes a value, returning `nil` for missing keys, nulls and type mismatches.
-    fileprivate func lossy<T: Decodable>(_ key: Key) -> T? {
+    func lossy<T: Decodable>(_ key: Key) -> T? {
         (try? decodeIfPresent(Lossy<T>.self, forKey: key))??.value
     }
 
     /// Decodes an array, dropping elements that fail to decode.
-    fileprivate func lossyArray<T: Decodable>(_ key: Key) -> [T] {
+    func lossyArray<T: Decodable>(_ key: Key) -> [T] {
         guard let items = try? decodeIfPresent([Lossy<T>].self, forKey: key) else { return [] }
         return items.compactMap(\.value)
     }

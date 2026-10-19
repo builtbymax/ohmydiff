@@ -80,7 +80,7 @@ extension Repository {
     }
 
     /// `origin/HEAD`'s local counterpart, else `main` or `master` when they exist.
-    private func defaultBranch(local: [String]) async -> String? {
+    func defaultBranch(local: [String]) async -> String? {
         if let output = try? await toolchain.git(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], in: root),
            case let remote = output.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines),
            let slash = remote.firstIndex(of: "/") {
