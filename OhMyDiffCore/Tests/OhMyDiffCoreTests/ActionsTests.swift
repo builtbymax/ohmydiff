@@ -206,6 +206,38 @@ extension TestRepo {
         #expect(rest.hunks.count == 1 && rest.hunks[0].newStart > 5)
     }
 
+    @Test func commitsOneHunkButNotTheFilesStagedHunks() async throws {
+        let repo = try await setUp()
+        try repo.write("a.txt", "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nSTAGED\n")
+        try await repo.git("add", "a.txt")
+        try repo.write("a.txt", "UNSTAGED\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nSTAGED\n")
+        let repository = try await repo.open()
+        let file = try await repo.file("a.txt", in: .unstaged, of: repository)
+        let diff = try #require(try await repository.diff(for: file))
+        #expect(diff.hunks.count == 1)
+
+        try await repository.commit([ChangeTarget(file: file, hunk: diff.hunks[0])], toBranch: "main", message: "first line")
+        #expect(try await repo.git("show", "HEAD:a.txt") == "UNSTAGED\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n")
+        // The staged hunk is still staged, and nothing is left unstaged.
+        #expect(try await repo.git("diff", "--cached", "--unified=0", "--", "a.txt").contains("+STAGED"))
+        #expect(try await repo.paths(in: .unstaged, of: repository).isEmpty)
+    }
+
+    @Test func refusesAHunkOverlappingStagedChanges() async throws {
+        let repo = try await setUp()
+        try repo.write("a.txt", "STAGED\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n")
+        try await repo.git("add", "a.txt")
+        try repo.write("a.txt", "STAGED\nUNSTAGED\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n")
+        let repository = try await repo.open()
+        let file = try await repo.file("a.txt", in: .unstaged, of: repository)
+        let diff = try #require(try await repository.diff(for: file))
+
+        await #expect(throws: ChangeActionError.self) {
+            try await repository.commit([ChangeTarget(file: file, hunk: diff.hunks[0])], toBranch: "main", message: "x")
+        }
+        #expect(try await repo.git("log", "-1", "--format=%s") == "init\n")
+    }
+
     @Test func commitsToANewBranchButNotAnotherExistingOne() async throws {
         let repo = try await setUp()
         try await repo.git("branch", "other")

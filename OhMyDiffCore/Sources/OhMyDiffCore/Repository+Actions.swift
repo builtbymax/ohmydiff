@@ -34,6 +34,8 @@ public enum ChangeActionError: Error, Sendable, CustomStringConvertible {
     /// Plain git commits only to the checked-out branch.
     case notCheckedOut(String)
     case deletingCheckedOut(String)
+    /// Plain git: a hunk to commit overlaps staged changes of the same file.
+    case overlapsStaged(String)
 
     public var description: String {
         switch self {
@@ -44,6 +46,7 @@ public enum ChangeActionError: Error, Sendable, CustomStringConvertible {
         case .changeNotFound(let path): "\(path) changed since it was shown. Refresh and try again."
         case .notCheckedOut(let name): "\(name) is not checked out. Commit to the checked-out branch or a new one."
         case .deletingCheckedOut(let name): "\(name) is checked out. Switch to another branch before deleting it."
+        case .overlapsStaged(let path): "The selected change of \(path) overlaps its staged changes. Commit or unstage those first."
         }
     }
 }
@@ -131,8 +134,9 @@ extension Repository {
     ///
     /// The commit is built in a temporary index that starts from HEAD and gets only the selected changes:
     /// staged files as staged, unstaged and untracked files as they are in the worktree, hunks applied on top
-    /// of the file's staged version. `git commit` then runs with that index, so hooks still run, and the real
-    /// index is brought in line for the committed paths afterwards.
+    /// of HEAD (or of the staged version when the whole staged file is selected too), so a file's other staged
+    /// hunks stay out. `git commit` then runs with that index, so hooks still run, and the real index is
+    /// brought in line for the committed paths afterwards, keeping staged hunks that were not committed.
     private func gitCommit(_ targets: [ChangeTarget], message: String) async throws {
         let index = FileManager.default.temporaryDirectory.appending(path: "ohmydiff-index-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: index) }
@@ -141,9 +145,8 @@ extension Repository {
         _ = try await toolchain.git(["read-tree"] + (try await hasHead() ? ["HEAD"] : ["--empty"]), in: root, environment: temporary)
         let (files, hunks) = Self.split(targets)
 
-        // Staged files and the base of hunks: the real index's entries, or none for staged deletions.
-        let fromIndex = files.filter { $0.file.source == .staged } + hunks
-        let indexPaths = Array(Set(fromIndex.flatMap(Self.paths))).sorted()
+        // Staged files: the real index's entries, or none for staged deletions.
+        let indexPaths = Array(Set(files.filter { $0.file.source == .staged }.flatMap(Self.paths))).sorted()
         if !indexPaths.isEmpty {
             _ = try await toolchain.git(["update-index", "--force-remove", "--"] + indexPaths, in: root, environment: temporary)
             let entries = try await toolchain.git(["ls-files", "--stage", "-z", "--"] + indexPaths, in: root)
@@ -158,14 +161,38 @@ extension Repository {
         }
         for target in hunks {
             guard let hunk = target.hunk else { continue }
-            _ = try await toolchain.git(
-                ["apply", "--cached", "--whitespace=nowarn", "-"], in: root,
-                input: Data(Self.patch(path: target.file.path, hunk: hunk).utf8), environment: temporary)
+            // The hunk was read against the real index; `git apply` finds it at an offset in HEAD's version,
+            // and refuses when it overlaps the file's staged changes.
+            do {
+                _ = try await toolchain.git(
+                    ["apply", "--cached", "--whitespace=nowarn", "-"], in: root,
+                    input: Data(Self.patch(path: target.file.path, hunk: hunk).utf8), environment: temporary)
+            } catch let error as ProcessError {
+                if !indexPaths.contains(target.file.path), try await isStaged(target.file.path) {
+                    throw ChangeActionError.overlapsStaged(target.file.path)
+                }
+                throw error
+            }
         }
 
         _ = try await toolchain.git(["commit", "--quiet", "--file=-"], in: root, input: Data(message.utf8), environment: temporary, timeout: .seconds(120))
         // The committed paths now match HEAD in the real index too, so they do not show as staged in reverse.
-        _ = try await toolchain.git(["reset", "--quiet", "--"] + Array(Set(targets.flatMap(Self.paths))).sorted(), in: root)
+        // Paths committed only by hunk get those hunks in the real index instead, which keeps the rest staged.
+        let filePaths = Set(files.flatMap(Self.paths))
+        let hunkOnly = hunks.filter { !filePaths.contains($0.file.path) }
+        var resetPaths = Set(targets.flatMap(Self.paths))
+        for target in hunkOnly where (try? await apply(target, arguments: ["--cached"])) != nil {
+            resetPaths.remove(target.file.path)
+        }
+        if !resetPaths.isEmpty {
+            _ = try await toolchain.git(["reset", "--quiet", "--"] + resetPaths.sorted(), in: root)
+        }
+    }
+
+    /// Whether the real index differs from HEAD for `path`.
+    private func isStaged(_ path: String) async throws -> Bool {
+        guard try await hasHead() else { return true }
+        return try await toolchain.git(["diff", "--cached", "--quiet", "HEAD", "--", path], in: root, allowedExitCodes: [0, 1]).exitCode == 1
     }
 
     // MARK: - Both
