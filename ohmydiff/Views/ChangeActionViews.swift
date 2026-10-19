@@ -17,7 +17,7 @@ struct ChangeActionMenu: View {
             Button("Unstage\(suffix)") { session.request(.unstage, on: targets) }
         }
         if session.supports(.commit, on: targets) {
-            Button("Commit\(suffix) to Branch…") { session.request(.commit, on: targets) }
+            Button(session.project.kind == .gitButler ? "Commit\(suffix) to Branch…" : "Commit\(suffix)…") { session.request(.commit, on: targets) }
         }
         if !isGroup, session.supports(.discard, on: targets) {
             Divider()
@@ -136,7 +136,7 @@ private struct CommitSheet: View {
                     SoftSegmented(
                         selection: $isNewBranch,
                         options: [(false, "Existing"), (true, "New")],
-                        disabled: session.branchNames.isEmpty ? [false] : [])
+                        disabled: session.commitBranches.isEmpty ? [false] : [])
                 }
                 if isNewBranch {
                     HStack(spacing: 6) {
@@ -151,6 +151,11 @@ private struct CommitSheet: View {
                     .padding(.trailing, 5)
                     .frame(height: 34)
                     .fieldBackground(isFocused: focus == .branchName)
+                    if session.project.kind == .git {
+                        Text("Switches to the new branch first; your other changes come along uncommitted.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
                     branchList
                 }
@@ -194,7 +199,7 @@ private struct CommitSheet: View {
         .frame(width: 460)
         .onAppear {
             branch = session.suggestedBranch(for: request.targets)
-            isNewBranch = session.branchNames.isEmpty
+            isNewBranch = session.commitBranches.isEmpty
             focus = isNewBranch ? .branchName : .message
         }
         .task {
@@ -274,7 +279,7 @@ private struct CommitSheet: View {
     private var branchList: some View {
         ScrollView {
             VStack(spacing: 1) {
-                ForEach(session.branchNames, id: \.self) { name in
+                ForEach(session.commitBranches, id: \.self) { name in
                     Button { branch = name } label: {
                         HStack(spacing: 8) {
                             Image(systemName: "arrow.triangle.branch")
@@ -319,7 +324,7 @@ private struct CommitSheet: View {
             } else {
                 HStack(spacing: 5) {
                     KeyCap("⌘↩")
-                    Text("to commit with `but commit -b`")
+                    Text(session.project.kind == .gitButler ? "to commit with `but commit -b`" : "to commit with `git commit`")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

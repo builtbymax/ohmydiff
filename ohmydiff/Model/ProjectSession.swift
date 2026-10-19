@@ -59,6 +59,8 @@ final class ProjectSession {
     private(set) var isFetching = false
     private(set) var fetchError: String?
     private(set) var isUpdatingFromUpstream = false
+    /// Plain git: the checked-out branch, which commits go to; `nil` on a detached HEAD or for GitButler.
+    private(set) var currentBranch: String?
     @ObservationIgnored private var fetchLoop: Task<Void, Never>?
 
     var selectedFileID: ChangedFile.ID? {
@@ -228,6 +230,8 @@ final class ProjectSession {
         do {
             let repository = try await openRepository(toolchain)
             apply(try await repository.changeGroups())
+            let branch = repository.kind == .git ? try await repository.currentBranch() : nil
+            if branch != currentBranch { currentBranch = branch }
             phase = .ready
             lastRefreshed = .now
             resolvePendingReveal(isFinal: true)
@@ -431,10 +435,15 @@ final class ProjectSession {
     }
 
     /// The branch a commit of `targets` most likely goes to: the stack they are assigned to, else the last one used.
+    /// The branches a commit can go to: every applied GitButler branch, or the checked-out plain-git branch.
+    var commitBranches: [String] {
+        project.kind == .gitButler ? branchNames : currentBranch.map { [$0] } ?? []
+    }
+
     func suggestedBranch(for targets: [ChangeTarget]) -> String {
         if let assigned = targets.lazy.compactMap({ self.assignedBranch(of: $0.file.path) }).first { return assigned }
-        if let lastCommitBranch, branchNames.contains(lastCommitBranch) { return lastCommitBranch }
-        return branchNames.first ?? ""
+        if let lastCommitBranch, commitBranches.contains(lastCommitBranch) { return lastCommitBranch }
+        return commitBranches.first ?? ""
     }
 
     @ObservationIgnored private var lastCommitBranch: String?

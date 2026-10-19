@@ -292,6 +292,9 @@ struct CommandPalette: View {
         if let session {
             add("Refresh", "arrow.clockwise", "⌘R") { model.refreshSelected() }
             add("Fetch from Remote", "arrow.triangle.2.circlepath") { Task { await session.fetch() } }
+            if !model.stagedTargets.isEmpty {
+                add("Commit Staged Changes…", "checkmark.circle", "⌘↩") { model.commitStaged() }
+            }
             if session.upstream?.hasUpdates == true {
                 add(session.project.kind == .gitButler ? "Update Workspace…" : "Update Branches…", "arrow.down.circle") {
                     model.isUpstreamUpdatePresented = true

@@ -176,6 +176,18 @@ final class AppModel {
         }
     }
 
+    /// Plain git: the selected project's staged files.
+    var stagedTargets: [ChangeTarget] {
+        selectedSession?.groups.first { $0.kind == .staged }?.files.map { ChangeTarget(file: $0) } ?? []
+    }
+
+    /// Opens the commit sheet for everything staged, in Changes mode where the sheet lives.
+    func commitStaged() {
+        guard let session = selectedSession, !stagedTargets.isEmpty else { return }
+        mode = .changes
+        session.request(.commit, on: stagedTargets)
+    }
+
     func refreshSelected() {
         selectedSession?.refresh()
     }

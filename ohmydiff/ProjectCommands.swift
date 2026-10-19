@@ -59,6 +59,20 @@ struct ProjectCommands: Commands {
             Divider()
         }
 
+        CommandMenu("Repository") {
+            let session = model.selectedSession
+            Button("Commit Staged Changes…") { model.commitStaged() }
+                .keyboardShortcut(.return)
+                .disabled(model.stagedTargets.isEmpty || session?.actionRequest != nil || model.isUpstreamUpdatePresented)
+            Divider()
+            Button("Fetch from Remote") { Task { await session?.fetch() } }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .disabled(session == nil || session?.isFetching == true)
+            Button(session?.project.kind == .gitButler ? "Update Workspace…" : "Update Branches…") { model.isUpstreamUpdatePresented = true }
+                .keyboardShortcut("u", modifiers: [.command, .shift])
+                .disabled(session?.upstream?.hasUpdates != true)
+        }
+
         CommandMenu("Go") {
             Button("Switch Project…") { model.isSwitcherPresented = true }
                 .keyboardShortcut("k")
