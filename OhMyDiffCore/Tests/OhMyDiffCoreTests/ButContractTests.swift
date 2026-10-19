@@ -158,6 +158,13 @@ struct ButLiveContractTests {
         let repository = try await repo.open()
         #expect(repository.kind == .gitButler)
         #expect(repository.butIncompatibility == nil)
+
+        // A conflicted commit is read through its checked-out tree, not GitButler's conflict bookkeeping.
+        let conflicted = try #require(branches["feature/two"]?.commits.first?.commitId)
+        let paths = try await repository.diff(commit: conflicted).map(\.path)
+            + (try await repository.diff(from: "\(conflicted)^", to: conflicted)).map(\.path)
+        #expect(!paths.contains { $0.hasPrefix(".") })
+        #expect(try await repository.contents(at: conflicted, path: "README.md") != nil)
     }
 
     @Test func unsupportedReleaseFallsBackToGit() async throws {

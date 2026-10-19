@@ -264,6 +264,11 @@ public struct Repository: Sendable {
 
     /// The parsed diff a commit introduces relative to its first parent (or the empty tree for a root commit).
     public func diff(commit: String) async throws -> [FileDiff] {
+        let tree = try await tree(of: commit)
+        if tree != commit {
+            // A conflicted GitButler commit: its checked-out tree against its parent's.
+            return try await diff(from: "\(commit)^", to: commit)
+        }
         let arguments = ["diff-tree", "-p", "-r", "--root", "--no-commit-id", "-m", "--first-parent"]
             + Self.diffOptions + [commit]
         let output = try await toolchain.git(arguments, in: root)

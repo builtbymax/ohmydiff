@@ -131,8 +131,18 @@ extension Repository {
 
     /// The diff from `base` to `tip`, e.g. a whole branch.
     public func diff(from base: String, to tip: String) async throws -> [FileDiff] {
+        let (base, tip) = (try await tree(of: base), try await tree(of: tip))
         let output = try await toolchain.git(["diff"] + Self.diffOptions + [base, tip, "--"], in: root)
         return UnifiedDiffParser.parse(output.stdout)
+    }
+
+    /// The tree-ish to read for `revision`. GitButler stores a conflicted commit's sides (`.conflict-base-0`,
+    /// `.conflict-side-0`, …) in its tree next to `.auto-resolution`, the tree it checks out; that subtree
+    /// stands in for the commit, so the bookkeeping does not show as added files.
+    func tree(of revision: String) async throws -> String {
+        guard kind == .gitButler else { return revision }
+        let marker = try await toolchain.git(["cat-file", "-e", "\(revision):.conflict-files"], in: root, allowedExitCodes: [0, 1, 128])
+        return marker.exitCode == 0 ? "\(revision):.auto-resolution" : revision
     }
 
     /// The full SHA of the commit `revision` names, e.g. an abbreviated SHA; `nil` when there is none.
@@ -145,6 +155,7 @@ extension Repository {
 
     /// A file's contents at `revision`, or `nil` when it does not exist there or is larger than `limit` bytes.
     public func contents(at revision: String, path: String, limit: Int = 16 << 20) async throws -> Data? {
-        try await blob("\(revision):\(path)", limit: limit)
+        let tree = try await tree(of: revision)
+        return try await blob(tree == revision ? "\(revision):\(path)" : "\(tree)/\(path)", limit: limit)
     }
 }

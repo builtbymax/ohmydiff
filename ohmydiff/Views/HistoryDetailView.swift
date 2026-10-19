@@ -51,6 +51,10 @@ struct HistoryDetailView: View {
             EmptyState("Nothing to Review", systemImage: "doc", description: message)
         case .failed(let message):
             EmptyState("Could Not Load Diff", systemImage: "exclamationmark.triangle", description: message)
+        case .loaded(let diffs) where diffs.isEmpty && history.selectedCommit?.isConflicted == true:
+            EmptyState(
+                "Conflicted", systemImage: "exclamationmark.triangle",
+                description: "GitButler checks the commit out without its conflicting changes, so it changes nothing until it is resolved with but resolve.")
         case .loaded(let diffs) where diffs.isEmpty:
             EmptyState("No Changes", systemImage: "equal", description: "No files changed.")
         case .loaded(let diffs):
