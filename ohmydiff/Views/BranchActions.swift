@@ -416,3 +416,35 @@ struct PullRequestBanner: View {
         history.pullRequestStatuses[pullRequest.number].map { PullRequestSummary(pullRequest, status: $0).color } ?? .secondary
     }
 }
+
+/// A ring of eight small blocks with one bright block circling it and a fading trail, after loading.dev's
+/// spinner. Drawn in the foreground style.
+struct BlockSpinner: View {
+    var size: CGFloat = 12
+    /// One full turn.
+    var duration: Double = 1
+
+    /// The ring's cells on a 3×3 grid, clockwise from the top left.
+    private static let cells: [(x: Int, y: Int)] = [(0, 0), (1, 0), (2, 0), (2, 1), (2, 2), (1, 2), (0, 2), (0, 1)]
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: duration / 24)) { context in
+            let head = Int(context.date.timeIntervalSinceReferenceDate / duration * Double(Self.cells.count)) % Self.cells.count
+            Canvas { canvas, canvasSize in
+                let cell = canvasSize.width / 3
+                let block = cell * 0.78
+                for (index, position) in Self.cells.enumerated() {
+                    let behind = (head - index + Self.cells.count) % Self.cells.count
+                    let opacity = [1, 0.6, 0.35].indices.contains(behind) ? [1, 0.6, 0.35][behind] : 0.15
+                    let rect = CGRect(
+                        x: CGFloat(position.x) * cell + (cell - block) / 2, y: CGFloat(position.y) * cell + (cell - block) / 2,
+                        width: block, height: block)
+                    canvas.opacity = opacity
+                    canvas.fill(Path(roundedRect: rect, cornerRadius: block * 0.25), with: .foreground)
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityLabel("Running")
+    }
+}

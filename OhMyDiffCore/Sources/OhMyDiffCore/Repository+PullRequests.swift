@@ -73,6 +73,10 @@ public struct PullRequestStatus: Sendable, Hashable {
     /// Decodes `gh pr view --json`; check runs and commit statuses are both in `statusCheckRollup`.
     static func decode(_ data: Data) throws -> PullRequestStatus {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return PullRequestStatus() }
+        return PullRequestStatus(object)
+    }
+
+    init(_ object: [String: Any]) {
         var done = 0
         var failed: [String] = []
         let rollup = object["statusCheckRollup"] as? [[String: Any]] ?? []
@@ -109,7 +113,7 @@ public struct PullRequestStatus: Sendable, Hashable {
         case "CONFLICTING": false
         default: nil
         }
-        return PullRequestStatus(
+        self.init(
             checks: checks, isMergeable: mergeable, mergeState: object["mergeStateStatus"] as? String ?? "UNKNOWN",
             review: (object["reviewDecision"] as? String).flatMap(Review.init(rawValue:)))
     }
@@ -192,6 +196,18 @@ extension Repository {
             _ = try await toolchain.gh(arguments, in: root, timeout: Self.remoteTimeout)
         }
         return try? await pullRequest(forBranch: branch)
+    }
+
+    /// The checks, conflicts and reviews of every open pull request, by number, in one `gh` call.
+    public func openPullRequestStatuses() async throws -> [Int: PullRequestStatus] {
+        guard canManagePullRequests else { return [:] }
+        let output = try await toolchain.gh(
+            ["pr", "list", "--state", "open", "--limit", "100", "--json", "number," + PullRequestStatus.jsonFields],
+            in: root, timeout: Self.remoteTimeout)
+        let objects = try JSONSerialization.jsonObject(with: output.stdout) as? [[String: Any]] ?? []
+        return Dictionary(
+            objects.compactMap { object in (object["number"] as? Int).map { ($0, PullRequestStatus(object)) } },
+            uniquingKeysWith: { first, _ in first })
     }
 
     /// The checks, conflicts and reviews of a pull request.

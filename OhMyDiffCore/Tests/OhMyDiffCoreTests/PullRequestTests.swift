@@ -123,6 +123,18 @@ private struct StubbedGH {
         #expect(try status(#"{"mergeable": "UNKNOWN", "statusCheckRollup": []}"#) == PullRequestStatus())
     }
 
+    @Test func readsTheStatusOfEveryOpenPullRequest() async throws {
+        let stub = try await StubbedGH()
+        try Data("""
+        [{"number": 2, "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN", "statusCheckRollup": [{"name": "t", "status": "IN_PROGRESS"}]},
+         {"number": 3, "mergeable": "CONFLICTING", "mergeStateStatus": "DIRTY", "statusCheckRollup": []}]
+        """.utf8).write(to: stub.listResponse)
+        let statuses = try await stub.repository.openPullRequestStatuses()
+        #expect(statuses[2]?.hasPendingChecks == true)
+        #expect(statuses[3] == PullRequestStatus(isMergeable: false, mergeState: "DIRTY"))
+        #expect(try stub.calls().last?.contains("--state open") == true)
+    }
+
     @Test func changesDraftStateAndMerges() async throws {
         let stub = try await StubbedGH()
         let pullRequest = PullRequest(number: 7, title: "x", url: URL(string: "https://github.com/o/r/pull/7")!, state: .open, isDraft: true)

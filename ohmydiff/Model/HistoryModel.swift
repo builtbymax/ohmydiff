@@ -56,6 +56,8 @@ final class HistoryModel {
     /// Plain-git branches waiting for their deletion to be confirmed.
     var pendingDeletion: [HistoryBranch]?
     @ObservationIgnored private var pullRequestsLoaded: Date?
+    /// Reloads the open pull requests' statuses while any of their checks run.
+    @ObservationIgnored private var statusPollTask: Task<Void, Never>?
 
     var selection: Selection? {
         didSet {
@@ -152,6 +154,28 @@ final class HistoryModel {
         var lookup: [String: PullRequest?] = [:]
         for branch in groups.flatMap(\.branches) { lookup[branch.name] = .some(found[branch.name]) }
         if lookup != pullRequests { pullRequests = lookup }
+        await loadOpenStatuses()
+    }
+
+    /// Reads every open pull request's status at once, then keeps polling while checks run.
+    private func loadOpenStatuses() async {
+        guard let repository, let statuses = try? await repository.openPullRequestStatuses() else { return }
+        for (number, status) in statuses where pullRequestStatuses[number] != status {
+            pullRequestStatuses[number] = status
+        }
+        guard statuses.values.contains(where: \.hasPendingChecks), statusPollTask == nil else { return }
+        statusPollTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            guard let self, !Task.isCancelled else { return }
+            statusPollTask = nil
+            await loadOpenStatuses()
+        }
+    }
+
+    /// Whether the branch has an open pull request whose checks are still running.
+    func hasRunningChecks(_ branch: HistoryBranch) -> Bool {
+        guard let pullRequest = pullRequest(of: branch), pullRequest.state == .open else { return false }
+        return pullRequestStatuses[pullRequest.number]?.hasPendingChecks ?? false
     }
 
     /// Looks up an open pull request's checks, conflicts and reviews; failures keep the last known status.
@@ -306,6 +330,7 @@ final class HistoryModel {
     func close() {
         filesTask?.cancel()
         highlightTask?.cancel()
+        statusPollTask?.cancel()
     }
 
     struct Revisions: Equatable {

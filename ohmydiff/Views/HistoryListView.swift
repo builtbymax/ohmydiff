@@ -208,9 +208,15 @@ private struct BranchRow: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            Image(systemName: branch.isCurrent ? "checkmark.circle.fill" : "arrow.triangle.branch")
-                .font(.caption)
-                .foregroundStyle(branch.isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            if history.hasRunningChecks(branch) {
+                BlockSpinner(size: 11)
+                    .foregroundStyle(.orange)
+                    .glassTooltip("Checks running")
+            } else {
+                Image(systemName: branch.isCurrent ? "checkmark.circle.fill" : "arrow.triangle.branch")
+                    .font(.caption)
+                    .foregroundStyle(branch.isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            }
             Text(branch.name)
                 .font(.callout.weight(.semibold))
                 .lineLimit(1)
