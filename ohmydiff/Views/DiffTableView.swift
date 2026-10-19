@@ -35,6 +35,8 @@ struct DiffTableView: NSViewRepresentable {
     /// Actions offered in the context menu of a hunk's rows, and what runs when one is picked (with the hunk index).
     var hunkActions: [ChangeAction] = []
     var onHunkAction: (ChangeAction, Int) -> Void = { _, _ in }
+    /// A hunk an action is about to act on, highlighted so its scope is clear before confirming.
+    var targetedHunk: HunkTarget?
     /// The lines of the selected rows, reported as the selection changes.
     var onSelectLines: ([DiffPosition]) -> Void = { _ in }
     /// Asks Claude Code about lines, from the context menu; `nil` leaves those items out.
@@ -86,11 +88,12 @@ struct DiffTableView: NSViewRepresentable {
         context.coordinator.onAskClaude = onAskClaude
         context.coordinator.show(
             diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize, theme: theme, isWholeFile: isWholeFile)
+        context.coordinator.targetedHunk = targetedHunk
         if let reveal { context.coordinator.reveal(reveal) }
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
         private weak var tableView: NSTableView?
         private weak var scrollView: NSScrollView?
         private var fileID: ChangedFile.ID?
@@ -118,6 +121,13 @@ struct DiffTableView: NSViewRepresentable {
         var onSelectLines: ([DiffPosition]) -> Void = { _ in }
         var onAskClaude: ((ClaudeRequest) -> Void)?
         private var selectedLines: [DiffPosition] = []
+        var targetedHunk: HunkTarget? {
+            didSet { if targetedHunk != oldValue { updateTargetedRows() } }
+        }
+        /// The hunk whose context menu is open.
+        private var menuHunk: Int? {
+            didSet { if menuHunk != oldValue { updateTargetedRows() } }
+        }
         private var observers: [NSObjectProtocol] = []
 
         private static let oldColumn = NSUserInterfaceItemIdentifier("old")
@@ -239,6 +249,7 @@ struct DiffTableView: NSViewRepresentable {
         func menu(forRow row: Int) -> NSMenu? {
             guard let hunk = hunkIndex(atRow: row) else { return nil }
             let menu = NSMenu()
+            menu.delegate = self
             for action in hunkActions {
                 menu.addItem(MenuHandler.item(Self.title(for: action)) { [weak self] in self?.onHunkAction(action, hunk) })
             }
@@ -262,7 +273,26 @@ struct DiffTableView: NSViewRepresentable {
                     onAskClaude(ClaudeRequest(kind: .copy, question: question, positions: positions))
                 })
             }
-            return menu.items.isEmpty ? nil : menu
+            guard !menu.items.isEmpty else { return nil }
+            menuHunk = hunk
+            return menu
+        }
+
+        func menuDidClose(_ menu: NSMenu) {
+            menuHunk = nil
+        }
+
+        /// The highlight of a row: the context menu's hunk first, else the targeted one.
+        private func targetColor(forRow row: Int) -> NSColor? {
+            let target = menuHunk.map { HunkTarget(index: $0, isDestructive: false) } ?? targetedHunk
+            guard let target, hunkIndex(atRow: row) == target.index else { return nil }
+            return target.isDestructive ? .systemRed : .controlAccentColor
+        }
+
+        private func updateTargetedRows() {
+            tableView?.enumerateAvailableRowViews { rowView, row in
+                (rowView as? DiffRowView)?.targetColor = targetColor(forRow: row)
+            }
         }
 
         private static func submenu(_ title: String, questions: [PromptQuestion], action: @escaping (PromptQuestion) -> Void) -> NSMenuItem {
@@ -598,6 +628,7 @@ struct DiffTableView: NSViewRepresentable {
             } else {
                 rowView.tint = nil
             }
+            rowView.targetColor = targetColor(forRow: row)
             return rowView
         }
 
@@ -943,9 +974,52 @@ private final class DiffRowView: NSTableRowView {
         didSet { if tint != oldValue { needsDisplay = true } }
     }
 
+    /// Marks the row as part of a targeted hunk: a bar on the leading edge and a wash over the line.
+    var targetColor: NSColor? {
+        didSet {
+            guard targetColor != oldValue else { return }
+            if let targetColor {
+                overlay.color = targetColor
+                if overlay.superview == nil {
+                    overlay.frame = bounds
+                    overlay.autoresizingMask = [.width, .height]
+                    addSubview(overlay)
+                }
+            } else {
+                overlay.removeFromSuperview()
+            }
+        }
+    }
+
+    /// Drawn over the cells, which paint their own tints in split mode.
+    private let overlay = TargetOverlay()
+
     convenience init() {
         self.init(frame: .zero)
         identifier = Self.reuseIdentifier
+    }
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        // Cells are added as rows are reused; keep the overlay above them.
+        if subview !== overlay, overlay.superview === self {
+            addSubview(overlay, positioned: .above, relativeTo: nil)
+        }
+    }
+
+    private final class TargetOverlay: NSView {
+        var color: NSColor = .controlAccentColor {
+            didSet { needsDisplay = true }
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func draw(_ dirtyRect: NSRect) {
+            color.withAlphaComponent(0.1).setFill()
+            bounds.fill()
+            color.setFill()
+            NSRect(x: 0, y: 0, width: 3, height: bounds.height).fill()
+        }
     }
 
     override func drawBackground(in dirtyRect: NSRect) {
@@ -1047,6 +1121,12 @@ private final class DiffCellView: NSTableCellView {
             NSRect(x: bounds.maxX - 1, y: bounds.minY, width: 1, height: bounds.height).fill()
         }
     }
+}
+
+/// A hunk to highlight, by index into the diff's hunks; destructive targets show in red.
+struct HunkTarget: Equatable {
+    var index: Int
+    var isDestructive: Bool
 }
 
 /// A question about diff lines for Claude Code, from a menu.

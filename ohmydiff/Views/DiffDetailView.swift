@@ -42,8 +42,17 @@ struct DiffDetailView: View {
                 onHunkAction: { action, hunk in
                     guard diff.hunks.indices.contains(hunk) else { return }
                     session.request(action, on: [ChangeTarget(file: file, hunk: diff.hunks[hunk])])
-                })
+                },
+                confirmingHunk: confirmingHunk(in: diff))
         }
+    }
+
+    /// The hunk of this diff that a discard confirmation or the commit sheet is open for.
+    private func confirmingHunk(in diff: FileDiff) -> HunkTarget? {
+        guard let request = session.actionRequest, request.targets.count == 1,
+              let hunk = request.targets.first?.hunk, let index = diff.hunks.firstIndex(of: hunk)
+        else { return nil }
+        return HunkTarget(index: index, isDestructive: request.action == .discard)
     }
 }
 
@@ -66,6 +75,8 @@ struct FileDiffView: View {
     /// Actions in each hunk's context menu and the hunk bar; none in History mode.
     var hunkActions: [ChangeAction] = []
     var onHunkAction: (ChangeAction, Int) -> Void = { _, _ in }
+    /// The hunk an open confirmation acts on, highlighted until it closes.
+    var confirmingHunk: HunkTarget? = nil
 
     @AppStorage(DiffSettings.layoutKey) private var preferredLayout: DiffLayoutMode = .unified
     @AppStorage(AppSettings.fontSizeKey) private var fontSize = Double(DiffMetrics.defaultFontSize)
@@ -79,6 +90,8 @@ struct FileDiffView: View {
     @State private var focusLine: Int?
     /// The hunk at the top of the visible rows, for the hunk bar.
     @State private var visibleHunk: Int?
+    /// The hunk bar action under the pointer; its hunk is highlighted.
+    @State private var hoveredAction: ChangeAction?
     /// Lines of the selected rows in the shown diff.
     @State private var selectedLines: [DiffPosition] = []
     @Environment(\.claudeCode) private var claudeCode
@@ -97,7 +110,11 @@ struct FileDiffView: View {
         .padding(.bottom, 12)
         .overlay(alignment: .bottom) {
             if showsTable, !diff.hunks.isEmpty {
-                HunkBar(hunks: diff.hunks, current: visibleHunk ?? 0, actions: hunkActions, claude: promptTarget) { action in
+                HunkBar(
+                    hunks: diff.hunks, current: visibleHunk ?? 0, actions: hunkActions, claude: promptTarget,
+                    onHoverAction: { hoveredAction = $0 }
+                ) { action in
+                    hoveredAction = nil
                     onHunkAction(action, visibleHunk ?? 0)
                 }
                 .padding(.bottom, 24)
@@ -116,6 +133,12 @@ struct FileDiffView: View {
             else { return }
             wholeFile = (diff, expanded.diff, expanded.highlights)
         }
+    }
+
+    /// The hunk to highlight: the one a hovered hunk bar action would act on, else an open confirmation's.
+    private var targetedHunk: HunkTarget? {
+        if let hoveredAction { return HunkTarget(index: visibleHunk ?? 0, isDestructive: hoveredAction == .discard) }
+        return confirmingHunk
     }
 
     /// Asks Claude Code about the selected lines, else about the hunk at the top of the diff.
@@ -185,6 +208,7 @@ struct FileDiffView: View {
                         if hunk != visibleHunk { visibleHunk = hunk }
                     },
                     hunkActions: hunkActions, onHunkAction: onHunkAction,
+                    targetedHunk: targetedHunk,
                     onSelectLines: { lines in
                         if lines != selectedLines { selectedLines = lines }
                     },
@@ -280,6 +304,8 @@ private struct HunkBar: View {
     let current: Int
     let actions: [ChangeAction]
     let claude: DiffPromptTarget?
+    /// The action under the pointer, or `nil` once it leaves.
+    let onHoverAction: (ChangeAction?) -> Void
     let perform: (ChangeAction) -> Void
 
     var body: some View {
@@ -310,6 +336,7 @@ private struct HunkBar: View {
                         }
                         .buttonStyle(.pill(action == .commit ? .prominent : .normal, height: 32))
                         .focusEffectDisabled()
+                        .onHover { onHoverAction($0 ? action : nil) }
                     }
                     if actions.contains(.discard) {
                         Button { perform(.discard) } label: {
@@ -318,6 +345,7 @@ private struct HunkBar: View {
                         }
                         .buttonStyle(.pill(.destructive, height: 32))
                         .focusEffectDisabled()
+                        .onHover { onHoverAction($0 ? .discard : nil) }
                         .glassTooltip("Discard Hunk…", edge: .top)
                     }
                 }
