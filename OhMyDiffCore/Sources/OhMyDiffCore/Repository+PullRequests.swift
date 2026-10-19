@@ -34,6 +34,87 @@ public struct PullRequest: Sendable, Hashable, Decodable, Identifiable {
     static let jsonFields = "number,title,url,state,isDraft,baseRefName,headRefName"
 }
 
+/// Whether an open pull request can be merged: its checks, conflicts and reviews, as `gh pr view` reports them.
+public struct PullRequestStatus: Sendable, Hashable {
+    public enum Checks: Sendable, Hashable {
+        case none
+        case pending(done: Int, total: Int)
+        case failed(names: [String], total: Int)
+        case passed(total: Int)
+    }
+
+    public enum Review: String, Sendable, Hashable {
+        case approved = "APPROVED"
+        case changesRequested = "CHANGES_REQUESTED"
+        case required = "REVIEW_REQUIRED"
+    }
+
+    public var checks: Checks
+    /// `false` when it conflicts with its base; `nil` while GitHub has not worked it out yet.
+    public var isMergeable: Bool?
+    /// GitHub's `mergeStateStatus`, e.g. `CLEAN`, `BLOCKED`, `BEHIND`, `DIRTY` or `UNSTABLE`.
+    public var mergeState: String
+    public var review: Review?
+
+    public init(checks: Checks = .none, isMergeable: Bool? = nil, mergeState: String = "UNKNOWN", review: Review? = nil) {
+        self.checks = checks
+        self.isMergeable = isMergeable
+        self.mergeState = mergeState
+        self.review = review
+    }
+
+    public var hasPendingChecks: Bool {
+        if case .pending = checks { return true }
+        return false
+    }
+
+    static let jsonFields = "mergeable,mergeStateStatus,reviewDecision,statusCheckRollup"
+
+    /// Decodes `gh pr view --json`; check runs and commit statuses are both in `statusCheckRollup`.
+    static func decode(_ data: Data) throws -> PullRequestStatus {
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return PullRequestStatus() }
+        var done = 0
+        var failed: [String] = []
+        let rollup = object["statusCheckRollup"] as? [[String: Any]] ?? []
+        for check in rollup {
+            let name = (check["name"] as? String) ?? (check["context"] as? String) ?? "check"
+            if let state = check["state"] as? String, check["status"] == nil {
+                // A commit status: SUCCESS, PENDING, EXPECTED, FAILURE or ERROR.
+                switch state {
+                case "PENDING", "EXPECTED": continue
+                case "FAILURE", "ERROR": failed.append(name)
+                default: break
+                }
+                done += 1
+            } else {
+                // A check run: done once COMPLETED, then judged by its conclusion.
+                guard (check["status"] as? String) == "COMPLETED" else { continue }
+                if ["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"].contains(check["conclusion"] as? String ?? "") {
+                    failed.append(name)
+                }
+                done += 1
+            }
+        }
+        let checks: Checks = if rollup.isEmpty {
+            .none
+        } else if !failed.isEmpty {
+            .failed(names: failed, total: rollup.count)
+        } else if done < rollup.count {
+            .pending(done: done, total: rollup.count)
+        } else {
+            .passed(total: rollup.count)
+        }
+        let mergeable: Bool? = switch object["mergeable"] as? String {
+        case "MERGEABLE": true
+        case "CONFLICTING": false
+        default: nil
+        }
+        return PullRequestStatus(
+            checks: checks, isMergeable: mergeable, mergeState: object["mergeStateStatus"] as? String ?? "UNKNOWN",
+            review: (object["reviewDecision"] as? String).flatMap(Review.init(rawValue:)))
+    }
+}
+
 public enum MergeMethod: String, Sendable, CaseIterable {
     case squash, merge, rebase
 
@@ -111,6 +192,13 @@ extension Repository {
             _ = try await toolchain.gh(arguments, in: root, timeout: Self.remoteTimeout)
         }
         return try? await pullRequest(forBranch: branch)
+    }
+
+    /// The checks, conflicts and reviews of a pull request.
+    public func status(of pullRequest: PullRequest) async throws -> PullRequestStatus {
+        let output = try await toolchain.gh(
+            ["pr", "view", String(pullRequest.number), "--json", PullRequestStatus.jsonFields], in: root, timeout: Self.remoteTimeout)
+        return try PullRequestStatus.decode(output.stdout)
     }
 
     public func setDraft(_ isDraft: Bool, pullRequest: PullRequest) async throws {

@@ -98,6 +98,31 @@ private struct StubbedGH {
         #expect(pullRequests.mapValues(\.number) == ["a": 9, "b": 5])
     }
 
+    @Test func decodesChecksConflictsAndReviews() throws {
+        func status(_ json: String) throws -> PullRequestStatus { try PullRequestStatus.decode(Data(json.utf8)) }
+
+        let running = try status("""
+        {"mergeable": "MERGEABLE", "mergeStateStatus": "BLOCKED", "reviewDecision": "REVIEW_REQUIRED", "statusCheckRollup": [
+          {"__typename": "CheckRun", "name": "build", "status": "COMPLETED", "conclusion": "SUCCESS"},
+          {"__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS", "conclusion": ""},
+          {"__typename": "StatusContext", "context": "deploy", "state": "PENDING"}]}
+        """)
+        #expect(running == PullRequestStatus(checks: .pending(done: 1, total: 3), isMergeable: true, mergeState: "BLOCKED", review: .required))
+        #expect(running.hasPendingChecks)
+
+        let failed = try status("""
+        {"mergeable": "CONFLICTING", "mergeStateStatus": "DIRTY", "reviewDecision": "", "statusCheckRollup": [
+          {"__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "FAILURE"},
+          {"__typename": "StatusContext", "context": "ci/legacy", "state": "ERROR"},
+          {"__typename": "CheckRun", "name": "test", "status": "QUEUED", "conclusion": ""}]}
+        """)
+        #expect(failed == PullRequestStatus(checks: .failed(names: ["lint", "ci/legacy"], total: 3), isMergeable: false, mergeState: "DIRTY"))
+
+        let clean = try status(#"{"mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN", "reviewDecision": "APPROVED", "statusCheckRollup": [{"name": "a", "status": "COMPLETED", "conclusion": "SKIPPED"}]}"#)
+        #expect(clean == PullRequestStatus(checks: .passed(total: 1), isMergeable: true, mergeState: "CLEAN", review: .approved))
+        #expect(try status(#"{"mergeable": "UNKNOWN", "statusCheckRollup": []}"#) == PullRequestStatus())
+    }
+
     @Test func changesDraftStateAndMerges() async throws {
         let stub = try await StubbedGH()
         let pullRequest = PullRequest(number: 7, title: "x", url: URL(string: "https://github.com/o/r/pull/7")!, state: .open, isDraft: true)

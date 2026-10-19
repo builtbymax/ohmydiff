@@ -18,6 +18,11 @@ struct HistoryDetailView: View {
                     CommitHeader(commit: commit, isInfoShown: $isInfoShown)
                 } else {
                     BranchHeader(branch: branch, history: history)
+                    if let pullRequest = history.pullRequest(of: branch), pullRequest.state == .open {
+                        PullRequestBanner(pullRequest: pullRequest, history: history)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 6)
+                    }
                 }
                 files(for: selection)
             }

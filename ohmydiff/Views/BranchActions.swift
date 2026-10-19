@@ -114,6 +114,11 @@ struct PullRequestMenu: View {
                 }
                 Text("#\(pullRequest.number)").monospacedDigit()
                 if !isCompact { Text(stateTitle) }
+                if pullRequest.state == .open, let status = history.pullRequestStatuses[pullRequest.number] {
+                    Circle()
+                        .fill(PullRequestSummary(pullRequest, status: status).color)
+                        .frame(width: 6, height: 6)
+                }
             }
             .font(isCompact ? .caption2.weight(.semibold) : .caption.weight(.semibold))
             .foregroundStyle(color)
@@ -315,5 +320,95 @@ private struct BranchActionPresentation: ViewModifier {
               let branch = history.selectedBranch, case .loaded(let diffs) = history.files
         else { return nil }
         return (branch, diffs)
+    }
+}
+
+/// What an open pull request's status says, from the most pressing problem down to ready to merge.
+struct PullRequestSummary {
+    let title: String
+    let detail: String
+    let systemImage: String
+    let color: Color
+
+    init(_ pullRequest: PullRequest, status: PullRequestStatus) {
+        let base = pullRequest.baseRefName
+        let checks: String = switch status.checks {
+        case .none: "No checks"
+        case .pending(let done, let total): "\(done) of \(total) checks done"
+        case .failed(let names, _): names.count == 1 ? "\(names[0]) failed" : "\(names.count) checks failed: \(names.joined(separator: ", "))"
+        case .passed(let total): total == 1 ? "1 check passed" : "\(total) checks passed"
+        }
+        switch (status, status.checks) {
+        case _ where pullRequest.isDraft:
+            (title, detail, systemImage, color) = ("Draft", "\(checks) · Mark it ready for review to merge", "circle.dashed", .secondary)
+        case _ where status.isMergeable == false || status.mergeState == "DIRTY":
+            (title, detail, systemImage, color) = ("Merge Conflicts", "Conflicts with \(base) · Update the branch from the upstream", "exclamationmark.triangle.fill", .red)
+        case (_, .failed):
+            (title, detail, systemImage, color) = ("Checks Failed", checks, "xmark.octagon.fill", .red)
+        case (_, .pending):
+            (title, detail, systemImage, color) = ("Checks Running", checks, "clock.fill", .orange)
+        case _ where status.review == .changesRequested:
+            (title, detail, systemImage, color) = ("Changes Requested", checks, "exclamationmark.bubble.fill", .orange)
+        case _ where status.review == .required || status.mergeState == "BLOCKED":
+            (title, detail, systemImage, color) = ("Waiting for Review", checks, "person.crop.circle.badge.clock", .secondary)
+        case _ where status.mergeState == "BEHIND":
+            (title, detail, systemImage, color) = ("Behind \(base)", "\(checks) · Update the branch before merging", "arrow.down.circle.fill", .orange)
+        default:
+            (title, detail, systemImage, color) = ("Ready to Merge", status.review == .approved ? "Approved · \(checks)" : checks, "checkmark.circle.fill", Theme.changeAdded)
+        }
+    }
+}
+
+/// A banner under the branch header with the open pull request's state, polled while its checks run.
+struct PullRequestBanner: View {
+    let pullRequest: PullRequest
+    let history: HistoryModel
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let status = history.pullRequestStatuses[pullRequest.number] {
+                let summary = PullRequestSummary(pullRequest, status: status)
+                Image(systemName: summary.systemImage)
+                    .font(.system(size: 14))
+                    .foregroundStyle(summary.color)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(summary.title).font(.callout.weight(.semibold))
+                    Text(summary.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                Spacer(minLength: 8)
+                Link(destination: pullRequest.url.appending(path: "checks")) {
+                    Label("Checks", systemImage: "arrow.up.right")
+                }
+                .buttonStyle(.pill(height: 26))
+                .focusEffectDisabled()
+            } else {
+                ProgressView().controlSize(.small)
+                Text("Loading pull request #\(pullRequest.number)…")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(tint.opacity(0.1), in: .rect(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(tint.opacity(0.25)))
+        .animation(.snappy(duration: 0.2), value: history.pullRequestStatuses[pullRequest.number])
+        .task(id: pullRequest) {
+            // Every 20 seconds while checks run, else every minute, as long as the branch is shown.
+            while !Task.isCancelled {
+                await history.loadStatus(of: pullRequest)
+                let pending = history.pullRequestStatuses[pullRequest.number]?.hasPendingChecks ?? false
+                try? await Task.sleep(for: .seconds(pending ? 20 : 60))
+            }
+        }
+    }
+
+    private var tint: Color {
+        history.pullRequestStatuses[pullRequest.number].map { PullRequestSummary(pullRequest, status: $0).color } ?? .secondary
     }
 }

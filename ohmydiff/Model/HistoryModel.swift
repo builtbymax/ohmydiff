@@ -42,6 +42,8 @@ final class HistoryModel {
     private(set) var highlights: [FileDiff.ID: SyntaxHighlights] = [:]
     /// Each looked-up branch's newest pull request; a `nil` value means it has none.
     private(set) var pullRequests: [String: PullRequest?] = [:]
+    /// Checks, conflicts and reviews of open pull requests, by number, once looked up.
+    private(set) var pullRequestStatuses: [Int: PullRequestStatus] = [:]
     /// What runs on a branch right now, e.g. `Pushing…`; one at a time.
     private(set) var branchActivity: String?
     var branchActionError: String?
@@ -150,6 +152,14 @@ final class HistoryModel {
         var lookup: [String: PullRequest?] = [:]
         for branch in groups.flatMap(\.branches) { lookup[branch.name] = .some(found[branch.name]) }
         if lookup != pullRequests { pullRequests = lookup }
+    }
+
+    /// Looks up an open pull request's checks, conflicts and reviews; failures keep the last known status.
+    func loadStatus(of pullRequest: PullRequest) async {
+        guard let repository, pullRequest.state == .open,
+              let status = try? await repository.status(of: pullRequest), status != pullRequestStatuses[pullRequest.number]
+        else { return }
+        pullRequestStatuses[pullRequest.number] = status
     }
 
     /// The branch's pull request, unless it was closed without merging.
