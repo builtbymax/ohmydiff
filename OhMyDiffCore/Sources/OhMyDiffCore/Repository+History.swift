@@ -70,7 +70,7 @@ extension Repository {
             }
             branches.append(HistoryBranch(
                 name: name, status: .tracking(track, hasUpstream: !upstream.isEmpty), commits: commits,
-                base: base, tip: tip, baseName: compare?.name, isCurrent: fields[4] == "*"))
+                base: base, tip: tip, baseName: compare?.name, isCurrent: fields[4] == "*", isDefault: name == defaultBranch))
         }
         // The default branch first, then the checked-out one, then alphabetical as git lists them.
         return branches.sorted { lhs, rhs in

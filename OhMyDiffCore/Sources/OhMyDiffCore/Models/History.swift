@@ -60,10 +60,12 @@ public struct HistoryBranch: Sendable, Hashable, Identifiable {
     public var baseName: String?
     /// Plain git: the checked-out branch.
     public var isCurrent: Bool
+    /// Plain git: the repository's main line, which pull requests go into rather than come from.
+    public var isDefault: Bool
 
     public init(
         name: String, status: Status? = nil, commits: [CommitInfo] = [], base: String? = nil, tip: String,
-        baseName: String? = nil, isCurrent: Bool = false
+        baseName: String? = nil, isCurrent: Bool = false, isDefault: Bool = false
     ) {
         self.name = name
         self.status = status
@@ -72,6 +74,7 @@ public struct HistoryBranch: Sendable, Hashable, Identifiable {
         self.tip = tip
         self.baseName = baseName
         self.isCurrent = isCurrent
+        self.isDefault = isDefault
     }
 
     public var id: String { name }

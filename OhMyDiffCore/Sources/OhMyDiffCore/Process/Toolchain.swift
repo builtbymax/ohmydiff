@@ -17,6 +17,9 @@ public struct Toolchain: Sendable {
         self.runner = runner
     }
 
+    /// GitHub's `gh`, for pull requests; `nil` when it is not installed.
+    public var gh: URL? { Self.locate("gh", in: environment["PATH"] ?? "") }
+
     /// Finds `git` (required) and `but` (optional) on the login shell `PATH`.
     public static func discover(
         environment base: [String: String] = ProcessInfo.processInfo.environment,
@@ -111,6 +114,26 @@ extension Toolchain {
         guard output.exitCode == 0 else {
             throw ProcessError.nonZeroExit(
                 command: "but " + arguments.joined(separator: " "), exitCode: output.exitCode, stderr: output.stderrString)
+        }
+        return output
+    }
+
+    /// Runs GitHub's `gh` in `directory`, never prompting.
+    func gh(
+        _ arguments: [String],
+        in directory: URL,
+        input: Data? = nil,
+        timeout: Duration = ProcessRunner.defaultTimeout
+    ) async throws -> ProcessOutput {
+        guard let gh else { throw ProcessError.toolNotFound("gh") }
+        var environment = gitEnvironment
+        environment["GH_PROMPT_DISABLED"] = "1"
+        environment["GH_NO_UPDATE_NOTIFIER"] = "1"
+        let output = try await runner.run(
+            gh, arguments: arguments, currentDirectory: directory, environment: environment, input: input, timeout: timeout)
+        guard output.exitCode == 0 else {
+            throw ProcessError.nonZeroExit(
+                command: "gh " + arguments.joined(separator: " "), exitCode: output.exitCode, stderr: output.stderrString)
         }
         return output
     }

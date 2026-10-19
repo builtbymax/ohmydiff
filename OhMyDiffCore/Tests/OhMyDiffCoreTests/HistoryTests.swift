@@ -63,6 +63,7 @@ import Testing
 
         let feature = branches[1]
         #expect(feature.isCurrent && feature.baseName == "main")
+        #expect(branches[0].isDefault && !feature.isDefault)
         #expect(feature.commits.map(\.summary) == ["extend b", "add b"])
         #expect(feature.commits[0].authorName == "Test" && feature.commits[0].date != nil)
 
