@@ -219,9 +219,12 @@ struct PullRequestMenu: View {
         }
     }
 
+    /// An open pull request takes its status color, e.g. orange while checks run, once the status is known.
     private var color: Color {
         switch pullRequest.state {
-        case .open: pullRequest.isDraft ? .secondary : .green
+        case .open:
+            if let status = history.pullRequestStatuses[pullRequest.number] { PullRequestSummary(pullRequest, status: status).color }
+            else { .secondary }
         case .merged: .purple
         case .closed: .red
         }
