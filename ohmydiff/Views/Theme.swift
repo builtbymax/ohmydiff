@@ -67,6 +67,13 @@ enum Theme {
         return palette[hash % palette.count]
     }
 
+    /// The pill of a project's kind: vibrant green for GitButler, orange when the folder is missing.
+    static func kindColor(_ kind: RepositoryKind, isMissing: Bool) -> Color {
+        isMissing ? .orange : kind == .gitButler ? .green : .secondary
+    }
+
+    static let kindTintOpacity: CGFloat = 0.15
+
     /// A project's Pantone color.
     static func projectColor(_ color: ProjectColor) -> Color {
         Color(

@@ -186,11 +186,11 @@ private struct KindPill: View {
             .foregroundStyle(color)
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
-            .background(color.opacity(0.15), in: .rect(cornerRadius: 7))
+            .background(color.opacity(Theme.kindTintOpacity), in: .rect(cornerRadius: 7))
     }
 
     private var isGitButler: Bool { session.project.kind == .gitButler && session.phase != .missing }
-    private var color: Color { session.phase == .missing ? .orange : isGitButler ? .green : .secondary }
+    private var color: Color { Theme.kindColor(session.project.kind, isMissing: session.phase == .missing) }
 
     private var text: String {
         if session.phase == .missing { return "Missing" }

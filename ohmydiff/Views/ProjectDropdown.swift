@@ -180,13 +180,14 @@ struct KindTag: View {
     var isMissing = false
 
     var body: some View {
-        let (text, color): (String, Color) = isMissing ? ("Missing", .orange) : kind == .gitButler ? ("GitButler", Theme.addition) : ("Git", .secondary)
+        let text = isMissing ? "Missing" : kind == .gitButler ? "GitButler" : "Git"
+        let color = Theme.kindColor(kind, isMissing: isMissing)
         Text(text)
             .font(.caption2.weight(.semibold))
             .foregroundStyle(color)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
-            .background(color.opacity(0.12), in: .capsule)
+            .background(color.opacity(Theme.kindTintOpacity), in: .capsule)
             .fixedSize()
     }
 }
