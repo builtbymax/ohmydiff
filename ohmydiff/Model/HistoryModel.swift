@@ -40,6 +40,18 @@ final class HistoryModel {
     private(set) var remoteURL: URL?
     /// Syntax colors per file of the current selection, filled in as files are shown.
     private(set) var highlights: [FileDiff.ID: SyntaxHighlights] = [:]
+    /// Each looked-up branch's newest pull request; a `nil` value means it has none.
+    private(set) var pullRequests: [String: PullRequest?] = [:]
+    /// What runs on a branch right now, e.g. `Pushing…`; one at a time.
+    private(set) var branchActivity: String?
+    var branchActionError: String?
+    /// The branch whose pull request sheet is open; it opens once the branch's diff has loaded.
+    var pullRequestDraftBranch: String?
+    /// A plain-git branch waiting for the force push to be confirmed.
+    var forcePushBranch: HistoryBranch?
+    /// A merge waiting for confirmation.
+    var pendingMerge: (pullRequest: PullRequest, method: MergeMethod, branch: String)?
+    @ObservationIgnored private var pullRequestsLoaded: Date?
 
     var selection: Selection? {
         didSet {
@@ -72,6 +84,10 @@ final class HistoryModel {
     @ObservationIgnored private var loadedRevisions: Revisions?
     @ObservationIgnored private var filesTask: Task<Void, Never>?
     @ObservationIgnored private var highlightTask: Task<Void, Never>?
+
+    var isGitButler: Bool { repository?.kind == .gitButler }
+    /// Whether `gh` is installed, which reading and changing pull requests needs.
+    var canManagePullRequests: Bool { repository?.canManagePullRequests ?? false }
 
     var selectedBranch: HistoryBranch? {
         guard let name = selection?.branchName else { return nil }
@@ -110,12 +126,115 @@ final class HistoryModel {
         }
 
         resolvePendingReveal(isFinal: true)
+        if pullRequestsLoaded.map({ Date.now.timeIntervalSince($0) > 60 }) ?? true {
+            Task { await loadPullRequests() }
+        }
         if let selection, let branch = selectedBranch, selection.isValid(in: branch) {
             // Same selection; reload its files only if the branch moved.
             if revisions(for: selection) != loadedRevisions { loadFiles(isReload: true) }
         } else {
             selection = groups.lazy.flatMap(\.branches).first.map { .branch($0.name) }
         }
+    }
+
+    // MARK: Pushing and pull requests
+
+    /// Looks up the pull requests of every listed branch at once.
+    func loadPullRequests() async {
+        guard let repository, repository.canManagePullRequests else { return }
+        pullRequestsLoaded = .now
+        // A failed lookup (offline, `gh` not signed in) shows no pull requests rather than an error.
+        guard let found = try? await repository.pullRequests() else { return }
+        var lookup: [String: PullRequest?] = [:]
+        for branch in groups.flatMap(\.branches) { lookup[branch.name] = .some(found[branch.name]) }
+        if lookup != pullRequests { pullRequests = lookup }
+    }
+
+    /// The branch's pull request, unless it was closed without merging.
+    func pullRequest(of branch: HistoryBranch) -> PullRequest? {
+        guard case .some(.some(let pullRequest)) = pullRequests[branch.name], pullRequest.state != .closed else { return nil }
+        return pullRequest
+    }
+
+    /// Branches with commits the remote does not have yet.
+    func canPush(_ branch: HistoryBranch) -> Bool {
+        guard !branch.commits.isEmpty else { return false }
+        switch branch.status {
+        case .unpushed, .unpushedCommits, .requiresForce: return true
+        case .tracking(let ahead, let behind): return ahead > 0 && behind == 0
+        case nil: return !isGitButler && !branch.isDefault
+        case .upToDate, .integrated, .upstreamGone: return false
+        }
+    }
+
+    /// Branches with their own commits that are not the main line, merged, or already in a pull request.
+    func canOpenPullRequest(_ branch: HistoryBranch) -> Bool {
+        !branch.isDefault && !branch.commits.isEmpty && branch.status != .integrated && pullRequest(of: branch) == nil
+    }
+
+    /// Pushes, asking first when a plain-git branch needs a force push.
+    func requestPush(_ branch: HistoryBranch) {
+        if branch.status == .requiresForce, !isGitButler {
+            forcePushBranch = branch
+        } else {
+            Task { await push(branch) }
+        }
+    }
+
+    /// Selects the branch, so its whole diff loads, and opens its pull request sheet.
+    func requestPullRequestDraft(_ branch: HistoryBranch) {
+        selection = .branch(branch.name)
+        pullRequestDraftBranch = branch.name
+    }
+
+    /// Looks up the branch's pull request, unless it was already looked up and `force` is not set.
+    func loadPullRequest(for branch: String, force: Bool = false) async {
+        guard let repository, force || pullRequests[branch] == nil else { return }
+        // A failed lookup (offline, `gh` not signed in) shows no pull request rather than an error.
+        let found = (try? await repository.pullRequest(forBranch: branch)) ?? nil
+        pullRequests[branch] = .some(found)
+    }
+
+    func push(_ branch: HistoryBranch) async {
+        await perform("Pushing…", branch: branch.name) { repository in
+            try await repository.push(branch: branch.name, force: branch.status == .requiresForce)
+        }
+    }
+
+    /// Pushes the branch and opens its pull request; throws so the sheet can show the error.
+    func createPullRequest(branch: String, text: String, isDraft: Bool) async throws {
+        guard let repository, branchActivity == nil else { return }
+        branchActivity = "Creating pull request…"
+        defer { branchActivity = nil }
+        let created = try await repository.createPullRequest(branch: branch, text: text, isDraft: isDraft)
+        pullRequests[branch] = .some(created)
+        await refresh(repository)
+    }
+
+    func setDraft(_ isDraft: Bool, pullRequest: PullRequest, branch: String) async {
+        await perform(isDraft ? "Converting to draft…" : "Marking ready…", branch: branch) { repository in
+            try await repository.setDraft(isDraft, pullRequest: pullRequest)
+        }
+    }
+
+    func merge(_ pullRequest: PullRequest, method: MergeMethod, branch: String) async {
+        await perform("Merging…", branch: branch) { repository in
+            try await repository.merge(pullRequest, method: method)
+        }
+    }
+
+    /// Runs a branch action, then reloads the branches and the branch's pull request.
+    private func perform(_ activity: String, branch: String, _ action: (Repository) async throws -> Void) async {
+        guard let repository, branchActivity == nil else { return }
+        branchActivity = activity
+        defer { branchActivity = nil }
+        do {
+            try await action(repository)
+        } catch {
+            branchActionError = String(describing: error)
+        }
+        await refresh(repository)
+        await loadPullRequest(for: branch, force: true)
     }
 
     /// Selects a branch or commit, now when it is listed, else after the next refresh.

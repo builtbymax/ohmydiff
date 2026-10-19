@@ -16,6 +16,7 @@ struct HistoryListView: View {
             .butCompatibilityBanner(session.butIncompatibility)
             // Runs on appear and after every refresh of the project, so live updates reach History too.
             .task(id: session.lastRefreshed) { await session.refreshHistory() }
+            .branchActionPresentation(history) { await session.suggestions() }
     }
 
     @ViewBuilder
@@ -62,8 +63,16 @@ struct HistoryListView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
-                    .padding(.bottom, 16)
+                    .padding(.bottom, actionBarBranch == nil ? 16 : 72)
                 }
+                .overlay(alignment: .bottom) {
+                    if let branch = actionBarBranch {
+                        BranchActionBar(branch: branch, history: history)
+                            .padding(.bottom, 14)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.snappy(duration: 0.25), value: actionBarBranch?.name)
                 .focusable()
                 .focusEffectDisabled()
                 .onKeyPress(.downArrow) { moveSelection(1, proxy: proxy) }
@@ -74,6 +83,11 @@ struct HistoryListView: View {
                 }
             }
         }
+    }
+
+    /// The selected branch, when it has something to push or a pull request to open or manage.
+    private var actionBarBranch: HistoryBranch? {
+        history.selectedBranch.flatMap { BranchActions.hasActions($0, in: history) ? $0 : nil }
     }
 
     /// Every selectable row in list order: each branch, then its listed commits.
@@ -118,7 +132,7 @@ private struct BranchCard: View {
     var body: some View {
         Card {
             SelectableHistoryRow(selection: .branch(branch.name), history: history) {
-                BranchRow(branch: branch)
+                BranchRow(branch: branch, history: history)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
             }
@@ -173,6 +187,8 @@ private struct SelectableHistoryRow<Label: View>: View {
 
 private struct BranchRow: View {
     let branch: HistoryBranch
+    let history: HistoryModel
+    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 7) {
@@ -185,10 +201,17 @@ private struct BranchRow: View {
                 .truncationMode(.middle)
             Spacer(minLength: 4)
             if let label = BranchStatusLabel(branch: branch) { label }
+            // Only for the hovered or selected branch, so the names keep their room.
+            if isHovered || history.selection?.branchName == branch.name {
+                // As tall as the text, so the row keeps its height when the buttons appear.
+                BranchActions(branch: branch, history: history)
+                    .frame(height: 14)
+            }
             Text("\(branch.commits.count)")
                 .font(.caption.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
         }
+        .onHover { isHovered = $0 }
         .hoverCard { BranchHoverCard(branch: branch) }
     }
 }

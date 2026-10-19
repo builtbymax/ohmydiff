@@ -119,7 +119,7 @@ private struct DetailPaneView: View {
         if let session = model.selectedSession {
             switch mode {
             case .changes: DiffDetailView(session: session)
-            case .history: HistoryDetailView(history: session.history, root: session.rootURL) { await session.suggestions() }
+            case .history: HistoryDetailView(history: session.history, root: session.rootURL)
             }
         } else {
             EmptyState("No Selection", systemImage: "text.alignleft")
