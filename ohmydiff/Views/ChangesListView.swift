@@ -272,7 +272,7 @@ struct FileRow: View {
                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                 .foregroundStyle(badge.color)
                 .frame(width: 22, height: 22)
-                .background(badge.color.opacity(0.14), in: .rect(cornerRadius: 6))
+                .badgeTile(badge.color, cornerRadius: 6)
             VStack(alignment: .leading, spacing: 1) {
                 Text(name)
                     .fontWeight(isSelected ? .semibold : .medium)
@@ -308,14 +308,14 @@ struct FileBadge {
 
     init(kind: FileChangeKind) {
         (letter, color) = switch kind {
-        case .added: ("A", Theme.addition)
-        case .untracked: ("U", Theme.addition)
-        case .deleted: ("D", Theme.deletion)
-        case .modified: ("M", .orange)
-        case .renamed: ("R", .blue)
-        case .copied: ("C", .blue)
-        case .typeChanged: ("T", .purple)
-        case .conflicted: ("!", .red)
+        case .added: ("A", Theme.changeAdded)
+        case .untracked: ("U", Theme.changeAdded)
+        case .deleted: ("D", Theme.changeDeleted)
+        case .modified: ("M", Theme.changeModified)
+        case .renamed: ("R", Theme.changeMoved)
+        case .copied: ("C", Theme.changeMoved)
+        case .typeChanged: ("T", Theme.changeTypeChanged)
+        case .conflicted: ("!", Theme.changeConflicted)
         case .unknown: ("?", .secondary)
         }
     }
@@ -337,7 +337,7 @@ private struct FileHoverCard: View {
                     .foregroundStyle(badge.color)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
-                    .background(badge.color.opacity(0.14), in: .capsule)
+                    .background(badge.color.opacity(Theme.badgeTintOpacity), in: .capsule)
                 if let tag = LanguageTag(path: path) { tag }
                 Spacer(minLength: 4)
                 if let stats { LineStatsLabel(stats: stats) }

@@ -42,6 +42,16 @@ enum Theme {
     static let addition = Color(nsColor: additionColor)
     static let deletion = Color(nsColor: deletionColor)
 
+    /// Vibrant colors for a file's change kind, e.g. its `M` or `A` badge.
+    static let changeAdded = dynamic(light: 0x1E9E4A, dark: 0x3DDC6E)
+    static let changeModified = dynamic(light: 0xE5780B, dark: 0xFF9F2E)
+    static let changeDeleted = dynamic(light: 0xE0382F, dark: 0xFF5A4F)
+    static let changeMoved = dynamic(light: 0x1F6FEB, dark: 0x4A9DFF)
+    static let changeTypeChanged = dynamic(light: 0x9B3FD6, dark: 0xC57BFF)
+    static let changeConflicted = dynamic(light: 0xD70F3C, dark: 0xFF375F)
+    /// The badge's background: strong enough that the color reads as a tile, not a stain.
+    static let badgeTintOpacity: CGFloat = 0.24
+
     static let railWidth: CGFloat = 60
     /// Gap between the window edge, the rail and the panel.
     static let inset: CGFloat = 8
@@ -177,6 +187,14 @@ struct MagneticSegments<Value: Hashable, Pill: View>: View {
         .animation(Self.selectSpring, value: selection)
         .sensoryFeedback(.selection, trigger: selection)
         .focusEffectDisabled()
+    }
+}
+
+extension View {
+    /// A colored tile behind a change badge, with a thin edge in the same color so it stays crisp.
+    func badgeTile(_ color: Color, cornerRadius: CGFloat) -> some View {
+        background(color.opacity(Theme.badgeTintOpacity), in: .rect(cornerRadius: cornerRadius))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(color.opacity(0.4), lineWidth: 1))
     }
 }
 
