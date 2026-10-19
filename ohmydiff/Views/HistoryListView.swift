@@ -41,11 +41,27 @@ struct HistoryListView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         ForEach(history.groups) { group in
-                            Text(title(of: group))
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .padding(.leading, 6)
-                                .padding(.top, 4)
+                            HStack {
+                                Text(title(of: group))
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                if group.kind == .localBranches, !history.goneBranches.isEmpty {
+                                    Button { history.pendingDeletion = history.goneBranches } label: {
+                                        Label("Clean Up \(history.goneBranches.count)", systemImage: "trash")
+                                            .font(.caption.weight(.medium))
+                                            .padding(.horizontal, 8)
+                                            .frame(height: 22)
+                                    }
+                                    .buttonStyle(.hoverCapsule())
+                                    .foregroundStyle(.secondary)
+                                    .focusEffectDisabled()
+                                    .disabled(history.branchActivity != nil)
+                                    .glassTooltip("Delete the branches whose upstream is gone")
+                                }
+                            }
+                            .padding(.leading, 6)
+                            .padding(.top, 4)
                             if group.kind == .stack, group.branches.count > 1 {
                                 // A stack's branches hang together on a line, top branch first like `but status`.
                                 VStack(spacing: 0) {

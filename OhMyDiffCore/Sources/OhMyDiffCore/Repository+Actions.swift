@@ -33,6 +33,7 @@ public enum ChangeActionError: Error, Sendable, CustomStringConvertible {
     case changeNotFound(String)
     /// Plain git commits only to the checked-out branch.
     case notCheckedOut(String)
+    case deletingCheckedOut(String)
 
     public var description: String {
         switch self {
@@ -42,6 +43,7 @@ public enum ChangeActionError: Error, Sendable, CustomStringConvertible {
         case .emptyMessage: "The commit message is empty."
         case .changeNotFound(let path): "\(path) changed since it was shown. Refresh and try again."
         case .notCheckedOut(let name): "\(name) is not checked out. Commit to the checked-out branch or a new one."
+        case .deletingCheckedOut(let name): "\(name) is checked out. Switch to another branch before deleting it."
         }
     }
 }
@@ -95,6 +97,15 @@ extension Repository {
             }
         }
         for target in hunks { try await apply(target, arguments: ["--cached", "--reverse"]) }
+    }
+
+    /// Plain git: deletes local branches, e.g. ones whose upstream was deleted after merging. The checked-out
+    /// branch is refused. Deleted commits stay recoverable through the reflog for a while.
+    public func deleteBranches(_ names: [String]) async throws {
+        guard kind == .git, !names.isEmpty else { return }
+        if let current = try await currentBranch(), names.contains(current) { throw ChangeActionError.deletingCheckedOut(current) }
+        // `-D`: squash-merged branches are not ancestors of their target, so `-d` would refuse them.
+        _ = try await toolchain.git(["branch", "-D", "--"] + names, in: root)
     }
 
     /// The checked-out branch; `nil` on a detached HEAD.

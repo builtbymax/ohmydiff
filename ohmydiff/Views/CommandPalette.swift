@@ -292,6 +292,13 @@ struct CommandPalette: View {
         if let session {
             add("Refresh", "arrow.clockwise", "⌘R") { model.refreshSelected() }
             add("Fetch from Remote", "arrow.triangle.2.circlepath") { Task { await session.fetch() } }
+            let gone = session.history.goneBranches
+            if !gone.isEmpty {
+                add("Delete \(gone.count == 1 ? "1 Branch" : "\(gone.count) Branches") with Gone Upstream…", "trash") {
+                    model.mode = .history
+                    session.history.pendingDeletion = gone
+                }
+            }
             if !model.stagedTargets.isEmpty {
                 add("Commit Staged Changes…", "checkmark.circle", "⌘↩") { model.commitStaged() }
             }

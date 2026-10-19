@@ -21,6 +21,13 @@ struct BranchActions: View {
                     history.requestPush(branch)
                 }
             }
+            if history.canDelete(branch) {
+                action("Delete", help: "Delete Branch…", isDestructive: true) {
+                    Image(systemName: "trash").font(.system(size: style == .compact ? 10 : 11, weight: .semibold))
+                } perform: {
+                    history.pendingDeletion = [branch]
+                }
+            }
             if let pullRequest = history.pullRequest(of: branch) {
                 PullRequestMenu(pullRequest: pullRequest, history: history, branch: branch.name, isCompact: style == .compact)
             } else if history.canOpenPullRequest(branch) {
@@ -36,12 +43,12 @@ struct BranchActions: View {
 
     /// Whether the branch has any action to show.
     static func hasActions(_ branch: HistoryBranch, in history: HistoryModel) -> Bool {
-        history.canPush(branch) || history.pullRequest(of: branch) != nil || history.canOpenPullRequest(branch)
+        history.canPush(branch) || history.pullRequest(of: branch) != nil || history.canOpenPullRequest(branch) || history.canDelete(branch)
     }
 
     @ViewBuilder
     private func action(
-        _ title: String, help: String, @ViewBuilder icon: () -> some View, perform: @escaping () -> Void
+        _ title: String, help: String, isDestructive: Bool = false, @ViewBuilder icon: () -> some View, perform: @escaping () -> Void
     ) -> some View {
         switch style {
         case .compact:
@@ -49,6 +56,7 @@ struct BranchActions: View {
                 icon().frame(width: 22, height: 22)
             }
             .buttonStyle(.hoverCapsule())
+            .foregroundStyle(isDestructive ? AnyShapeStyle(Theme.deletion) : AnyShapeStyle(.primary))
             .focusEffectDisabled()
             .glassTooltip(help)
         case .bar:
@@ -58,7 +66,7 @@ struct BranchActions: View {
                     Text(title)
                 }
             }
-            .buttonStyle(.pill(title.hasPrefix("Pull") ? .prominent : .normal, height: 30))
+            .buttonStyle(.pill(isDestructive ? .destructive : title.hasPrefix("Pull") ? .prominent : .normal, height: 30))
             .focusEffectDisabled()
         }
     }
@@ -259,6 +267,18 @@ private struct BranchActionPresentation: ViewModifier {
             } message: {
                 Text("The pull request is merged on the remote. Update from the upstream afterwards to bring it into your branches.")
             }
+            .confirmationDialog(
+                deletionTitle,
+                isPresented: Binding(get: { history.pendingDeletion != nil }, set: { if !$0 { history.pendingDeletion = nil } }),
+                titleVisibility: .visible, presenting: history.pendingDeletion
+            ) { branches in
+                Button(branches.count == 1 ? "Delete Branch" : "Delete \(branches.count) Branches", role: .destructive) {
+                    Task { await history.deleteBranches(branches) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { branches in
+                Text(deletionMessage(branches))
+            }
             .alert(
                 "Action Failed",
                 isPresented: Binding(get: { history.branchActionError != nil }, set: { if !$0 { history.branchActionError = nil } })
@@ -267,6 +287,26 @@ private struct BranchActionPresentation: ViewModifier {
             } message: {
                 Text(history.branchActionError ?? "")
             }
+    }
+
+    private var deletionTitle: String {
+        guard let branches = history.pendingDeletion else { return "" }
+        return branches.count == 1 ? "Delete \(branches[0].name)?" : "Delete \(branches.count) branches whose upstream is gone?"
+    }
+
+    /// Names the branches and warns about commits the main line does not have, e.g. after a squash merge.
+    private func deletionMessage(_ branches: [HistoryBranch]) -> String {
+        var lines: [String] = []
+        if branches.count > 1 { lines.append(branches.map(\.name).joined(separator: ", ")) }
+        let unmerged = branches.filter { !$0.commits.isEmpty }
+        if unmerged.isEmpty {
+            lines.append("Their upstream was deleted and every commit is on the main line.")
+        } else {
+            let names = unmerged.map { "\($0.name) (\($0.commits.count))" }.joined(separator: ", ")
+            lines.append("Commits not on the main line: \(names). This is expected after a squash merge; "
+                + "otherwise they are only recoverable from the reflog.")
+        }
+        return lines.joined(separator: "\n\n")
     }
 
     /// The branch to draft for, once it is selected and its whole diff has loaded.

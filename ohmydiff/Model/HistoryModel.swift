@@ -51,6 +51,8 @@ final class HistoryModel {
     var forcePushBranch: HistoryBranch?
     /// A merge waiting for confirmation.
     var pendingMerge: (pullRequest: PullRequest, method: MergeMethod, branch: String)?
+    /// Plain-git branches waiting for their deletion to be confirmed.
+    var pendingDeletion: [HistoryBranch]?
     @ObservationIgnored private var pullRequestsLoaded: Date?
 
     var selection: Selection? {
@@ -167,9 +169,27 @@ final class HistoryModel {
         }
     }
 
-    /// Branches with their own commits that are not the main line, merged, or already in a pull request.
+    /// Branches with their own commits that are not the main line, merged, deleted upstream, or already in a pull request.
     func canOpenPullRequest(_ branch: HistoryBranch) -> Bool {
-        !branch.isDefault && !branch.commits.isEmpty && branch.status != .integrated && pullRequest(of: branch) == nil
+        !branch.isDefault && !branch.commits.isEmpty && branch.status != .integrated && branch.status != .upstreamGone
+            && pullRequest(of: branch) == nil
+    }
+
+    /// Plain git: branches whose upstream was deleted, typically after their pull request was merged.
+    var goneBranches: [HistoryBranch] {
+        guard !isGitButler else { return [] }
+        return groups.flatMap(\.branches).filter(canDelete)
+    }
+
+    /// Plain git: a branch whose upstream was deleted, unless it is checked out.
+    func canDelete(_ branch: HistoryBranch) -> Bool {
+        !isGitButler && branch.status == .upstreamGone && !branch.isCurrent
+    }
+
+    func deleteBranches(_ branches: [HistoryBranch]) async {
+        await perform(branches.count == 1 ? "Deleting…" : "Deleting \(branches.count) branches…", branch: nil) { repository in
+            try await repository.deleteBranches(branches.map(\.name))
+        }
     }
 
     /// Pushes, asking first when a plain-git branch needs a force push.
@@ -224,7 +244,7 @@ final class HistoryModel {
     }
 
     /// Runs a branch action, then reloads the branches and the branch's pull request.
-    private func perform(_ activity: String, branch: String, _ action: (Repository) async throws -> Void) async {
+    private func perform(_ activity: String, branch: String?, _ action: (Repository) async throws -> Void) async {
         guard let repository, branchActivity == nil else { return }
         branchActivity = activity
         defer { branchActivity = nil }
@@ -234,7 +254,7 @@ final class HistoryModel {
             branchActionError = String(describing: error)
         }
         await refresh(repository)
-        await loadPullRequest(for: branch, force: true)
+        if let branch { await loadPullRequest(for: branch, force: true) }
     }
 
     /// Selects a branch or commit, now when it is listed, else after the next refresh.

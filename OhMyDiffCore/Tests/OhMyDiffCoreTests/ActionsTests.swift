@@ -222,6 +222,20 @@ extension TestRepo {
         #expect(try await repo.git("log", "-1", "--format=%s", "main") == "init\n")
     }
 
+    @Test func deletesBranchesButNotTheCheckedOutOne() async throws {
+        let repo = try await setUp()
+        try await repo.git("switch", "-q", "-c", "squashed")
+        try repo.write("b.txt", "squashed\n")
+        try await repo.commitAll("not on main")
+        try await repo.git("switch", "-q", "main")
+        try await repo.git("branch", "merged")
+        let repository = try await repo.open()
+
+        await #expect(throws: ChangeActionError.self) { try await repository.deleteBranches(["merged", "main"]) }
+        try await repository.deleteBranches(["merged", "squashed"])
+        #expect(try await repo.git("branch", "--format=%(refname:short)") == "main\n")
+    }
+
     @Test func runsCommitHooks() async throws {
         let repo = try await setUp()
         let hook = repo.root.appending(path: ".git/hooks/commit-msg")
