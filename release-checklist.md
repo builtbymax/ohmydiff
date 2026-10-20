@@ -17,8 +17,8 @@ update themselves with [Sparkle](https://sparkle-project.org) from `appcast.xml`
 - [ ] Everything is merged and pushed to `main`. `make release` builds `origin/main`, not the working tree, and
       the build number is its commit count: Sparkle only offers builds with a higher number than the installed one.
 - [ ] `make test` passes.
-- [ ] Optional release notes in `build/releases/x.y.z/ohmydiff-x.y.z.md` (Markdown). They appear in the update bar's
-      What's New card and as the GitHub release notes.
+- [ ] Optional release notes in `build/releases/x.y.z/ohmydiff-x.y.z.md` (Markdown), used as the GitHub release notes.
+      Open with a short paragraph before the first heading: the update bar's What's New card shows only that part.
 
 ## Build
 

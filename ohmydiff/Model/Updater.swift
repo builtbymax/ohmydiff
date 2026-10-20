@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import OhMyDiffCore
 import Sparkle
 
 /// Sparkle updates, shown in the main window's update bar and in Settings instead of Sparkle's own windows.
@@ -181,7 +182,7 @@ final class Updater: NSObject {
         if let description = item.itemDescription?.trimmingCharacters(in: .whitespacesAndNewlines), !description.isEmpty {
             switch item.itemDescriptionFormat {
             case "markdown":
-                notes = try? AttributedString(markdown: description, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
+                notes = try? AttributedString(markdown: ReleaseNotes.summary(description), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
             case "plain-text":
                 notes = AttributedString(description)
             default:
