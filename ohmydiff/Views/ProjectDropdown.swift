@@ -10,13 +10,14 @@ struct ProjectDropdown: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.black.opacity(0.001)
-                .ignoresSafeArea()
                 .onTapGesture(perform: dismiss)
+            // From the window's top edge, like the toolbar: 6 pt below its 38 pt bar, which sits 10 pt into the panel.
             panel
                 .padding(.leading, Theme.inset * 2 + Theme.railWidth + 12)
-                .padding(.top, Theme.inset + 52)
+                .padding(.top, Theme.inset + 10 + 38 + 6)
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topLeading)))
         }
+        .ignoresSafeArea()
     }
 
     private var panel: some View {
