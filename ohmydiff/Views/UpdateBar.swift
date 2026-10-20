@@ -20,16 +20,9 @@ private struct UpdateBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            icon
-                .font(.system(size: 15, weight: .semibold))
-                .frame(width: 20)
-            message
-                .font(.callout)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(1)
+            UpdateStatus(updater: updater)
             Spacer(minLength: 8)
-            actions
+            UpdateActions(updater: updater)
         }
         .padding(.leading, 14)
         .padding(.trailing, 6)
@@ -37,6 +30,24 @@ private struct UpdateBar: View {
         .glassEffect(Theme.barGlass, in: .capsule)
         .shadow(color: Theme.overlayShadow, radius: 12, y: 4)
         .animation(.snappy(duration: 0.2), value: updater.phase)
+    }
+}
+
+/// The update phase as an icon and a line of text, in the update bar and in Settings.
+struct UpdateStatus: View {
+    let updater: Updater
+
+    var body: some View {
+        HStack(spacing: 10) {
+            icon
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 20)
+            message
+                .font(.callout)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .layoutPriority(1)
     }
 
     @ViewBuilder private var icon: some View {
@@ -91,7 +102,13 @@ private struct UpdateBar: View {
         }
     }
 
-    @ViewBuilder private var actions: some View {
+}
+
+/// What can be done in the current update phase: install, restart, skip, cancel. In the update bar and in Settings.
+struct UpdateActions: View {
+    let updater: Updater
+
+    var body: some View {
         HStack(spacing: 6) {
             switch updater.phase {
             case .available(let update):
