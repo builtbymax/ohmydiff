@@ -227,21 +227,24 @@ private struct BranchRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 4)
-            if history.isMergedByPullRequest(branch), branch.status != .integrated {
-                BranchStatusLabel(text: "Merged", color: .purple)
-            } else if let label = BranchStatusLabel(branch: branch) {
-                label
-            }
-            // Only for the hovered or selected branch, so the names keep their room.
+            // Only for the hovered or selected branch, so the names keep their room. They stand in for the status
+            // label, which the branch header repeats.
             if isHovered || history.selection?.branchName == branch.name {
                 // As tall as the text, so the row keeps its height when the buttons appear.
                 BranchActions(branch: branch, history: history)
                     .frame(height: 14)
-            } else if let pullRequest = history.pullRequest(of: branch), pullRequest.state == .open {
-                // Its number in its status color, so failing checks or conflicts show at a glance.
-                Text("#\(pullRequest.number)")
-                    .font(.caption2.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(history.color(of: pullRequest))
+            } else {
+                if history.isMergedByPullRequest(branch), branch.status != .integrated {
+                    BranchStatusLabel(text: "Merged", color: .purple)
+                } else if let label = BranchStatusLabel(branch: branch) {
+                    label
+                }
+                if let pullRequest = history.pullRequest(of: branch), pullRequest.state == .open {
+                    // Its number in its status color, so failing checks or conflicts show at a glance.
+                    Text("#\(pullRequest.number)")
+                        .font(.caption2.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(history.color(of: pullRequest))
+                }
             }
             Text("\(branch.commits.count)")
                 .font(.caption.weight(.semibold).monospacedDigit())

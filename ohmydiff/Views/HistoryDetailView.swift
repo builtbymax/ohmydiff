@@ -51,10 +51,10 @@ struct HistoryDetailView: View {
             EmptyState("Nothing to Review", systemImage: "doc", description: message)
         case .failed(let message):
             EmptyState("Could Not Load Diff", systemImage: "exclamationmark.triangle", description: message)
-        case .loaded(let diffs) where diffs.isEmpty && history.selectedCommit?.isConflicted == true:
+        case .loaded(let diffs) where diffs.isEmpty && (history.selectedCommit?.isConflicted ?? history.selectedBranch?.isConflicted) == true:
             EmptyState(
                 "Conflicted", systemImage: "exclamationmark.triangle",
-                description: "GitButler checks the commit out without its conflicting changes, so it changes nothing until it is resolved with but resolve.")
+                description: "GitButler checks conflicted commits out without their conflicting changes, so nothing shows until they are resolved with but resolve.")
         case .loaded(let diffs) where diffs.isEmpty:
             EmptyState("No Changes", systemImage: "equal", description: "No files changed.")
         case .loaded(let diffs):
@@ -216,7 +216,11 @@ private struct BranchHeader: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if let label = BranchStatusLabel(branch: branch) { label }
+            if history.isMergedByPullRequest(branch), branch.status != .integrated {
+                BranchStatusLabel(text: "Merged", color: .purple)
+            } else if let label = BranchStatusLabel(branch: branch) {
+                label
+            }
             if !branch.tip.isEmpty { CopySHAButton(sha: branch.tip) }
             if let remoteURL = history.remoteURL, isOnRemote {
                 Link(destination: remoteURL.appending(path: "tree").appending(path: branch.name)) {
