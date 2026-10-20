@@ -1348,8 +1348,14 @@ private struct CommandLineSettings: View {
                         }
                         .buttonStyle(.pill(state == .current ? .normal : .prominent, height: 32))
                         .focusEffectDisabled()
+                        .disabled(AppVariant.isDev)
                     }
-                    if state == .outdated {
+                    if AppVariant.isDev {
+                        Label("ohmydiff Dev does not install the command, which belongs to the installed app.", systemImage: "info.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if state == .outdated {
                         Label("The installed command is from an older version or another copy of the app. Reinstall it.", systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
                             .foregroundStyle(.orange)

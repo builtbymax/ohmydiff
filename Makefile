@@ -1,10 +1,13 @@
 APP := build/Build/Products/Release/ohmydiff.app
+# `make run` builds ohmydiff Dev: its own name, bundle identifier and data, the blueprint app icon, no ohmydiff://
+# links and no updates, so it runs beside the installed app.
+DEV_APP := build/dev/Build/Products/Release/ohmydiff Dev.app
 # Code signing identity (name or SHA-1 from `security find-identity -v -p codesigning`). Ad-hoc by default.
 SIGN_IDENTITY := $(OHMYDIFF_SIGN_IDENTITY)
 # The commit count, like releases, so a local build is never offered the release it was built from.
 BUILD_NUMBER := $(shell git rev-list --count HEAD)
 
-.PHONY: build run install test compat compat-record clean large-diff release publish
+.PHONY: build dev run install test compat compat-record clean large-diff release publish
 
 build:
 	xcodebuild -project ohmydiff.xcodeproj -scheme ohmydiff -configuration Release \
@@ -14,9 +17,18 @@ ifneq ($(SIGN_IDENTITY),)
 	scripts/sign.sh $(APP) "$(SIGN_IDENTITY)"
 endif
 
-run: build
-	-pkill -x ohmydiff; while pgrep -x ohmydiff >/dev/null; do sleep 0.1; done
-	open $(APP)
+dev:
+	xcodebuild -project ohmydiff.xcodeproj -scheme ohmydiff -configuration Release \
+		-destination 'platform=macOS,arch=$(shell uname -m)' -derivedDataPath build/dev -quiet \
+		CURRENT_PROJECT_VERSION=$(BUILD_NUMBER) APP_NAME='ohmydiff Dev' APP_BUNDLE_ID=dev.koby.ohmydiff.dev \
+		APP_INFOPLIST=Config/Info-Dev.plist APP_ICON=AppIcon-Dev build
+ifneq ($(SIGN_IDENTITY),)
+	scripts/sign.sh "$(DEV_APP)" "$(SIGN_IDENTITY)"
+endif
+
+run: dev
+	-pkill -x 'ohmydiff Dev'; while pgrep -x 'ohmydiff Dev' >/dev/null; do sleep 0.1; done
+	open "$(DEV_APP)"
 
 install: build
 	-pkill -x ohmydiff; while pgrep -x ohmydiff >/dev/null; do sleep 0.1; done
