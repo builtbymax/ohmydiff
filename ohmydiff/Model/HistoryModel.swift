@@ -213,15 +213,23 @@ final class HistoryModel {
             && !(branch.needsForcePush && !isGitButler) && pullRequest(of: branch) == nil
     }
 
-    /// Plain git: branches whose upstream was deleted, typically after their pull request was merged.
+    /// Plain git: branches whose upstream was deleted or whose pull request was merged.
     var goneBranches: [HistoryBranch] {
         guard !isGitButler else { return [] }
         return groups.flatMap(\.branches).filter(canDelete)
     }
 
-    /// Plain git: a branch whose upstream was deleted, unless it is checked out.
+    /// Whether the branch's pull request was merged with the branch exactly as it is, so nothing was added since.
+    /// Squash and rebase merges leave the branch looking unmerged otherwise.
+    func isMergedByPullRequest(_ branch: HistoryBranch) -> Bool {
+        guard let pullRequest = pullRequest(of: branch), pullRequest.state == .merged else { return false }
+        return pullRequest.headRefOid == branch.tip
+    }
+
+    /// Plain git: a branch whose upstream was deleted or whose pull request was merged, unless it is checked out
+    /// or the main line.
     func canDelete(_ branch: HistoryBranch) -> Bool {
-        !isGitButler && branch.status == .upstreamGone && !branch.isCurrent
+        !isGitButler && !branch.isCurrent && !branch.isDefault && (branch.status == .upstreamGone || isMergedByPullRequest(branch))
     }
 
     func deleteBranches(_ branches: [HistoryBranch]) async {

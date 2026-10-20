@@ -16,9 +16,12 @@ public struct PullRequest: Sendable, Hashable, Decodable, Identifiable {
     public var baseRefName: String
     /// The branch the pull request comes from.
     public var headRefName: String?
+    /// The head commit; for a merged pull request, the one that was merged.
+    public var headRefOid: String?
 
     public init(
-        number: Int, title: String, url: URL, state: State, isDraft: Bool = false, baseRefName: String = "main", headRefName: String? = nil
+        number: Int, title: String, url: URL, state: State, isDraft: Bool = false, baseRefName: String = "main", headRefName: String? = nil,
+        headRefOid: String? = nil
     ) {
         self.number = number
         self.title = title
@@ -27,11 +30,12 @@ public struct PullRequest: Sendable, Hashable, Decodable, Identifiable {
         self.isDraft = isDraft
         self.baseRefName = baseRefName
         self.headRefName = headRefName
+        self.headRefOid = headRefOid
     }
 
     public var id: Int { number }
 
-    static let jsonFields = "number,title,url,state,isDraft,baseRefName,headRefName"
+    static let jsonFields = "number,title,url,state,isDraft,baseRefName,headRefName,headRefOid"
 }
 
 /// Whether an open pull request can be merged: its checks, conflicts and reviews, as `gh pr view` reports them.

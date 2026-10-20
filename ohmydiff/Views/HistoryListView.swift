@@ -57,7 +57,7 @@ struct HistoryListView: View {
                                     .foregroundStyle(.secondary)
                                     .focusEffectDisabled()
                                     .disabled(history.branchActivity != nil)
-                                    .glassTooltip("Delete the branches whose upstream is gone")
+                                    .glassTooltip("Delete the branches that were merged or whose upstream is gone")
                                 }
                             }
                             .padding(.leading, 6)
@@ -227,12 +227,21 @@ private struct BranchRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 4)
-            if let label = BranchStatusLabel(branch: branch) { label }
+            if history.isMergedByPullRequest(branch), branch.status != .integrated {
+                BranchStatusLabel(text: "Merged", color: .purple)
+            } else if let label = BranchStatusLabel(branch: branch) {
+                label
+            }
             // Only for the hovered or selected branch, so the names keep their room.
             if isHovered || history.selection?.branchName == branch.name {
                 // As tall as the text, so the row keeps its height when the buttons appear.
                 BranchActions(branch: branch, history: history)
                     .frame(height: 14)
+            } else if let pullRequest = history.pullRequest(of: branch), pullRequest.state == .open {
+                // Its number in its status color, so failing checks or conflicts show at a glance.
+                Text("#\(pullRequest.number)")
+                    .font(.caption2.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(history.color(of: pullRequest))
             }
             Text("\(branch.commits.count)")
                 .font(.caption.weight(.semibold).monospacedDigit())
@@ -247,6 +256,10 @@ private struct BranchRow: View {
 struct BranchStatusLabel: View {
     let text: String
     let color: Color
+
+    init(text: String, color: Color) {
+        (self.text, self.color) = (text, color)
+    }
 
     init?(branch: HistoryBranch) {
         if branch.isConflicted {

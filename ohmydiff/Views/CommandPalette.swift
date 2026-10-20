@@ -294,7 +294,7 @@ struct CommandPalette: View {
             add("Fetch from Remote", "arrow.triangle.2.circlepath") { Task { await session.fetch() } }
             let gone = session.history.goneBranches
             if !gone.isEmpty {
-                add("Delete \(gone.count == 1 ? "1 Branch" : "\(gone.count) Branches") with Gone Upstream…", "trash") {
+                add("Delete \(gone.count == 1 ? "1 Merged Branch" : "\(gone.count) Merged Branches")…", "trash") {
                     model.mode = .history
                     session.history.pendingDeletion = gone
                 }

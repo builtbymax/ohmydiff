@@ -219,11 +219,15 @@ struct PullRequestMenu: View {
         }
     }
 
+    private var color: Color { history.color(of: pullRequest) }
+}
+
+extension HistoryModel {
     /// An open pull request takes its status color, e.g. orange while checks run, once the status is known.
-    private var color: Color {
+    func color(of pullRequest: PullRequest) -> Color {
         switch pullRequest.state {
         case .open:
-            if let status = history.pullRequestStatuses[pullRequest.number] { PullRequestSummary(pullRequest, status: status).color }
+            if let status = pullRequestStatuses[pullRequest.number] { PullRequestSummary(pullRequest, status: status).color }
             else { .secondary }
         case .merged: .purple
         case .closed: .red
@@ -373,7 +377,7 @@ private struct BranchActionPresentation: ViewModifier {
 
     private var deletionTitle: String {
         guard let branches = history.pendingDeletion else { return "" }
-        return branches.count == 1 ? "Delete \(branches[0].name)?" : "Delete \(branches.count) branches whose upstream is gone?"
+        return branches.count == 1 ? "Delete \(branches[0].name)?" : "Delete \(branches.count) merged or gone branches?"
     }
 
     /// Names the branches and warns about commits the main line does not have, e.g. after a squash merge.
@@ -382,7 +386,7 @@ private struct BranchActionPresentation: ViewModifier {
         if branches.count > 1 { lines.append(branches.map(\.name).joined(separator: ", ")) }
         let unmerged = branches.filter { !$0.commits.isEmpty }
         if unmerged.isEmpty {
-            lines.append("Their upstream was deleted and every commit is on the main line.")
+            lines.append("Every commit is on the main line.")
         } else {
             let names = unmerged.map { "\($0.name) (\($0.commits.count))" }.joined(separator: ", ")
             lines.append("Commits not on the main line: \(names). This is expected after a squash merge; "
