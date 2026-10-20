@@ -9,18 +9,20 @@ extension Repository {
     /// Branches with their own commits: GitButler's applied stacks, or the local branches of a plain repository.
     public func history() async throws -> [HistoryGroup] {
         switch kind {
-        case .gitButler: Self.butHistory(try await butStatus())
-        case .git: [HistoryGroup(id: "branches", kind: .localBranches, branches: try await gitBranches())]
+        case .gitButler:
+            async let target = butTarget()
+            return Self.butHistory(try await butStatus(), target: await target)
+        case .git: return [HistoryGroup(id: "branches", kind: .localBranches, branches: try await gitBranches())]
         }
     }
 
     /// Each branch of a stack is reviewed on its own: its whole diff starts below its oldest commit,
     /// which is the branch underneath it in the stack, or the target's merge base for the bottom branch.
-    static func butHistory(_ status: ButStatus) -> [HistoryGroup] {
+    static func butHistory(_ status: ButStatus, target: String? = nil) -> [HistoryGroup] {
         status.stacks.map { stack in
             var branches: [HistoryBranch] = []
             // Bottom up, so each branch knows the tip of the one below it.
-            var below: (name: String, tip: String)? = status.mergeBase.map { ("the target branch", $0.commitId) }
+            var below: (name: String, tip: String)? = status.mergeBase.map { (target ?? "the target branch", $0.commitId) }
             for branch in stack.branches.reversed() {
                 let commits = branch.commits.map { commit in
                     CommitInfo(
@@ -125,6 +127,15 @@ extension Repository {
                 authorName: String(fields[1]), authorEmail: String(fields[2]),
                 date: try? Date(String(fields[3]), strategy: .iso8601))
         }
+    }
+
+    /// GitButler: the target branch, e.g. `origin/main`; `nil` when `but` does not say.
+    func butTarget() async -> String? {
+        struct Target: Decodable { var branch: String? }
+        guard let output = try? await toolchain.but(["--json", "config", "target"], in: root),
+              let branch = (try? JSONDecoder().decode(Target.self, from: output.stdout))?.branch, !branch.isEmpty
+        else { return nil }
+        return branch
     }
 
     // MARK: Diffs between revisions
