@@ -250,16 +250,29 @@ private struct UpdateSettings: View {
                     .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                Button { updater.checkForUpdates() } label: {
-                    if updater.phase == .checking {
-                        Label { Text("Checking…") } icon: { ProgressView().controlSize(.mini) }
-                    } else {
-                        Label("Check Now", systemImage: "arrow.clockwise")
+                if !hasPendingUpdate {
+                    Button { updater.checkForUpdates() } label: {
+                        if updater.phase == .checking {
+                            Label { Text("Checking…") } icon: { ProgressView().controlSize(.mini) }
+                        } else {
+                            Label("Check Now", systemImage: "arrow.clockwise")
+                        }
                     }
+                    .buttonStyle(.pill(height: 32))
+                    .focusEffectDisabled()
+                    .disabled(!updater.canCheck)
                 }
-                .buttonStyle(.pill(height: 32))
-                .focusEffectDisabled()
-                .disabled(!updater.canCheck)
+            }
+            // The update bar's status and buttons, so an update can be installed from here too.
+            if hasPendingUpdate {
+                Divider()
+                // The card is narrower than the bar, so the buttons go below the status.
+                VStack(alignment: .leading, spacing: 10) {
+                    UpdateStatus(updater: updater)
+                    UpdateActions(updater: updater).fixedSize()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .animation(.snappy(duration: 0.2), value: updater.phase)
             }
             if updater.isAvailable {
                 Divider()
@@ -268,6 +281,14 @@ private struct UpdateSettings: View {
                        isOn: $updater.automaticallyDownloads)
                     .disabled(!updater.automaticallyChecks)
             }
+        }
+    }
+
+    /// An update found, downloading, ready or installing.
+    private var hasPendingUpdate: Bool {
+        switch updater.phase {
+        case .available, .downloading, .extracting, .ready, .installing: true
+        case .idle, .checking, .upToDate, .failed: false
         }
     }
 
