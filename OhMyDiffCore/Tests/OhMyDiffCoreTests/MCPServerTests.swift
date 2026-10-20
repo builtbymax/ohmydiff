@@ -134,6 +134,8 @@ import Testing
         let branches = try await harness.call("list_branches")
         #expect(branches.text.contains("\"name\" : \"feat/x\""))
         #expect(branches.text.contains("\"summary\" : \"add two\""))
+        // Never pushed: no upstream.
+        #expect(branches.text.contains("\"status\" : \"unpushed\""))
 
         #expect(try await harness.call("show_commit", ["sha": .string(String(sha.prefix(8)))]).isError == false)
         #expect(harness.lastRequest == .commit(path: repo.root.path, sha: sha))

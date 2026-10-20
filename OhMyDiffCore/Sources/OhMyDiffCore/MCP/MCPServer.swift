@@ -159,11 +159,13 @@ public struct MCPServer: Sendable {
 
         case .listBranches:
             let repository = try await repository(arguments)
+            async let pullRequests = (try? await repository.pullRequests()) ?? [:]
             let groups = try await repository.history()
+            let found = await pullRequests
             return Self.pretty([
                 "repository": .string(repository.root.path),
                 "kind": .string(repository.kind.rawValue),
-                "groups": .array(groups.map(Self.json)),
+                "groups": .array(groups.map { Self.json($0, pullRequests: found) }),
             ])
 
         case .openProject:
@@ -299,7 +301,7 @@ public struct MCPServer: Sendable {
     /// Commits listed per branch; the app lists more, but an agent rarely needs them.
     static let commitLimit = 50
 
-    private static func json(_ group: HistoryGroup) -> JSONValue {
+    private static func json(_ group: HistoryGroup, pullRequests: [String: PullRequest]) -> JSONValue {
         [
             "kind": .string(group.kind == .stack ? "stack" : "localBranches"),
             "branches": .array(group.branches.map { branch in
@@ -315,9 +317,34 @@ public struct MCPServer: Sendable {
                 if let base = branch.baseName ?? branch.base { object["base"] = .string(base) }
                 if branch.commits.count > commitLimit { object["moreCommits"] = .int(branch.commits.count - commitLimit) }
                 if branch.isCurrent { object["isCurrent"] = true }
+                if branch.isDefault { object["isDefault"] = true }
+                if branch.isConflicted { object["isConflicted"] = true }
+                if let status = branch.status { object.merge(json(status)) { $1 } }
+                if let pullRequest = pullRequests[branch.name] {
+                    object["pullRequest"] = [
+                        "number": .int(pullRequest.number), "state": .string(pullRequest.state.rawValue.lowercased()),
+                        "isDraft": .bool(pullRequest.isDraft), "base": .string(pullRequest.baseRefName), "url": .string(pullRequest.url.absoluteString),
+                    ]
+                }
                 return .object(object)
             }),
         ]
+    }
+}
+
+extension MCPServer {
+    /// A branch's push state: `status`, plus `ahead` / `behind` against its upstream for plain git.
+    fileprivate static func json(_ status: HistoryBranch.Status) -> [String: JSONValue] {
+        switch status {
+        case .unpushed: ["status": "unpushed"]
+        case .unpushedCommits: ["status": "unpushedCommits"]
+        case .requiresForce: ["status": "requiresForcePush"]
+        case .upToDate: ["status": "upToDate"]
+        case .integrated: ["status": "integrated"]
+        case .upstreamGone: ["status": "upstreamGone"]
+        case .tracking(let ahead, let behind):
+            ["status": .string(ahead > 0 && behind > 0 ? "diverged" : ahead > 0 ? "ahead" : "behind"), "ahead": .int(ahead), "behind": .int(behind)]
+        }
     }
 }
 
@@ -368,7 +395,9 @@ enum MCPTool: String, CaseIterable {
         case .getDiff:
             "The unified diff of uncommitted changes (one file with `path`, else all), or of a commit with `commit`."
         case .listBranches:
-            "Branches with their own commits, newest first: the applied stacks of a GitButler workspace, or the local branches."
+            "Branches with their own commits, newest first: the applied stacks of a GitButler workspace, or the local branches. "
+                + "Each has its push `status` (unpushed, unpushedCommits, requiresForcePush, upToDate, integrated, upstreamGone, "
+                + "or ahead/behind/diverged with counts) and its GitHub `pullRequest` when `gh` finds one."
         case .openProject:
             "Brings ohmydiff to the front with the repository selected, adding it as a project if it is new."
         case .showFile:
