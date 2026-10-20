@@ -39,7 +39,7 @@ final class AppModel {
     @ObservationIgnored private let defaults: UserDefaults
     private static let selectionKey = "selectedProjectID"
 
-    init(store: ProjectStore = ProjectStore(fileURL: ProjectStore.defaultFileURL), defaults: UserDefaults = .standard) {
+    init(store: ProjectStore = AppVariant.projectStore, defaults: UserDefaults = .standard) {
         self.store = store
         self.defaults = defaults
         do {

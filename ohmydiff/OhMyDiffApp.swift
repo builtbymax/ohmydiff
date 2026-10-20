@@ -11,6 +11,7 @@ enum Entry {
                 let server = MCPServer(
                     toolchain: try? await Toolchain.discover(),
                     workingDirectory: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true),
+                    projects: AppVariant.projectStore,
                     version: version)
                 await server.serve()
                 exit(0)

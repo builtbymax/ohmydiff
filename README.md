@@ -25,7 +25,7 @@ A native macOS diff viewer for git and [GitButler](https://gitbutler.com) worksp
 ## Development
 
 ```sh
-make run       # build (Release) and launch the app
+make run       # build and launch ohmydiff Dev, beside the installed app
 make install   # build and copy to /Applications
 make test      # run the OhMyDiffCore tests
 make large-diff # create a throwaway repo with large changes to open in the app

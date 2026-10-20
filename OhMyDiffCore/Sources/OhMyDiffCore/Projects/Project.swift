@@ -63,8 +63,11 @@ public struct ProjectStore: Sendable {
     }
 
     /// `~/Library/Application Support/ohmydiff/projects.json`.
-    public static var defaultFileURL: URL {
-        URL.applicationSupportDirectory.appending(path: "ohmydiff", directoryHint: .isDirectory).appending(path: "projects.json")
+    public static var defaultFileURL: URL { fileURL(folder: "ohmydiff") }
+
+    /// `~/Library/Application Support/<folder>/projects.json`.
+    public static func fileURL(folder: String) -> URL {
+        URL.applicationSupportDirectory.appending(path: folder, directoryHint: .isDirectory).appending(path: "projects.json")
     }
 
     private struct File: Codable {

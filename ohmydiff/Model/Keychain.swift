@@ -11,7 +11,7 @@ enum Keychain {
         case jira
     }
 
-    private static let service = "dev.koby.ohmydiff.tickets"
+    private static let service = "\(AppVariant.bundleIdentifier).tickets"
     private static var cache: [Item: String] = [:]
 
     /// Whether a value is saved, without reading it.
