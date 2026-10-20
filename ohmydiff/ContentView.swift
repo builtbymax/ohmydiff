@@ -84,6 +84,16 @@ struct ContentView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+        .alert(
+            "Add this repository?",
+            isPresented: Binding(get: { model.pendingURLRequest != nil }, set: { if !$0 { model.pendingURLRequest = nil } }),
+            presenting: model.pendingURLRequest
+        ) { request in
+            Button("Add Project") { model.confirm(request) }
+            Button("Cancel", role: .cancel) {}
+        } message: { request in
+            Text("A link or another app asked ohmydiff to open \(request.folder.path). Adding it runs git and but in that folder, so only add repositories you trust.")
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Catch up on anything the watcher cannot see, e.g. changes made while the Mac slept.
             model.refreshSelected()

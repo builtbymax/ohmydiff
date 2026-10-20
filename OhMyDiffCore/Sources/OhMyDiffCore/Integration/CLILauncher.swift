@@ -36,6 +36,14 @@ public enum CLIRequest: Sendable, Hashable {
         }
     }
 
+    /// The folder whose repository the request is about: the file's folder for `show`.
+    public var folder: URL {
+        switch self {
+        case .open(let path), .branch(let path, _), .commit(let path, _): URL(fileURLWithPath: path, isDirectory: true)
+        case .show(let path, _): URL(fileURLWithPath: path).deletingLastPathComponent()
+        }
+    }
+
     public var url: URL {
         var components = URLComponents()
         components.scheme = CLILauncher.urlScheme

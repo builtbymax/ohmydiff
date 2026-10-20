@@ -48,6 +48,25 @@ import Testing
         #expect(Project(path: NSTemporaryDirectory()).exists)
         #expect(!Project(path: "/nonexistent/ohmydiff/\(UUID().uuidString)").exists)
     }
+
+    @Test func findsTheProjectContainingAFolderWithoutGit() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "ohmydiff-containing-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let root = directory.appending(path: "app")
+        for folder in ["app/.git", "app/Sources/Views", "app/vendor/lib/.git", "other"] {
+            try FileManager.default.createDirectory(at: directory.appending(path: folder), withIntermediateDirectories: true)
+        }
+        let project = Project(path: root.resolvingSymlinksInPath().path)
+
+        // `root` is under /var, a symlink to the project's /private/var.
+        #expect(Project.containing(root, in: [project]) == project)
+        #expect(Project.containing(root.appending(path: "Sources/Views"), in: [project]) == project)
+        #expect(Project.containing(URL(fileURLWithPath: root.path + "/Sources/../Sources"), in: [project]) == project)
+        // A repository nested inside the project is another one.
+        #expect(Project.containing(root.appending(path: "vendor/lib"), in: [project]) == nil)
+        #expect(Project.containing(directory.appending(path: "other"), in: [project]) == nil)
+        #expect(Project.containing(URL(fileURLWithPath: "/"), in: [project]) == nil)
+    }
 }
 
 @Suite struct ProjectColorTests {

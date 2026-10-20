@@ -52,6 +52,13 @@ import Testing
         #expect(CLIRequest(url: URL(string: "https://open?path=%2Fx")!) == nil)
     }
 
+    @Test func requestFolders() {
+        #expect(CLIRequest.open(path: "/r").folder.path == "/r")
+        #expect(CLIRequest.show(path: "/r/Sources/a.swift", line: 2).folder.path == "/r/Sources")
+        #expect(CLIRequest.branch(path: "/r", name: "x").folder.path == "/r")
+        #expect(CLIRequest.commit(path: "/r", sha: "abc1").folder.path == "/r")
+    }
+
     @Test func requestURLsRoundTrip() {
         let requests: [CLIRequest] = [
             .open(path: "/a b/c&d=e+f#g?h"),
