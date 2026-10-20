@@ -297,6 +297,21 @@ extension TestRepo {
 
 @Suite(.enabled(if: Toolchain.locate("but", in: Toolchain.mergedPath(nil, ProcessInfo.processInfo.environment["PATH"], home: NSHomeDirectory())) != nil, "requires the `but` CLI"))
 struct GitButlerActionTests {
+    @Test func showsUnstagedMovesAsRenames() async throws {
+        let repo = try await TestRepo(gitButler: true)
+        try repo.write("notes.txt", twentyLines)
+        try await repo.but("commit", "-b", "feature/base", "-m", "add notes")
+        try repo.remove("notes.txt")
+        try repo.write("moved.txt", edited([20: "last"]))
+        let repository = try await repo.open()
+
+        let file = try await repo.file("moved.txt", in: .unassigned, of: repository)
+        #expect(file.kind == .renamed && file.previousPath == "notes.txt")
+        #expect(file.stats == LineStats(additions: 1, deletions: 1))
+        let diff = try #require(try await repository.diff(for: file))
+        #expect(diff.kind == .renamed && diff.oldPath == "notes.txt" && diff.hunks.count == 1)
+    }
+
     @Test func commitsAndDiscardsOnlyTheGivenChanges() async throws {
         let repo = try await TestRepo(gitButler: true)
         try repo.write("notes.txt", twentyLines)

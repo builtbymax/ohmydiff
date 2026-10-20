@@ -95,9 +95,56 @@ public struct Repository: Sendable {
             // Independent reads; `but status` is the slow one, so `git status` runs alongside it.
             async let butStatus = butStatus()
             async let gitStatus = gitStatus()
-            groups = Self.butChangeGroups(try await butStatus, gitStatus: try await gitStatus)
+            let status = try await gitStatus
+            groups = try await addingWorktreeRenames(to: Self.butChangeGroups(try await butStatus, gitStatus: status), gitStatus: status)
         }
         return try await addingStats(to: groups)
+    }
+
+    /// GitButler: fills in the source path and line counts of files moved but not staged, which `but` reports as
+    /// renamed without a source, and git only as a deletion plus an untracked file.
+    private func addingWorktreeRenames(to groups: [ChangeGroup], gitStatus: [StatusEntry]) async throws -> [ChangeGroup] {
+        let moved = groups.flatMap(\.files).filter { $0.kind == .renamed && $0.previousPath == nil }.map(\.path)
+        let deleted = gitStatus.filter { $0.kind == .ordinary && ($0.worktreeStatus == "D" || $0.indexStatus == "D") }.map(\.path)
+        guard !moved.isEmpty, !deleted.isEmpty else { return groups }
+
+        let paths = moved + deleted
+        let names = try await worktreeDiff(["-M", "--name-status", "-z"], paths: paths)
+        let tokens = names.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
+        var sources: [String: String] = [:]
+        var index = 0
+        while index < tokens.count {
+            // `R<score>` and `C<score>` are followed by the old and new paths, everything else by one path.
+            if tokens[index].hasPrefix("R") || tokens[index].hasPrefix("C"), index + 2 < tokens.count {
+                sources[tokens[index + 2]] = tokens[index + 1]
+                index += 3
+            } else {
+                index += 2
+            }
+        }
+        let stats = NumstatParser.parse(try await worktreeDiff(Self.diffOptions + ["--numstat", "-z"], paths: paths))
+
+        return groups.map { group in
+            var group = group
+            for index in group.files.indices where group.files[index].previousPath == nil {
+                let path = group.files[index].path
+                guard let source = sources[path] else { continue }
+                group.files[index].previousPath = source
+                group.files[index].stats = stats[path]
+            }
+            return group
+        }
+    }
+
+    /// `git diff --cached HEAD` against a temporary index that holds HEAD plus the worktree state of `paths`, as if they
+    /// were added, so git pairs a deleted and an untracked file as a rename. The real index is not touched.
+    func worktreeDiff(_ options: [String], paths: [String]) async throws -> Data {
+        let index = FileManager.default.temporaryDirectory.appending(path: "ohmydiff-index-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: index) }
+        let temporary = ["GIT_INDEX_FILE": index.path]
+        _ = try await toolchain.git(["read-tree", "HEAD"], in: root, environment: temporary)
+        _ = try await toolchain.git(["add", "-A", "--"] + paths, in: root, environment: temporary)
+        return try await toolchain.git(["diff", "--cached", "HEAD"] + options + ["--"] + paths, in: root, environment: temporary).stdout
     }
 
     /// Fills in each file's line counts with one `--numstat` run per diff the groups draw from.
@@ -126,8 +173,9 @@ public struct Repository: Sendable {
             var group = group
             for index in group.files.indices {
                 let file = group.files[index]
-                // Untracked files are absent from every diff against the index or HEAD.
-                group.files[index].stats = stats[file.source]?[file.path]
+                // Untracked files are absent from every diff against the index or HEAD; unstaged GitButler moves
+                // already have theirs.
+                group.files[index].stats = stats[file.source]?[file.path] ?? file.stats
                     ?? (file.kind == .untracked || file.kind == .added ? Self.addedLineStats(root.appending(path: file.path)) : nil)
             }
             return group
@@ -252,8 +300,13 @@ public struct Repository: Sendable {
             arguments = ["diff", "HEAD"] + Self.diffOptions + ["--"] + paths
         }
 
-        let output = try await toolchain.git(arguments, in: root)
-        if let parsed = UnifiedDiffParser.parse(output.stdout).first(where: { $0.newPath == file.path || $0.oldPath == file.path }) {
+        // A move GitButler left unstaged: the new path is untracked, so plain `git diff HEAD` only sees the deletion.
+        var isUnstagedMove = false
+        if file.source == .workspace, file.previousPath != nil { isUnstagedMove = try await isUntracked(file.path) }
+        let output = isUnstagedMove
+            ? try await worktreeDiff(Self.diffOptions, paths: paths)
+            : try await toolchain.git(arguments, in: root).stdout
+        if let parsed = UnifiedDiffParser.parse(output).first(where: { $0.newPath == file.path || $0.oldPath == file.path }) {
             return parsed
         }
         if file.source == .workspace, try await isUntracked(file.path) {
