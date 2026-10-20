@@ -17,12 +17,12 @@ struct WorkspaceToolbar: View {
     var body: some View {
         GlassEffectContainer(spacing: 10) {
             HStack(spacing: 10) {
-                // Ahead of the empty stretch, which otherwise takes its share and truncates the names.
+                // The breadcrumb first, then the upstream controls, then the empty stretch: in a narrow window the
+                // upstream controls turn compact before the branch name shortens. Everything else keeps its size.
                 ProjectBreadcrumb(model: model, mode: mode)
                     .layoutPriority(2)
                 if let session = model.selectedSession, session.phase == .ready {
                     UpstreamControls(model: model, session: session)
-                        .fixedSize(horizontal: true, vertical: false)
                         .layoutPriority(1)
                 }
                 UpdatingPill(isRefreshing: model.selectedSession?.isRefreshing == true)
@@ -40,6 +40,7 @@ struct WorkspaceToolbar: View {
                 .padding(4)
                 .glassEffect(.regular, in: .capsule)
                 GlassSegmented(selection: $layout, options: [(.unified, "Unified"), (.split, "Split")])
+                    .fixedSize()
                 HStack(spacing: 2) {
                     ToolbarIconButton(title: "Refresh  ⌘R", systemImage: "arrow.clockwise") { model.refreshSelected() }
                         .disabled(model.selectedProjectID == nil)
@@ -54,6 +55,7 @@ struct WorkspaceToolbar: View {
                 }
                 .padding(4)
                 .glassEffect(.regular, in: .capsule)
+                .fixedSize()
             }
         }
         .padding(.horizontal, 12)
@@ -77,6 +79,8 @@ private struct ProjectBreadcrumb: View {
                     Text(location.title)
                         .fontWeight(.semibold)
                         .truncationMode(.middle)
+                        .frame(minWidth: 56, alignment: .leading)
+                        .layoutPriority(1)
                 }
                 KindPill(session: session)
                     .fixedSize()

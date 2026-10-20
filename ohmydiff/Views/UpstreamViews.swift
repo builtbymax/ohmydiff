@@ -10,13 +10,22 @@ struct UpstreamControls: View {
     @State private var isPillHovered = false
 
     var body: some View {
+        // In a narrow window the pill drops the target and fetch time, and the button says only "Update".
+        ViewThatFits(in: .horizontal) {
+            controls(isCompact: false)
+            controls(isCompact: true)
+        }
+        .animation(.snappy(duration: 0.2), value: session.upstream?.hasUpdates)
+    }
+
+    private func controls(isCompact: Bool) -> some View {
         HStack(spacing: 10) {
             if session.upstream != nil || session.isFetching || session.fetchError != nil {
-                fetchPill
+                fetchPill(isCompact: isCompact)
             }
             if let upstream = session.upstream, upstream.hasUpdates {
                 Button { model.isUpstreamUpdatePresented = true } label: {
-                    Text(Self.updateTitle(upstream))
+                    Text(isCompact ? "Update" : Self.updateTitle(upstream))
                         .font(.callout.weight(.semibold))
                         .padding(.horizontal, 14)
                         .frame(height: 38)
@@ -31,26 +40,28 @@ struct UpstreamControls: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
         }
-        .animation(.snappy(duration: 0.2), value: session.upstream?.hasUpdates)
+        .fixedSize()
     }
 
-    private var fetchPill: some View {
+    private func fetchPill(isCompact: Bool) -> some View {
         Button { Task { await session.fetch() } } label: {
             HStack(spacing: 7) {
-                Image(systemName: "dot.radiowaves.left.and.right")
-                    .foregroundStyle(.secondary)
-                Text(session.upstream?.target ?? "Remote")
-                    .foregroundStyle(.secondary)
-                Divider().frame(height: 14)
+                if !isCompact {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .foregroundStyle(.secondary)
+                    Text(session.upstream?.target ?? "Remote")
+                        .foregroundStyle(.secondary)
+                    Divider().frame(height: 14)
+                }
                 if session.isFetching {
                     ProgressView().controlSize(.mini)
-                    Text("Fetching…")
+                    if !isCompact { Text("Fetching…") }
                 } else if session.fetchError != nil {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text("Fetch failed")
+                    if !isCompact { Text("Fetch failed") }
                 } else {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                    if let lastFetched = session.lastFetched {
+                    if !isCompact, let lastFetched = session.lastFetched {
                         TimelineView(.periodic(from: .now, by: 30)) { _ in
                             Text(Self.fetchedTitle(lastFetched))
                         }
