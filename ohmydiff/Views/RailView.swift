@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The glass rail on the left: the logo, Changes / History, the project switcher and Settings.
+/// The glass rail on the left: Changes / History, the project switcher and Settings.
 /// Projects are switched from the breadcrumb in the toolbar.
 struct RailView: View {
     @Bindable var model: AppModel
@@ -9,14 +9,6 @@ struct RailView: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            Text("±")
-                .font(.system(size: 16, weight: .bold, design: .monospaced))
-                .foregroundStyle(.black)
-                .frame(width: 34, height: 34)
-                .background(Theme.logo, in: .circle)
-                .padding(.bottom, 12)
-                .accessibilityHidden(true)
-
             RailButton(title: "Changes", systemImage: "plusminus", isSelected: mode == .changes) { mode = .changes }
             RailButton(title: "History", systemImage: "clock", isSelected: mode == .history) { mode = .history }
             RailButton(title: "Switch Project  ⌘K", systemImage: "magnifyingglass", isSelected: model.isSwitcherPresented) {
