@@ -245,15 +245,14 @@ extension Repository {
         do {
             _ = try await toolchain.gh(
                 ["pr", "merge", String(pullRequest.number), "--\(method.rawValue)"], in: root, timeout: Self.remoteTimeout)
-        } catch let error as ProcessError where Self.needsAsyncMerge(error) {
+        } catch let error as GitHubError where Self.needsAsyncMerge(error) {
             try await mergeAsync(pullRequest, method: method)
         }
     }
 
     /// GitHub refuses the regular merge API for pull requests in a native stack, e.g. ones `but pr new` created.
-    static func needsAsyncMerge(_ error: ProcessError) -> Bool {
-        guard case .nonZeroExit(_, _, let stderr) = error else { return false }
-        return stderr.localizedCaseInsensitiveContains("asynchronous merge")
+    static func needsAsyncMerge(_ error: GitHubError) -> Bool {
+        error.stderr.localizedCaseInsensitiveContains("asynchronous merge")
     }
 
     /// Queues the merge with GitHub's asynchronous merge API, then waits for the pull request to show as merged.

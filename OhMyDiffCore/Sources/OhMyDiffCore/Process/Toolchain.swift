@@ -132,10 +132,7 @@ extension Toolchain {
         environment["GH_NO_UPDATE_NOTIFIER"] = "1"
         let output = try await runner.run(
             gh, arguments: arguments, currentDirectory: directory, environment: environment, input: input, timeout: timeout)
-        guard output.exitCode == 0 else {
-            throw ProcessError.nonZeroExit(
-                command: "gh " + arguments.joined(separator: " "), exitCode: output.exitCode, stderr: output.stderrString)
-        }
+        guard output.exitCode == 0 else { throw GitHubError(stderr: output.stderrString) }
         return output
     }
 
@@ -145,5 +142,24 @@ extension Toolchain {
         environment["GIT_TERMINAL_PROMPT"] = "0"
         environment["GIT_PAGER"] = "cat"
         return environment
+    }
+}
+
+/// A failed `gh` command, described by what GitHub said without `gh`'s command-line hints, which make no sense in the app.
+public struct GitHubError: Error, Sendable, CustomStringConvertible {
+    /// `gh`'s full error output.
+    public var stderr: String
+
+    public var description: String {
+        var lines: [String] = []
+        for line in stderr.split(separator: "\n").map({ $0.trimmingCharacters(in: .whitespaces) }) where !line.isEmpty {
+            // Hints follow the message: "Run the following to resolve…", "To have the pull request merged…, add the `--auto` flag."
+            if line.hasPrefix("Run ") || line.hasPrefix("To ") || line.hasPrefix("Try ") || line.hasPrefix("gh ") || line.contains("`--") {
+                break
+            }
+            // `gh` marks errors with a leading "X" or "!".
+            lines.append(line.hasPrefix("X ") || line.hasPrefix("! ") ? String(line.dropFirst(2)) : line)
+        }
+        return lines.isEmpty ? "GitHub reported an error." : lines.joined(separator: " ")
     }
 }

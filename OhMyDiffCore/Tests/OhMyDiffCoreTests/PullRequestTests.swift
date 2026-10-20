@@ -160,6 +160,18 @@ private struct StubbedGH {
         ])
     }
 
+    @Test func describesGitHubErrorsWithoutCLIHints() {
+        let conflict = GitHubError(stderr: """
+        X Pull request builtbymax/repo#8 is not mergeable: the merge commit cannot be cleanly created.
+        To have the pull request merged after all the requirements have been met, add the `--auto` flag.
+        Run the following to resolve the merge conflicts locally:
+          gh pr checkout 8 && git merge origin/main
+
+        """)
+        #expect(conflict.description == "Pull request builtbymax/repo#8 is not mergeable: the merge commit cannot be cleanly created.")
+        #expect(GitHubError(stderr: "").description == "GitHub reported an error.")
+    }
+
     @Test func readsNothingWithoutGH() async throws {
         let repo = try await TestRepo()
         var environment = repo.toolchain.environment
