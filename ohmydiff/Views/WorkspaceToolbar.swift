@@ -88,8 +88,9 @@ private struct ProjectBreadcrumb: View {
         }
         .lineLimit(1)
         .font(.callout)
-        .padding(.leading, 6)
-        .padding(.trailing, 12)
+        // 3 pt around the project button's hover, like above and below it; 12 pt after the kind pill.
+        .padding(.leading, 3)
+        .padding(.trailing, model.selectedSession == nil ? 3 : 12)
         .frame(height: 38)
         .glassEffect(.regular, in: .capsule)
     }
@@ -116,12 +117,12 @@ private struct ProjectMenu: View {
         Button { model.isProjectMenuPresented.toggle() } label: {
             HStack(spacing: 7) {
                 if let project = model.selectedProject {
-                    ProjectMonogram(project: project, size: 26)
+                    ProjectMonogram(project: project, size: 22)
                 } else {
                     Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .bold))
-                        .frame(width: 26, height: 26)
-                        .background(Theme.glassSelection, in: .rect(cornerRadius: 8))
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 22, height: 22)
+                        .background(Theme.glassSelection, in: .rect(cornerRadius: 6))
                 }
                 Text(model.selectedProject?.displayName ?? "Add Project")
                     .fontWeight(.semibold)
@@ -132,9 +133,9 @@ private struct ProjectMenu: View {
                     .animation(.snappy(duration: 0.2), value: model.isProjectMenuPresented)
                     .padding(.trailing, 6)
             }
-            .padding(3)
+            .padding(5)
         }
-        .buttonStyle(.hover(cornerRadius: 11, isSelected: model.isProjectMenuPresented))
+        .buttonStyle(.hoverCapsule(isSelected: model.isProjectMenuPresented))
         .focusEffectDisabled()
         .fixedSize()
         .glassTooltip("Switch Project")
