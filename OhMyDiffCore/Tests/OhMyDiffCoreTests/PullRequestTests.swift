@@ -21,6 +21,10 @@ private struct StubbedGH {
         #!/bin/sh
         printf '%s\\n' "$*" >> '\(log.path)'
         if [ "$1 $2" = "pr list" ]; then cat '\(listResponse.path)'; fi
+        if [ "$1 $2" = "pr merge" ] && [ -f '\(log.path).stacked' ]; then
+          echo "This pull request is part of a stack and must be merged using the asynchronous merge REST API." >&2; exit 1
+        fi
+        if [ "$1 $2" = "pr view" ]; then echo MERGED; fi
         if [ "$1 $2" = "pr create" ]; then
           for arg in "$@"; do case "$prev" in --body-file) cp "$arg" '\(log.path).body';; esac; prev="$arg"; done
         fi
@@ -142,6 +146,18 @@ private struct StubbedGH {
         try await stub.repository.setDraft(true, pullRequest: pullRequest)
         try await stub.repository.merge(pullRequest, method: .squash)
         #expect(try stub.calls() == ["pr ready 7", "pr ready 7 --undo", "pr merge 7 --squash"])
+    }
+
+    @Test func mergesStackedPullRequestsAsynchronously() async throws {
+        let stub = try await StubbedGH()
+        try Data().write(to: URL(fileURLWithPath: stub.log.path + ".stacked"))
+        let pullRequest = PullRequest(number: 8, title: "x", url: URL(string: "https://github.com/o/r/pull/8")!, state: .open)
+        try await stub.repository.merge(pullRequest, method: .merge)
+        #expect(try stub.calls() == [
+            "pr merge 8 --merge",
+            "api --method PUT repos/{owner}/{repo}/pulls/8/merge-async -f merge_method=merge",
+            "pr view 8 --json state --jq .state",
+        ])
     }
 
     @Test func readsNothingWithoutGH() async throws {

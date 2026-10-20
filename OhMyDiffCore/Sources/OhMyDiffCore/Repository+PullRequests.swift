@@ -131,6 +131,20 @@ public enum MergeMethod: String, Sendable, CaseIterable {
     }
 }
 
+public enum PullRequestError: Error, Sendable, CustomStringConvertible {
+    /// The asynchronous merge of a stacked pull request ended with the pull request closed.
+    case mergeFailed(Int)
+    /// GitHub accepted the asynchronous merge but has not finished it yet.
+    case mergePending(Int)
+
+    public var description: String {
+        switch self {
+        case .mergeFailed(let number): "GitHub could not merge #\(number)."
+        case .mergePending(let number): "GitHub is still merging #\(number). Refresh in a moment to see it merged."
+        }
+    }
+}
+
 /// Pushing branches and their pull requests. GitButler branches go through `but push` and `but pr`, which
 /// keep stacks intact; plain branches through `git push` and `gh pr create`. Reading and changing an existing
 /// pull request uses `gh` for both.
@@ -224,8 +238,36 @@ extension Repository {
 
     /// Merges on the forge; the local branches catch up with the next update from the upstream.
     public func merge(_ pullRequest: PullRequest, method: MergeMethod) async throws {
+        do {
+            _ = try await toolchain.gh(
+                ["pr", "merge", String(pullRequest.number), "--\(method.rawValue)"], in: root, timeout: Self.remoteTimeout)
+        } catch let error as ProcessError where Self.needsAsyncMerge(error) {
+            try await mergeAsync(pullRequest, method: method)
+        }
+    }
+
+    /// GitHub refuses the regular merge API for pull requests in a native stack, e.g. ones `but pr new` created.
+    static func needsAsyncMerge(_ error: ProcessError) -> Bool {
+        guard case .nonZeroExit(_, _, let stderr) = error else { return false }
+        return stderr.localizedCaseInsensitiveContains("asynchronous merge")
+    }
+
+    /// Queues the merge with GitHub's asynchronous merge API, then waits for the pull request to show as merged.
+    /// GitHub retargets the pull requests stacked on top by itself.
+    private func mergeAsync(_ pullRequest: PullRequest, method: MergeMethod) async throws {
         _ = try await toolchain.gh(
-            ["pr", "merge", String(pullRequest.number), "--\(method.rawValue)"], in: root, timeout: Self.remoteTimeout)
+            ["api", "--method", "PUT", "repos/{owner}/{repo}/pulls/\(pullRequest.number)/merge-async", "-f", "merge_method=\(method.rawValue)"],
+            in: root, timeout: Self.remoteTimeout)
+        for _ in 0..<30 {
+            try await Task.sleep(for: .seconds(2))
+            let output = try await toolchain.gh(["pr", "view", String(pullRequest.number), "--json", "state", "--jq", ".state"], in: root, timeout: Self.remoteTimeout)
+            switch output.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines) {
+            case PullRequest.State.merged.rawValue: return
+            case PullRequest.State.closed.rawValue: throw PullRequestError.mergeFailed(pullRequest.number)
+            default: continue
+            }
+        }
+        throw PullRequestError.mergePending(pullRequest.number)
     }
 
     /// A drafted text as a title and a description: the first non-empty line, without a Markdown heading
