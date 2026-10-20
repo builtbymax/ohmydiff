@@ -90,6 +90,9 @@ final class ProjectSession {
 
     @ObservationIgnored private let toolchain: () async -> Toolchain?
     @ObservationIgnored private var repository: Repository?
+    /// `<common-dir>/gitbutler` and whether it existed when `repository` was opened. `but setup` and `but teardown`
+    /// create and remove it, so a change means the kind must be detected again.
+    @ObservationIgnored private var gitButlerMarker: (url: URL, existed: Bool)?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var needsAnotherRefresh = false
     @ObservationIgnored private var watcher: FileWatcher?
@@ -227,6 +230,11 @@ final class ProjectSession {
             return
         }
 
+        if let marker = gitButlerMarker, Self.isDirectory(marker.url) != marker.existed {
+            // The watcher hands batches to the repository it started with, so it restarts with the new one.
+            repository = nil
+            stopWatching()
+        }
         do {
             let repository = try await openRepository(toolchain)
             apply(try await repository.changeGroups())
@@ -256,12 +264,19 @@ final class ProjectSession {
         if let repository { return repository }
         let repository = try await Repository.open(project.url, toolchain: toolchain)
         self.repository = repository
+        let marker = try? await repository.gitDirectories().commonDir.appending(path: "gitbutler")
+        gitButlerMarker = marker.map { ($0, Self.isDirectory($0)) }
         if repository.butIncompatibility != butIncompatibility { butIncompatibility = repository.butIncompatibility }
         if repository.kind != project.kind {
             project.kind = repository.kind
             onKindChange?(repository.kind)
         }
         return repository
+    }
+
+    private static func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     private func markMissing() {
