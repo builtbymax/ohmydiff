@@ -85,13 +85,14 @@ private struct ProjectBreadcrumb: View {
         .glassEffect(.regular, in: .capsule)
     }
 
-    /// The branch of the selected file in Changes mode, or the selected branch in History mode.
+    /// The branch of the selected file in Changes mode (plain git: the checked-out one), or the selected branch in History mode.
     private func location(in session: ProjectSession) -> (title: String, systemImage: String)? {
         switch mode {
         case .changes:
+            if session.project.kind != .gitButler { return session.currentBranch.map { ($0, "arrow.triangle.branch") } }
             guard let file = session.selectedFile else { return nil }
             if let branch = session.assignedBranch(of: file.path) { return (branch, "arrow.triangle.branch") }
-            return session.project.kind == .gitButler ? ("Unassigned", "tray") : nil
+            return ("Unassigned", "tray")
         case .history:
             return session.history.selectedBranch.map { ($0.name, "arrow.triangle.branch") }
         }
