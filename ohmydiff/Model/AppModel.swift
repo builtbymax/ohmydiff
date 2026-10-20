@@ -28,6 +28,8 @@ final class AppModel {
     /// The sheet that updates the selected project from its remote.
     var isUpstreamUpdatePresented = false
     var errorMessage: String?
+    /// An `ohmydiff://…` request for a repository that is not a project yet, until the user agrees to add it.
+    var pendingURLRequest: CLIRequest?
     /// What each open diff window shows, by the ID its window was opened with.
     private(set) var popouts: [UUID: DiffPopout] = [:]
 
@@ -212,6 +214,18 @@ final class AppModel {
         NSApp.activate()
         isSwitcherPresented = false
         isProjectMenuPresented = false
+        // Any web page or app can open these URLs, and adding a project runs git and but in its folder, so
+        // a repository that is not a project yet is only added once the user agrees.
+        guard Project.containing(request.folder, in: projects) != nil else {
+            pendingURLRequest = request
+            return
+        }
+        Task { await perform(request) }
+    }
+
+    /// Adds the repository of a request the user agreed to, then shows what it asked for.
+    func confirm(_ request: CLIRequest) {
+        pendingURLRequest = nil
         Task { await perform(request) }
     }
 

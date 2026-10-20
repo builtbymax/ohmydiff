@@ -40,6 +40,18 @@ public struct Project: Sendable, Hashable, Codable, Identifiable {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
+
+    /// The project whose repository contains `folder`, found without running git: walking up from `folder`, a
+    /// `.git` before a project's root means another repository, e.g. one nested inside a project.
+    public static func containing(_ folder: URL, in projects: [Project]) -> Project? {
+        let roots = Dictionary(projects.map { ($0.url.resolvingSymlinksInPath().path, $0) }) { first, _ in first }
+        var url = folder.resolvingSymlinksInPath().standardizedFileURL
+        while true {
+            if let project = roots[url.path] { return project }
+            if url.path == "/" || FileManager.default.fileExists(atPath: url.appending(path: ".git").path) { return nil }
+            url.deleteLastPathComponent()
+        }
+    }
 }
 
 /// Persists the project list as JSON.
