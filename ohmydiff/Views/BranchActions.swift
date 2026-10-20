@@ -295,11 +295,17 @@ struct BranchActionBar: View {
                     .font(.callout.weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .frame(minWidth: 72, alignment: .leading)
                     .glassTooltip(branch.name, edge: .top)
             }
             Spacer(minLength: 4)
-            BranchActions(branch: branch, history: history, style: .bar)
-                .fixedSize()
+            // Labeled pills while they fit next to the name, icons in a narrow list.
+            ViewThatFits(in: .horizontal) {
+                BranchActions(branch: branch, history: history, style: .bar)
+                    .fixedSize()
+                BranchActions(branch: branch, history: history, style: .compact)
+                    .fixedSize()
+            }
         }
         .padding(.leading, 6)
         .padding(.trailing, 8)

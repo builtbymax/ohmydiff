@@ -17,9 +17,13 @@ struct WorkspaceToolbar: View {
     var body: some View {
         GlassEffectContainer(spacing: 10) {
             HStack(spacing: 10) {
+                // Ahead of the empty stretch, which otherwise takes its share and truncates the names.
                 ProjectBreadcrumb(model: model, mode: mode)
+                    .layoutPriority(2)
                 if let session = model.selectedSession, session.phase == .ready {
                     UpstreamControls(model: model, session: session)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
                 }
                 UpdatingPill(isRefreshing: model.selectedSession?.isRefreshing == true)
                 // The empty stretch moves the window, like a title bar.
@@ -75,6 +79,7 @@ private struct ProjectBreadcrumb: View {
                         .truncationMode(.middle)
                 }
                 KindPill(session: session)
+                    .fixedSize()
             }
         }
         .lineLimit(1)
