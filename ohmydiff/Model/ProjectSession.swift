@@ -399,7 +399,7 @@ final class ProjectSession {
     }
 
     /// Runs an action and refreshes, throwing failures to the caller, e.g. to show them in the commit sheet.
-    func run(_ action: ChangeAction, on targets: [ChangeTarget], branch: String = "", message: String = "") async throws {
+    func run(_ action: ChangeAction, on targets: [ChangeTarget], branch: String = "", stackedOn anchor: String? = nil, message: String = "") async throws {
         guard let repository, !isPerformingAction else { return }
         isPerformingAction = true
         defer {
@@ -411,7 +411,7 @@ final class ProjectSession {
         case .unstage: try await repository.unstage(targets)
         case .discard: try await repository.discard(targets)
         case .commit:
-            try await repository.commit(targets, toBranch: branch, message: message)
+            try await repository.commit(targets, toBranch: branch, stackedOn: anchor, message: message)
             lastCommitBranch = branch
         }
     }

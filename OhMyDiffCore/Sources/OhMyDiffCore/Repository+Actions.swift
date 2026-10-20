@@ -36,6 +36,8 @@ public enum ChangeActionError: Error, Sendable, CustomStringConvertible {
     case deletingCheckedOut(String)
     /// Plain git: a hunk to commit overlaps staged changes of the same file.
     case overlapsStaged(String)
+    /// GitButler: the changes build on commits of this branch, so they go to a branch stacked on top of it.
+    case dependsOn(String)
 
     public var description: String {
         switch self {
@@ -46,6 +48,7 @@ public enum ChangeActionError: Error, Sendable, CustomStringConvertible {
         case .changeNotFound(let path): "\(path) changed since it was shown. Refresh and try again."
         case .notCheckedOut(let name): "\(name) is not checked out. Commit to the checked-out branch or a new one."
         case .deletingCheckedOut(let name): "\(name) is checked out. Switch to another branch before deleting it."
+        case .dependsOn(let branch): "These changes build on commits in \(branch). Commit them to a branch stacked on top of it."
         case .overlapsStaged(let path): "The selected change of \(path) overlaps its staged changes. Commit or unstage those first."
         }
     }
@@ -198,17 +201,28 @@ extension Repository {
     // MARK: - Both
 
     /// Commits files or hunks. GitButler: to `branch` with `but commit -b`, creating the branch if it does
-    /// not exist; only the given changes are passed, by their CLI IDs. Plain git: to the checked-out branch,
-    /// or to a new branch `branch` switched to first; see `gitCommit`.
-    public func commit(_ targets: [ChangeTarget], toBranch branch: String, message: String) async throws {
+    /// not exist, stacked on `anchor` when given; only the given changes are passed, by their CLI IDs. Throws
+    /// `dependsOn` when the changes need such an anchor. Plain git: to the checked-out branch, or to a new
+    /// branch `branch` switched to first; see `gitCommit`.
+    public func commit(_ targets: [ChangeTarget], toBranch branch: String, stackedOn anchor: String? = nil, message: String) async throws {
         try check(.commit, targets)
         let branch = branch.trimmingCharacters(in: .whitespaces)
         guard try await isValidBranchName(branch) else { throw ChangeActionError.invalidBranchName(branch) }
         guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ChangeActionError.emptyMessage }
         switch kind {
         case .gitButler:
+            if let anchor {
+                _ = try await toolchain.but(["branch", "new", branch, "--anchor", anchor], in: root, timeout: .seconds(60))
+            }
             let ids = try await butIDs(for: targets)
-            _ = try await toolchain.but(["commit", "-b", branch, "-m", message] + ids, in: root, timeout: .seconds(60))
+            do {
+                _ = try await toolchain.but(["commit", "-b", branch, "-m", message] + ids, in: root, timeout: .seconds(60))
+            } catch let error as ProcessError {
+                if case .nonZeroExit(_, _, let stderr) = error, let anchor = Self.dependencyAnchor(stderr) {
+                    throw ChangeActionError.dependsOn(anchor)
+                }
+                throw error
+            }
         case .git:
             if try await currentBranch() != branch {
                 let exists = try await toolchain.git(
@@ -250,6 +264,13 @@ extension Repository {
     }
 
     // MARK: - Helpers
+
+    /// The branch `but commit` says the changes depend on, from its hint `but branch new <name> --anchor <branch>`.
+    static func dependencyAnchor(_ stderr: String) -> String? {
+        guard let range = stderr.range(of: "--anchor ") else { return nil }
+        let anchor = stderr[range.upperBound...].prefix { !$0.isWhitespace }
+        return anchor.isEmpty ? nil : String(anchor)
+    }
 
     private func check(_ action: ChangeAction, _ targets: [ChangeTarget]) throws {
         guard !targets.isEmpty else { throw ChangeActionError.nothingSelected }

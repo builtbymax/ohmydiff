@@ -297,6 +297,25 @@ extension TestRepo {
 
 @Suite(.enabled(if: Toolchain.locate("but", in: Toolchain.mergedPath(nil, ProcessInfo.processInfo.environment["PATH"], home: NSHomeDirectory())) != nil, "requires the `but` CLI"))
 struct GitButlerActionTests {
+    @Test func stacksDependentChangesOnTheirBranch() async throws {
+        let repo = try await TestRepo(gitButler: true)
+        try repo.write("notes.txt", twentyLines)
+        try await repo.but("commit", "-b", "feature/base", "-m", "add notes")
+        try repo.write("notes.txt", edited([2: "edited"]))
+        let repository = try await repo.open()
+        let target = ChangeTarget(file: try await repo.file("notes.txt", in: .unassigned, of: repository))
+
+        do {
+            try await repository.commit([target], toBranch: "feature/next", message: "edit notes")
+            Issue.record("committing changes that depend on feature/base should fail")
+        } catch ChangeActionError.dependsOn(let anchor) {
+            #expect(anchor == "feature/base")
+        }
+        try await repository.commit([target], toBranch: "feature/next", stackedOn: "feature/base", message: "edit notes")
+        let stack = try #require(try await repository.butStatus().stacks.first { $0.branches.contains { $0.name == "feature/next" } })
+        #expect(stack.branches.map(\.name) == ["feature/next", "feature/base"])
+    }
+
     @Test func showsUnstagedMovesAsRenames() async throws {
         let repo = try await TestRepo(gitButler: true)
         try repo.write("notes.txt", twentyLines)

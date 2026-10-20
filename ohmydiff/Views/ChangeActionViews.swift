@@ -97,6 +97,8 @@ private struct CommitSheet: View {
     @State private var newBranch = ""
     @State private var message = ""
     @State private var error: String?
+    /// GitButler: the branch the changes build on, after `but commit` refused them for the picked branch.
+    @State private var dependency: (branch: String, anchor: String)?
     @FocusState private var focus: Field?
     /// Suggestions read from Settings when the sheet opens.
     @State private var suggestions: Suggestions?
@@ -333,6 +335,12 @@ private struct CommitSheet: View {
             Button("Cancel", role: .cancel) { dismiss() }
                 .keyboardShortcut(.cancelAction)
                 .buttonStyle(.pill(height: 32))
+            if let dependency, dependency.branch == targetBranch {
+                Button("Commit on Top of \(dependency.anchor)") { commit(stackedOn: dependency.anchor) }
+                    .buttonStyle(.pill(height: 32))
+                    .disabled(!canCommit)
+                    .glassTooltip("Create \(dependency.branch) stacked on \(dependency.anchor) and commit to it")
+            }
             Button { commit() } label: {
                 if session.isPerformingAction {
                     ProgressView().controlSize(.small).tint(.black)
@@ -353,15 +361,17 @@ private struct CommitSheet: View {
             .foregroundStyle(.secondary)
     }
 
-    private func commit() {
+    private func commit(stackedOn anchor: String? = nil) {
         guard canCommit else { return }
         let branch = targetBranch
         error = nil
+        dependency = nil
         Task {
             do {
-                try await session.run(.commit, on: request.targets, branch: branch, message: message)
+                try await session.run(.commit, on: request.targets, branch: branch, stackedOn: anchor, message: message)
                 dismiss()
             } catch {
+                if case ChangeActionError.dependsOn(let anchor) = error { dependency = (branch, anchor) }
                 self.error = String(describing: error)
             }
         }
