@@ -74,7 +74,8 @@ private struct ProjectBreadcrumb: View {
             ProjectMenu(model: model)
             if let session = model.selectedSession {
                 if let location = location(in: session) {
-                    Text("/").foregroundStyle(.tertiary)
+                    // Never truncated: the branch name shortens instead.
+                    Text("/").foregroundStyle(.tertiary).fixedSize()
                     Image(systemName: location.systemImage)
                     Text(location.title)
                         .fontWeight(.semibold)
