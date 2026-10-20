@@ -19,7 +19,7 @@ struct HistoryDetailView: View {
                 } else {
                     BranchHeader(branch: branch, history: history)
                     if let pullRequest = history.pullRequest(of: branch), pullRequest.state == .open {
-                        PullRequestBanner(pullRequest: pullRequest, history: history)
+                        PullRequestBanner(pullRequest: pullRequest, branch: branch, history: history)
                             .padding(.horizontal, 20)
                             .padding(.top, 8)
                             .padding(.bottom, 6)

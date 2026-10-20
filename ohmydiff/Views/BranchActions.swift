@@ -411,7 +411,8 @@ struct PullRequestSummary {
     let systemImage: String
     let color: Color
 
-    init(_ pullRequest: PullRequest, status: PullRequestStatus) {
+    /// `conflictHint` says how to resolve merge conflicts in this workspace; a generic hint otherwise.
+    init(_ pullRequest: PullRequest, status: PullRequestStatus, conflictHint: String? = nil) {
         let base = pullRequest.baseRefName
         let checks: String = switch status.checks {
         case .none: "No checks"
@@ -427,7 +428,7 @@ struct PullRequestSummary {
         case _ where pullRequest.isDraft:
             (title, detail, systemImage, color) = ("Draft", "\(checks) · Mark it ready for review to merge", "circle.dashed", .secondary)
         case _ where status.isMergeable == false || status.mergeState == "DIRTY":
-            (title, detail, systemImage, color) = ("Merge Conflicts", "Conflicts with \(base) · Update the branch from the upstream", "exclamationmark.triangle.fill", .red)
+            (title, detail, systemImage, color) = ("Merge Conflicts", "Conflicts with \(base) · \(conflictHint ?? "Resolve them before merging")", "exclamationmark.triangle.fill", .red)
         case (_, .failed):
             (title, detail, systemImage, color) = ("Checks Failed", checks, "xmark.octagon.fill", .red)
         case (_, .pending):
@@ -447,12 +448,13 @@ struct PullRequestSummary {
 /// A banner under the branch header with the open pull request's state, polled while its checks run.
 struct PullRequestBanner: View {
     let pullRequest: PullRequest
+    let branch: HistoryBranch
     let history: HistoryModel
 
     var body: some View {
         HStack(spacing: 10) {
             if let status = history.pullRequestStatuses[pullRequest.number] {
-                let summary = PullRequestSummary(pullRequest, status: status)
+                let summary = PullRequestSummary(pullRequest, status: status, conflictHint: conflictHint)
                 Image(systemName: summary.systemImage)
                     .font(.system(size: 14))
                     .foregroundStyle(summary.color)
@@ -495,6 +497,13 @@ struct PullRequestBanner: View {
 
     private var tint: Color {
         history.pullRequestStatuses[pullRequest.number].map { PullRequestSummary(pullRequest, status: $0).color } ?? .secondary
+    }
+
+    /// GitButler rebases onto the target when updating, which leaves conflicted commits to resolve; plain git's update
+    /// only pulls the branch's own upstream, so the base has to be brought in by hand.
+    private var conflictHint: String {
+        if !history.isGitButler { return "Merge or rebase \(pullRequest.baseRefName) into the branch" }
+        return branch.isConflicted ? "Resolve its conflicted commits with but resolve, then push" : "Update the workspace to rebase onto it"
     }
 }
 
