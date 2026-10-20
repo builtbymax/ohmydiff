@@ -1,14 +1,17 @@
 APP := build/Build/Products/Release/ohmydiff.app
 # Code signing identity (name or SHA-1 from `security find-identity -v -p codesigning`). Ad-hoc by default.
 SIGN_IDENTITY := $(OHMYDIFF_SIGN_IDENTITY)
+# The commit count, like releases, so a local build is never offered the release it was built from.
+BUILD_NUMBER := $(shell git rev-list --count HEAD)
 
-.PHONY: build run install test compat compat-record clean large-diff
+.PHONY: build run install test compat compat-record clean large-diff release publish
 
 build:
 	xcodebuild -project ohmydiff.xcodeproj -scheme ohmydiff -configuration Release \
-		-destination 'platform=macOS,arch=$(shell uname -m)' -derivedDataPath build -quiet build
+		-destination 'platform=macOS,arch=$(shell uname -m)' -derivedDataPath build -quiet \
+		CURRENT_PROJECT_VERSION=$(BUILD_NUMBER) build
 ifneq ($(SIGN_IDENTITY),)
-	codesign --force --sign "$(SIGN_IDENTITY)" --options runtime $(APP)
+	scripts/sign.sh $(APP) "$(SIGN_IDENTITY)"
 endif
 
 run: build
@@ -30,6 +33,14 @@ compat:
 
 compat-record: compat
 	scripts/but-compat.sh record
+
+# make release VERSION=1.1.0: notarized universal build of origin/main plus the appcast (see scripts/release.sh).
+release:
+	scripts/release.sh $(VERSION)
+
+# make publish VERSION=1.1.0: the GitHub release that installed copies update from.
+publish:
+	scripts/publish.sh $(VERSION)
 
 # Throwaway repository with large uncommitted changes, for scroll and highlighting checks.
 large-diff:

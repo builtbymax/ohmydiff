@@ -31,10 +31,19 @@ make test      # run the OhMyDiffCore tests
 make large-diff # create a throwaway repo with large changes to open in the app
 make compat    # run the GitButler contract tests against the installed `but`
 make compat-record # ...and record its version as known-good
+make release VERSION=1.1.0 # notarized universal build of origin/main plus the Sparkle appcast
+make publish VERSION=1.1.0 # the GitHub release installed copies update from
 make clean     # remove build output
 ```
 
 Or open `ohmydiff.xcodeproj` in Xcode.
+
+## Updates
+
+ohmydiff updates itself with [Sparkle](https://sparkle-project.org): it checks `appcast.xml` on the latest
+GitHub release on launch and daily (Settings → General → Updates), shows a bar at the bottom of the window when
+a newer version is out, and installs it and restarts on request. Debug builds never update themselves. See
+[release-checklist.md](release-checklist.md) for the steps of a release.
 
 ## GitButler compatibility
 
