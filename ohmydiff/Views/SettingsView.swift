@@ -219,6 +219,87 @@ private struct GeneralSettings: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            UpdateSettings(updater: .shared)
+        }
+    }
+}
+
+private struct UpdateSettings: View {
+    @Bindable var updater: Updater
+
+    var body: some View {
+        SettingsCard(title: "Updates", badge: badge) {
+            HStack(spacing: 14) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 48, height: 48)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("ohmydiff \(Updater.currentVersion)")
+                        .font(.body.weight(.semibold))
+                    Group {
+                        if !updater.isAvailable {
+                            Text("Build \(Updater.currentBuild). Development builds don’t update themselves.")
+                        } else if let lastCheck = updater.lastCheck {
+                            Text("Build \(Updater.currentBuild). Last checked \(lastCheck, format: .relative(presentation: .named)).")
+                        } else {
+                            Text("Build \(Updater.currentBuild). Not checked yet.")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Button { updater.checkForUpdates() } label: {
+                    if updater.phase == .checking {
+                        Label { Text("Checking…") } icon: { ProgressView().controlSize(.mini) }
+                    } else {
+                        Label("Check Now", systemImage: "arrow.clockwise")
+                    }
+                }
+                .buttonStyle(.pill(height: 32))
+                .focusEffectDisabled()
+                .disabled(!updater.canCheck)
+            }
+            if updater.isAvailable {
+                Divider()
+                toggle("Check for updates automatically", detail: "On launch and once a day", isOn: $updater.automaticallyChecks)
+                toggle("Download and install automatically", detail: "Installs when you quit ohmydiff, or restart from the update bar",
+                       isOn: $updater.automaticallyDownloads)
+                    .disabled(!updater.automaticallyChecks)
+            }
+        }
+    }
+
+    private var badge: Badge? {
+        switch updater.phase {
+        case .available(let update), .downloading(let update, _), .extracting(let update, _):
+            Badge("\(update.version) available", systemImage: "arrow.down.circle.fill", color: .orange)
+        case .ready(let update), .installing(let update):
+            Badge("\(update.version) ready", systemImage: "arrow.down.circle.fill", color: .orange)
+        case .failed:
+            Badge("Check failed", systemImage: "exclamationmark.circle.fill", color: .red)
+        case .upToDate:
+            Badge("Up to date", systemImage: "checkmark.circle.fill", color: .green)
+        case .idle, .checking:
+            nil
+        }
+    }
+
+    private func toggle(_ title: String, detail: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Toggle(title, isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .tint(Theme.logoText)
         }
     }
 }

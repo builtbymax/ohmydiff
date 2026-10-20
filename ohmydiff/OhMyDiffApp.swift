@@ -24,6 +24,12 @@ enum Entry {
 struct OhMyDiffApp: App {
     @State private var model = AppModel()
 
+    init() {
+        Updater.shared.start()
+        // After an update replaced the app in place, the command it installed may be from the old version.
+        if let app = Bundle.main.executableURL?.path { _ = try? CLILauncher.refresh(app: app) }
+    }
+
     var body: some Scene {
         Window("ohmydiff", id: "main") {
             ContentView(model: model)

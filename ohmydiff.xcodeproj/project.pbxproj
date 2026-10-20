@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A10000000000000000000010 /* OhMyDiffCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000020 /* OhMyDiffCore */; };
+		A10000000000000000000011 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000021 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000010 /* OhMyDiffCore in Frameworks */,
+				A10000000000000000000011 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -71,6 +73,7 @@
 			name = ohmydiff;
 			packageProductDependencies = (
 				A10000000000000000000020 /* OhMyDiffCore */,
+				A10000000000000000000021 /* Sparkle */,
 			);
 			productName = ohmydiff;
 			productReference = A10000000000000000000030 /* ohmydiff.app */;
@@ -102,6 +105,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A100000000000000000000E0 /* XCLocalSwiftPackageReference "OhMyDiffCore" */,
+				A100000000000000000000E1 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A10000000000000000000070 /* Products */;
@@ -273,11 +277,27 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A100000000000000000000E1 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		A10000000000000000000020 /* OhMyDiffCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A100000000000000000000E0 /* XCLocalSwiftPackageReference "OhMyDiffCore" */;
 			productName = OhMyDiffCore;
+		};
+		A10000000000000000000021 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A100000000000000000000E1 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

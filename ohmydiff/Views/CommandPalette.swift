@@ -355,6 +355,9 @@ struct CommandPalette: View {
             }
             add("Use \(option.title) Appearance", symbol) { appearance = option }
         }
+        if Updater.shared.canCheck {
+            add("Check for Updates…", "arrow.down.circle") { Updater.shared.checkForUpdates() }
+        }
         add("Settings…", "gearshape", "⌘,") {
             // After the palette has closed, so returning focus to the main window cannot push Settings behind it.
             DispatchQueue.main.async { SettingsWindow.open() }

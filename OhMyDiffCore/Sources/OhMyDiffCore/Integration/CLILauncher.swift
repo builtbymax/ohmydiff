@@ -83,7 +83,7 @@ public enum CLILauncher {
         # ohmydiff: open repositories, files, branches and commits in ohmydiff. Installed from ohmydiff's Settings.
         set -eu
 
-        app=\(EditorCommand.shellQuoted(app))
+        \(appLine(app))
 
         usage() {
             cat <<'EOF'
@@ -177,6 +177,23 @@ public enum CLILauncher {
     public static func installState(app: String, in directory: URL = defaultDirectory) -> InstallState {
         guard let data = try? Data(contentsOf: directory.appending(path: "ohmydiff")) else { return .missing }
         return data == Data(script(app: app).utf8) ? .current : .outdated
+    }
+
+    /// Rewrites an installed command from an earlier version that points at this same `app`, e.g. after an
+    /// update replaced the app in place. A command pointing at another copy of the app is left alone.
+    @discardableResult
+    public static func refresh(app: String, in directory: URL = defaultDirectory) throws -> Bool {
+        let url = directory.appending(path: "ohmydiff")
+        guard installState(app: app, in: directory) == .outdated,
+              let text = try? String(contentsOf: url, encoding: .utf8),
+              text.split(separator: "\n").contains(Substring(appLine(app)))
+        else { return false }
+        try install(app: app, in: directory)
+        return true
+    }
+
+    private static func appLine(_ app: String) -> String {
+        "app=\(EditorCommand.shellQuoted(app))"
     }
 
     /// Whether a colon-separated search path contains `directory`.

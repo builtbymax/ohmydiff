@@ -78,6 +78,24 @@ import Testing
         #expect(CLILauncher.installState(app: "/B/ohmydiff", in: bin) == .outdated)
     }
 
+    @Test func refreshesCommandsFromEarlierVersions() throws {
+        let bin = FileManager.default.temporaryDirectory.appending(path: "ohmydiff-cli-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: bin) }
+        let command = bin.appending(path: "ohmydiff")
+        #expect(try !CLILauncher.refresh(app: "/A/ohmydiff", in: bin))
+
+        // An earlier version's script for the same app is rewritten.
+        try CLILauncher.install(app: "/A/ohmydiff", in: bin)
+        try Data(String(contentsOf: command, encoding: .utf8).replacing("set -eu", with: "set -e").utf8).write(to: command)
+        #expect(try CLILauncher.refresh(app: "/A/ohmydiff", in: bin))
+        #expect(CLILauncher.installState(app: "/A/ohmydiff", in: bin) == .current)
+        #expect(try !CLILauncher.refresh(app: "/A/ohmydiff", in: bin))
+
+        // One for another copy of the app stays outdated.
+        #expect(try !CLILauncher.refresh(app: "/B/ohmydiff", in: bin))
+        #expect(CLILauncher.installState(app: "/B/ohmydiff", in: bin) == .outdated)
+    }
+
     /// Runs the installed script with `open` swapped for `echo`, so the test sees the URL instead of launching the app.
     private struct Probe {
         let base: URL

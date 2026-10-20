@@ -39,6 +39,7 @@ struct ContentView: View {
             .safeAreaBar(edge: .top) {
                 WorkspaceToolbar(model: model, mode: model.mode)
             }
+            .updateBar(Updater.shared)
             .background(Theme.panel)
             .clipShape(.rect(cornerRadius: 18))
             .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Theme.hairline))

@@ -13,5 +13,12 @@
 			</array>
 		</dict>
 	</array>
+	<key>SUFeedURL</key>
+	<string>https://github.com/builtbymax/ohmydiff/releases/latest/download/appcast.xml</string>
+	<!-- Sparkle's generate_keys --account ohmydiff. The private key stays in the release Mac's login keychain. -->
+	<key>SUPublicEDKey</key>
+	<string>FLZVnO2lyLOMh0QnJzFUUDofsHAcqHfXYsByDRtxbCE=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
 </dict>
 </plist>

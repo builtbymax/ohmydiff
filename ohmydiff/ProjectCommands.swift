@@ -13,6 +13,11 @@ struct ProjectCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { Updater.shared.checkForUpdates() }
+                .disabled(!Updater.shared.canCheck)
+        }
+
         CommandGroup(replacing: .newItem) {
             Button("Add Project…") { model.isImporterPresented = true }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
