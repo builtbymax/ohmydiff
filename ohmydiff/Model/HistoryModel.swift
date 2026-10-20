@@ -49,7 +49,7 @@ final class HistoryModel {
     var branchActionError: String?
     /// The branch whose pull request sheet is open; it opens once the branch's diff has loaded.
     var pullRequestDraftBranch: String?
-    /// A plain-git branch waiting for the force push to be confirmed.
+    /// A branch waiting for the force push to be confirmed.
     var forcePushBranch: HistoryBranch?
     /// A merge waiting for confirmation.
     var pendingMerge: (pullRequest: PullRequest, method: MergeMethod, branch: String)?
@@ -274,9 +274,9 @@ final class HistoryModel {
         }
     }
 
-    /// Pushes, asking first when a plain-git branch needs a force push.
+    /// Pushes, asking first when the branch needs a force push.
     func requestPush(_ branch: HistoryBranch) {
-        if branch.needsForcePush, !isGitButler {
+        if branch.needsForcePush {
             forcePushBranch = branch
         } else {
             Task { await push(branch) }

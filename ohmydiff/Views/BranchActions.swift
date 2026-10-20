@@ -343,6 +343,8 @@ private struct BranchActionPresentation: ViewModifier {
             } message: { branch in
                 if case .tracking(_, let behind) = branch.status {
                     Text("The branch and its remote copy have diverged, e.g. after an amend or rebase. The remote's \(behind == 1 ? "commit" : "\(behind) commits") not in the branch \(behind == 1 ? "is" : "are") replaced, unless someone else pushed to it since the last fetch.")
+                } else if history.isGitButler {
+                    Text("The branch's history was rewritten, e.g. by an amend or an update. but push replaces its remote copy with it.")
                 } else {
                     Text("The branch's history was rewritten. Its remote copy is replaced, unless someone else pushed to it meanwhile.")
                 }
