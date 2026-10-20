@@ -1,9 +1,12 @@
 import AppKit
 
-// Renders the app icon at 1024 pt, then writes every size the asset catalog lists.
-// Matches `Icon / A · Refined 85%` on the App Icons page of the OHMYDIFF Figma file.
+// Renders the app icon at 1024 pt, then writes every size the asset catalog lists. Matches
+// `Brand / App icon / Yellow` (the app) or `Brand / App icon / Blueprint` (ohmydiff Dev) on the Branding page of
+// the OHMYDIFF Figma file.
 // Usage: swift scripts/make-icon.swift ohmydiff/Assets.xcassets/AppIcon.appiconset
+//        swift scripts/make-icon.swift ohmydiff/Assets.xcassets/AppIcon-Dev.appiconset blueprint
 let output = URL(fileURLWithPath: CommandLine.arguments[1])
+let isBlueprint = CommandLine.arguments.dropFirst(2).first == "blueprint"
 
 func color(_ hex: UInt32, _ alpha: CGFloat = 1) -> CGColor {
     CGColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
@@ -93,57 +96,115 @@ func innerShadow(_ context: CGContext, _ shape: CGPath, scale: CGFloat, y: CGFlo
     context.restoreGState()
 }
 
-func drawIcon(in context: CGContext, scale: CGFloat) {
-    // macOS icon grid: an 824 pt body centered in 1024, leaving room for the shadow.
-    let center = CGPoint(x: 512, y: 512)
-    let body = CGRect(x: 100, y: 100, width: 824, height: 824)
-    let shape = squircle(center: center, size: 824, radius: 185)
+/// Fills `path` with a vertical gradient from `top` to `bottom`, in icon points.
+func fill(_ context: CGContext, _ path: CGPath, _ stops: [(UInt32, CGFloat, CGFloat)], top: CGFloat, bottom: CGFloat) {
+    context.saveGState()
+    context.addPath(path)
+    context.clip()
+    context.drawLinearGradient(gradient(stops), start: CGPoint(x: 0, y: top), end: CGPoint(x: 0, y: bottom), options: [])
+    context.restoreGState()
+}
+
+// macOS icon grid: the 1024 pt Figma artboard fills an 824 pt body centered in 1024, leaving room for the shadow.
+let center = CGPoint(x: 512, y: 512)
+let factor: CGFloat = 824 / 1024
+
+/// An artboard length in icon points.
+func art(_ length: CGFloat) -> CGFloat { length * factor }
+
+/// An artboard y (down from the top) in icon points (up from the bottom).
+func artY(_ y: CGFloat) -> CGFloat { center.y - (y - 512) * factor }
+
+/// An artboard rectangle (y down) in icon points.
+func art(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) -> CGRect {
+    CGRect(x: center.x + (x - 512) * factor, y: artY(y + height), width: art(width), height: art(height))
+}
+
+func roundedRect(_ rect: CGRect, radius: CGFloat) -> CGPath {
+    CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+}
+
+func drawYellow(in context: CGContext, scale: CGFloat) {
+    let shape = squircle(center: center, size: 824, radius: art(224))
 
     withShadow(context, scale: scale, y: -12, blur: 28, color(0x000000, 0.28)) {
         context.addPath(shape)
-        context.setFillColor(color(0xD6F43C))
+        context.setFillColor(color(0xD9F23B))
         context.fillPath()
     }
 
-    // Lime, lit from the top: a vertical gradient and a soft white glow along the top edge.
+    // ±: the bars of `Brand / Mark / ink`.
+    let glyph = CGMutablePath()
+    for (x, y, width, height) in [(344.0, 386.0, 336.0, 84.0), (470, 260, 84, 336), (344, 680, 336, 84)] {
+        glyph.addPath(roundedRect(art(x: x, y: y, width: width, height: height), radius: art(15.75)))
+    }
+    context.addPath(glyph)
+    context.setFillColor(color(0x16171B))
+    // Nonzero winding, so the plus's crossing bars fill as one shape.
+    context.fillPath(using: .winding)
+}
+
+func drawBlueprint(in context: CGContext, scale: CGFloat) {
+    // Figma's blur is twice CoreGraphics' standard deviation; shadows offset down in Figma are negative here.
+    let shape = squircle(center: center, size: 824, radius: art(224))
+
+    // Two drop shadows: the inner one is drawn into a layer that then casts the outer one.
+    withShadow(context, scale: scale, y: -art(24), blur: art(48), color(0x086CB5, 0.25)) {
+        context.beginTransparencyLayer(auxiliaryInfo: nil)
+        withShadow(context, scale: scale, y: -art(6), blur: art(12), color(0x074D96, 0.12)) {
+            context.addPath(shape)
+            context.setFillColor(color(0x039CEE))
+            context.fillPath()
+        }
+        context.endTransparencyLayer()
+    }
+    fill(context, shape, [(0x08CBE7, 0, 1), (0x039CEE, 0.45, 1), (0x1260DD, 1, 1)], top: artY(0), bottom: artY(1024))
+
+    // A construction grid every 57 pt inside the keyline, which is 56 pt in from the edge.
+    let keyline = squircle(center: center, size: art(912), radius: art(168))
     context.saveGState()
-    context.addPath(shape)
+    context.addPath(keyline)
     context.clip()
-    context.drawLinearGradient(
-        gradient([(0xF1FF8A, 0, 1), (0xD6F43C, 0.55, 1), (0xBCDB22, 1, 1)]),
-        start: CGPoint(x: 0, y: body.maxY), end: CGPoint(x: 0, y: body.minY), options: [])
-    let glow = CGSize(width: 0.55 * body.width, height: 0.35 * body.height)
-    context.translateBy(x: body.midX, y: body.maxY - 0.08 * body.height)
-    context.scaleBy(x: glow.width / glow.height, y: 1)
-    context.drawRadialGradient(
-        gradient([(0xFFFFFF, 0, 0.45), (0xFFFFFF, 1, 0)]),
-        startCenter: .zero, startRadius: 0, endCenter: .zero, endRadius: glow.height, options: [])
+    let grid = CGMutablePath()
+    for step in 1..<16 {
+        let at = 56 + CGFloat(step) * 57
+        grid.move(to: CGPoint(x: center.x + (at - 512) * factor, y: artY(56)))
+        grid.addLine(to: CGPoint(x: center.x + (at - 512) * factor, y: artY(968)))
+        grid.move(to: CGPoint(x: center.x + (56 - 512) * factor, y: artY(at)))
+        grid.addLine(to: CGPoint(x: center.x + (968 - 512) * factor, y: artY(at)))
+    }
+    context.addPath(grid)
+    context.setStrokeColor(color(0xFFFFFF, 0.14))
+    context.setLineWidth(art(1.4))
+    context.strokePath()
     context.restoreGState()
 
-    // A bright rim along the top edge and a darker lime one along the bottom.
-    innerShadow(context, shape, scale: scale, y: -5, blur: 6, color(0xFFFFFF, 0.55))
-    innerShadow(context, shape, scale: scale, y: 10, blur: 28, color(0x6F8A00, 0.35))
+    // ±: frosted white bars with a soft glow, the plus brighter than the minus.
+    let radius = art(20.475)
+    let plus = CGMutablePath()
+    plus.addPath(roundedRect(art(x: 293.6, y: 348.2, width: 436.8, height: 109.2), radius: radius))
+    plus.addPath(roundedRect(art(x: 457.4, y: 184.4, width: 109.2, height: 436.8), radius: radius))
+    let minus = roundedRect(art(x: 293.6, y: 730.4, width: 436.8, height: 109.2), radius: radius)
+    let bars: [(CGPath, [(UInt32, CGFloat, CGFloat)], CGFloat, CGFloat)] = [
+        (minus, [(0xFFFFFF, 0, 0.95), (0xC0EFFF, 1, 0.55)], 730.4, 839.6),
+        (plus, [(0xFFFFFF, 0, 1), (0xFFFFFF, 0.5, 1), (0xB4EFFF, 1, 0.8)], 184.4, 621.2),
+    ]
+    for (bar, stops, top, bottom) in bars {
+        withShadow(context, scale: scale, y: 0, blur: art(12), color(0xFFFFFF, 0.45)) {
+            context.beginTransparencyLayer(auxiliaryInfo: nil)
+            fill(context, bar, stops, top: artY(top), bottom: artY(bottom))
+            context.endTransparencyLayer()
+        }
+        innerShadow(context, bar, scale: scale, y: -art(2), blur: art(5), color(0xFFFFFF, 0.65))
+    }
 
-    // ±: rounded bars, the plus above the minus, centered as a group.
-    let thickness: CGFloat = 71.4
-    let arm: CGFloat = 265.2
-    let gap: CGFloat = 59.5
-    let top = center.y + (arm + gap + thickness) / 2
-    let plusCenter = top - arm / 2
-    let minusCenter = top - arm - gap - thickness / 2
-    func bar(_ rect: CGRect) -> CGPath {
-        CGPath(roundedRect: rect, cornerWidth: min(rect.width, rect.height) / 2, cornerHeight: min(rect.width, rect.height) / 2, transform: nil)
-    }
-    let glyph = CGMutablePath()
-    glyph.addPath(bar(CGRect(x: center.x - arm / 2, y: plusCenter - thickness / 2, width: arm, height: thickness)))
-    glyph.addPath(bar(CGRect(x: center.x - thickness / 2, y: plusCenter - arm / 2, width: thickness, height: arm)))
-    glyph.addPath(bar(CGRect(x: center.x - arm / 2, y: minusCenter - thickness / 2, width: arm, height: thickness)))
-    withShadow(context, scale: scale, y: -5, blur: 8.5, color(0x5E7700, 0.35)) {
-        context.addPath(glyph)
-        context.setFillColor(color(0x16171B))
-        // Nonzero winding, so the plus's crossing bars fill as one shape.
-        context.fillPath(using: .winding)
-    }
+    // A white keyline, then light along the top edge and shade along the bottom.
+    context.addPath(keyline)
+    context.setStrokeColor(color(0xFFFFFF, 0.96))
+    context.setLineWidth(art(10))
+    context.strokePath()
+    innerShadow(context, shape, scale: scale, y: -art(5), blur: art(12), color(0xD3FCFF, 0.5))
+    innerShadow(context, shape, scale: scale, y: art(6), blur: art(18), color(0x0848B5, 0.2))
 }
 
 let sizes: [(points: Int, scale: Int)] = [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2), (256, 1), (256, 2), (512, 1), (512, 2)]
@@ -158,9 +219,9 @@ for (points, scale) in sizes {
     NSGraphicsContext.current = graphics
     graphics.imageInterpolation = .high
     let context = graphics.cgContext
-    let factor = CGFloat(pixels) / 1024
-    context.scaleBy(x: factor, y: factor)
-    drawIcon(in: context, scale: factor)
+    let pixelsPerPoint = CGFloat(pixels) / 1024
+    context.scaleBy(x: pixelsPerPoint, y: pixelsPerPoint)
+    if isBlueprint { drawBlueprint(in: context, scale: pixelsPerPoint) } else { drawYellow(in: context, scale: pixelsPerPoint) }
     NSGraphicsContext.restoreGraphicsState()
     let name = scale == 1 ? "icon_\(points)x\(points).png" : "icon_\(points)x\(points)@2x.png"
     try! rep.representation(using: .png, properties: [:])!.write(to: output.appending(path: name))
