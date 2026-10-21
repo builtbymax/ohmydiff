@@ -4,10 +4,16 @@ import Observation
 import SwiftUI
 import OhMyDiffCore
 
-/// The project list, the selection and one cached session per project.
+/// The project list, the workspaces it is sorted into, the selection and one cached session per project.
 @Observable
 final class AppModel {
+    /// Every project, in every workspace, in the order they were added.
     private(set) var projects: [Project] = []
+    private(set) var workspaces: [Workspace] = []
+    /// The workspace shown on the rail; it follows the selected project.
+    private(set) var selectedWorkspaceID: Workspace.ID? {
+        didSet { defaults.set(selectedWorkspaceID?.uuidString, forKey: Self.workspaceKey) }
+    }
     var selectedProjectID: Project.ID? {
         didSet {
             guard oldValue != selectedProjectID else { return }
@@ -20,10 +26,23 @@ final class AppModel {
 
     /// The ⌘K command palette.
     var isSwitcherPresented = false {
-        didSet { if isSwitcherPresented { isProjectMenuPresented = false } }
+        didSet {
+            if isSwitcherPresented {
+                isProjectMenuPresented = false
+                isWorkspaceMenuPresented = false
+            }
+        }
     }
     /// The project dropdown below the breadcrumb.
-    var isProjectMenuPresented = false
+    var isProjectMenuPresented = false {
+        didSet { if isProjectMenuPresented { isWorkspaceMenuPresented = false } }
+    }
+    /// The workspace dropdown beside the rail.
+    var isWorkspaceMenuPresented = false {
+        didSet { if isWorkspaceMenuPresented { isProjectMenuPresented = false } }
+    }
+    /// An empty workspace the user asked to delete, until they confirm.
+    var pendingWorkspaceDeletion: Workspace?
     var isImporterPresented = false
     /// The sheet that updates the selected project from its remote.
     var isUpstreamUpdatePresented = false
@@ -38,26 +57,55 @@ final class AppModel {
     @ObservationIgnored private var toolchainTask: Task<Toolchain?, Never>?
     @ObservationIgnored private let defaults: UserDefaults
     private static let selectionKey = "selectedProjectID"
+    private static let workspaceKey = "selectedWorkspaceID"
 
     init(store: ProjectStore = AppVariant.projectStore, defaults: UserDefaults = .standard) {
         self.store = store
         self.defaults = defaults
+        var list = ProjectList()
+        var loaded = false
         do {
-            projects = try store.load()
-            if projects.assignMissingColors() { save() }
+            list = try store.load()
+            loaded = true
         } catch {
             errorMessage = "Could not read the project list: \(error.localizedDescription)"
         }
+        // Not saved after a failed read, so the unreadable file is not replaced by an empty list.
+        let recolored = list.projects.assignMissingColors()
+        let sorted = list.assignWorkspaces()
+        projects = list.projects
+        workspaces = list.workspaces
+        if loaded, recolored || sorted { save() }
         toolchainTask = Task { try? await Toolchain.discover() }
 
         let saved = defaults.string(forKey: Self.selectionKey).flatMap(UUID.init(uuidString:))
+        let restored = projects.first { $0.id == saved }
+        let savedWorkspace = defaults.string(forKey: Self.workspaceKey).flatMap(UUID.init(uuidString:))
+        selectedWorkspaceID = restored?.workspaceID ?? workspaces.first { $0.id == savedWorkspace }?.id ?? workspaces.first?.id
         // `didSet` runs here too and activates the restored selection.
-        selectedProjectID = projects.first { $0.id == saved }?.id ?? projects.first?.id
+        selectedProjectID = restored?.id ?? visibleProjects.first?.id
         warmUp()
     }
 
     var selectedProject: Project? {
         projects.first { $0.id == selectedProjectID }
+    }
+
+    var selectedWorkspace: Workspace? {
+        workspaces.first { $0.id == selectedWorkspaceID }
+    }
+
+    /// The selected workspace's projects, the most recently opened first.
+    var visibleProjects: [Project] {
+        projects.inWorkspace(selectedWorkspaceID)
+    }
+
+    func projects(in workspace: Workspace.ID) -> [Project] {
+        projects.inWorkspace(workspace)
+    }
+
+    func workspace(of project: Project) -> Workspace? {
+        workspaces.first { $0.id == project.workspaceID }
     }
 
     var selectedSession: ProjectSession? {
@@ -81,9 +129,19 @@ final class AppModel {
 
     // MARK: - Selection
 
+    /// Selects a project of the selected workspace by its ⌘ number.
     func select(position: Int) {
-        guard projects.indices.contains(position) else { return }
-        selectedProjectID = projects[position].id
+        let visible = visibleProjects
+        guard visible.indices.contains(position) else { return }
+        selectedProjectID = visible[position].id
+    }
+
+    /// Shows a workspace with the project last opened in it, if any.
+    func selectWorkspace(_ id: Workspace.ID) {
+        guard workspaces.contains(where: { $0.id == id }), id != selectedWorkspaceID else { return }
+        selectedWorkspaceID = id
+        selectedProjectID = visibleProjects.first?.id
+        warmUp()
     }
 
     private func selectionDidChange(from oldID: Project.ID?) {
@@ -91,14 +149,20 @@ final class AppModel {
         if let selectedProjectID {
             session(for: selectedProjectID).activate()
             defaults.set(selectedProjectID.uuidString, forKey: Self.selectionKey)
+            update(selectedProjectID) { $0.lastOpenedAt = .now }
+            // Opening a project of another workspace, e.g. from the palette or a link, shows that workspace.
+            if let workspaceID = selectedProject?.workspaceID, workspaceID != selectedWorkspaceID {
+                selectedWorkspaceID = workspaceID
+                warmUp()
+            }
         } else {
             defaults.removeObject(forKey: Self.selectionKey)
         }
     }
 
-    /// Loads every other project once in the background so the first switch to it is instant.
+    /// Loads the selected workspace's other projects once in the background so the first switch to one is instant.
     private func warmUp() {
-        let others = projects.map(\.id).filter { $0 != selectedProjectID }
+        let others = visibleProjects.map(\.id).filter { $0 != selectedProjectID }
         Task {
             for id in others where sessions[id]?.phase ?? .idle == .idle {
                 session(for: id).refresh()
@@ -139,7 +203,9 @@ final class AppModel {
         let repository = try await Repository.open(url, toolchain: toolchain)
         let path = repository.root.standardizedFileURL.path
         if let existing = projects.first(where: { $0.url.standardizedFileURL.path == path }) { return existing.id }
-        let project = Project(path: path, kind: repository.kind, color: ProjectColor.pick(avoiding: projects.compactMap(\.color)))
+        let project = Project(
+            path: path, kind: repository.kind, color: ProjectColor.pick(avoiding: projects.compactMap(\.color)),
+            workspaceID: selectedWorkspaceID)
         projects.append(project)
         return project.id
     }
@@ -150,13 +216,48 @@ final class AppModel {
         sessions.removeValue(forKey: id)?.close()
         save()
         if selectedProjectID == id {
-            selectedProjectID = projects.isEmpty ? nil : projects[min(index, projects.count - 1)].id
+            selectedProjectID = visibleProjects.first?.id
         }
     }
 
-    func move(fromOffsets source: IndexSet, toOffset destination: Int) {
-        projects.move(fromOffsets: source, toOffset: destination)
+    /// Sorts a project into another workspace; the selected project takes the workspace view along.
+    func move(_ id: Project.ID, to workspaceID: Workspace.ID) {
+        guard workspaces.contains(where: { $0.id == workspaceID }) else { return }
+        update(id) { $0.workspaceID = workspaceID }
+        if id == selectedProjectID { selectedWorkspaceID = workspaceID }
+    }
+
+    // MARK: - Workspaces
+
+    /// Adds a workspace and shows it, empty.
+    func addWorkspace(named name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        let workspace = Workspace(name: name, color: ProjectColor.pick(avoiding: workspaces.map(\.color)))
+        workspaces.append(workspace)
         save()
+        selectWorkspace(workspace.id)
+    }
+
+    func renameWorkspace(_ id: Workspace.ID, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        workspaces[index].name = name
+        save()
+    }
+
+    /// Only an empty workspace can be deleted, and never the last one.
+    func canDelete(_ workspace: Workspace) -> Bool {
+        workspaces.count > 1 && !projects.contains { $0.workspaceID == workspace.id }
+    }
+
+    func deleteWorkspace(_ id: Workspace.ID) {
+        guard let index = workspaces.firstIndex(where: { $0.id == id }), canDelete(workspaces[index]) else { return }
+        workspaces.remove(at: index)
+        save()
+        if selectedWorkspaceID == id {
+            selectWorkspace(workspaces[min(index, workspaces.count - 1)].id)
+        }
     }
 
     /// Points a moved or missing project at a new folder.
@@ -323,7 +424,7 @@ final class AppModel {
 
     private func save() {
         do {
-            try store.save(projects)
+            try store.save(ProjectList(projects: projects, workspaces: workspaces))
         } catch {
             errorMessage = "Could not save the project list: \(error.localizedDescription)"
         }

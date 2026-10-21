@@ -170,10 +170,13 @@ import Testing
 
     @Test func listsProjects() async throws {
         let harness = Harness(repo: try await TestRepo())
-        try harness.store.save([Project(path: "/code/app", kind: .gitButler)])
+        let workspace = Workspace(name: "Work", color: .emerald)
+        try harness.store.save(ProjectList(
+            projects: [Project(path: "/code/app", kind: .gitButler, workspaceID: workspace.id)], workspaces: [workspace]))
         let text = try await harness.call("list_projects").text
         #expect(text.contains("\"path\" : \"/code/app\""))
         #expect(text.contains("\"kind\" : \"gitButler\""))
+        #expect(text.contains("\"workspace\" : \"Work\""))
     }
 
     @Test func cutsLongDiffs() {

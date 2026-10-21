@@ -129,8 +129,14 @@ public struct MCPServer: Sendable {
     private func run(_ tool: MCPTool, arguments: JSONValue) async throws -> String {
         switch tool {
         case .listProjects:
-            let list = try projects.load().map { project -> JSONValue in
-                ["name": .string(project.displayName), "path": .string(project.path), "kind": .string(project.kind.rawValue)]
+            let saved = try projects.load()
+            let workspaces = Dictionary(saved.workspaces.map { ($0.id, $0.name) }) { first, _ in first }
+            let list = saved.projects.map { project -> JSONValue in
+                var entry: [String: JSONValue] = [
+                    "name": .string(project.displayName), "path": .string(project.path), "kind": .string(project.kind.rawValue),
+                ]
+                if let workspace = project.workspaceID.flatMap({ workspaces[$0] }) { entry["workspace"] = .string(workspace) }
+                return .object(entry)
             }
             return Self.pretty(["projects": .array(list)])
 
@@ -388,7 +394,7 @@ enum MCPTool: String, CaseIterable {
     var description: String {
         switch self {
         case .listProjects:
-            "The repositories added to ohmydiff, with their paths."
+            "The repositories added to ohmydiff, with their paths and the workspace each is sorted into."
         case .listChanges:
             "Uncommitted files of a repository with their line counts: staged, unstaged and untracked in plain git; "
                 + "unassigned and per branch in a GitButler workspace."

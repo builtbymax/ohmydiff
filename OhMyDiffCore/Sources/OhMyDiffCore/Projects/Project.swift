@@ -10,17 +10,26 @@ public struct Project: Sendable, Hashable, Codable, Identifiable {
     public var kind: RepositoryKind
     /// Set when the project is added; older lists get one on load.
     public var color: ProjectColor?
+    /// The workspace the project is sorted into; lists from before workspaces get one on load.
+    public var workspaceID: Workspace.ID?
+    /// When the project was last selected, to list the most recent first.
+    public var lastOpenedAt: Date?
 
-    public init(id: UUID = UUID(), path: String, displayName: String? = nil, kind: RepositoryKind = .git, color: ProjectColor? = nil) {
+    public init(
+        id: UUID = UUID(), path: String, displayName: String? = nil, kind: RepositoryKind = .git, color: ProjectColor? = nil,
+        workspaceID: Workspace.ID? = nil, lastOpenedAt: Date? = nil
+    ) {
         self.id = id
         self.path = path
         self.displayName = displayName ?? URL(fileURLWithPath: path).lastPathComponent
         self.kind = kind
         self.color = color
+        self.workspaceID = workspaceID
+        self.lastOpenedAt = lastOpenedAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, path, displayName, kind, color
+        case id, path, displayName, kind, color, workspaceID, lastOpenedAt
     }
 
     public init(from decoder: any Decoder) throws {
@@ -31,6 +40,8 @@ public struct Project: Sendable, Hashable, Codable, Identifiable {
         kind = try container.decode(RepositoryKind.self, forKey: .kind)
         // A color a newer or older version no longer knows is reassigned instead of failing the whole list.
         color = try? container.decodeIfPresent(ProjectColor.self, forKey: .color)
+        workspaceID = try container.decodeIfPresent(UUID.self, forKey: .workspaceID)
+        lastOpenedAt = try container.decodeIfPresent(Date.self, forKey: .lastOpenedAt)
     }
 
     public var url: URL { URL(fileURLWithPath: path, isDirectory: true) }
@@ -54,7 +65,7 @@ public struct Project: Sendable, Hashable, Codable, Identifiable {
     }
 }
 
-/// Persists the project list as JSON.
+/// Persists the projects and workspaces as JSON.
 public struct ProjectStore: Sendable {
     public let fileURL: URL
 
@@ -70,22 +81,29 @@ public struct ProjectStore: Sendable {
         URL.applicationSupportDirectory.appending(path: folder, directoryHint: .isDirectory).appending(path: "projects.json")
     }
 
+    /// Version 2 added workspaces; version 1 files have none.
     private struct File: Codable {
-        var version = 1
+        var version = 2
         var projects: [Project]
+        var workspaces: [Workspace]?
     }
 
-    /// Returns the saved projects, or an empty list when nothing has been saved yet.
-    public func load() throws -> [Project] {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+    /// Returns the saved list, or an empty one when nothing has been saved yet. Projects keep the workspace
+    /// they were saved with, even an unknown one: `ProjectList.assignWorkspaces()` sorts them out.
+    public func load() throws -> ProjectList {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return ProjectList() }
         let data = try Data(contentsOf: fileURL)
-        return try JSONDecoder().decode(File.self, from: data).projects
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let file = try decoder.decode(File.self, from: data)
+        return ProjectList(projects: file.projects, workspaces: file.workspaces ?? [])
     }
 
-    public func save(_ projects: [Project]) throws {
+    public func save(_ list: ProjectList) throws {
         try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        try encoder.encode(File(projects: projects)).write(to: fileURL, options: .atomic)
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(File(projects: list.projects, workspaces: list.workspaces)).write(to: fileURL, options: .atomic)
     }
 }

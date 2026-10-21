@@ -54,8 +54,12 @@ struct ContentView: View {
                 if model.isProjectMenuPresented {
                     ProjectDropdown(model: model)
                 }
+                if model.isWorkspaceMenuPresented {
+                    WorkspaceDropdown(model: model)
+                }
             }
             .animation(.snappy(duration: 0.2), value: model.isProjectMenuPresented)
+            .animation(.snappy(duration: 0.2), value: model.isWorkspaceMenuPresented)
         }
         .overlay {
             ZStack {
@@ -94,6 +98,16 @@ struct ContentView: View {
         } message: { request in
             Text("A link or another app asked ohmydiff to open \(request.folder.path). Adding it runs git and but in that folder, so only add repositories you trust.")
         }
+        .alert(
+            "Delete “\(model.pendingWorkspaceDeletion?.name ?? "")”?",
+            isPresented: Binding(get: { model.pendingWorkspaceDeletion != nil }, set: { if !$0 { model.pendingWorkspaceDeletion = nil } }),
+            presenting: model.pendingWorkspaceDeletion
+        ) { workspace in
+            Button("Delete", role: .destructive) { model.deleteWorkspace(workspace.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("The workspace is empty. Deleting it cannot be undone.")
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Catch up on anything the watcher cannot see, e.g. changes made while the Mac slept.
             model.refreshSelected()
@@ -114,7 +128,8 @@ private struct ListPaneView: View {
                 HistoryListView(session: session)
             }
         } else {
-            EmptyState("No Projects", systemImage: "folder.badge.plus", description: "Add a git repository or drop a folder on the rail.") {
+            let title = model.projects.isEmpty ? "No Projects" : "No Projects in \(model.selectedWorkspace?.name ?? "This Workspace")"
+            EmptyState(title, systemImage: "folder.badge.plus", description: "Add a git repository or drop a folder on the rail.") {
                 Button("Add Project…") { model.isImporterPresented = true }
                     .buttonStyle(.pill(.prominent))
             }
