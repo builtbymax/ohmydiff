@@ -8,20 +8,69 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = ProjectStore(fileURL: directory.appending(path: "nested/projects.json"))
 
-        #expect(try store.load().isEmpty)
+        #expect(try store.load() == ProjectList())
 
-        let projects = [
-            Project(path: "/Users/me/code/app"),
-            Project(path: "/Users/me/code/lib", displayName: "Library", kind: .gitButler),
-        ]
-        try store.save(projects)
+        let workspace = Workspace(name: "Work", color: .greenery)
+        let list = ProjectList(projects: [
+            Project(path: "/Users/me/code/app", workspaceID: workspace.id, lastOpenedAt: Date(timeIntervalSince1970: 1_800_000_000)),
+            Project(path: "/Users/me/code/lib", displayName: "Library", kind: .gitButler, workspaceID: workspace.id),
+        ], workspaces: [workspace])
+        try store.save(list)
         let loaded = try store.load()
-        #expect(loaded == projects)
-        #expect(loaded[0].displayName == "app")
+        #expect(loaded == list)
+        #expect(loaded.projects[0].displayName == "app")
 
         let json = try String(contentsOf: store.fileURL, encoding: .utf8)
         #expect(json.contains("\"kind\" : \"gitButler\""))
         #expect(json.contains("\"path\" : \"/Users/me/code/lib\""))
+        #expect(json.contains("\"version\" : 2"))
+    }
+
+    @Test func movesVersionOneListsIntoOneWorkspace() throws {
+        let json = """
+        {"version": 1, "projects": [
+          {"id": "\(UUID())", "path": "/a", "displayName": "a", "kind": "git"},
+          {"id": "\(UUID())", "path": "/b", "displayName": "b", "kind": "git"}
+        ]}
+        """
+        let directory = FileManager.default.temporaryDirectory.appending(path: "ohmydiff-store-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ProjectStore(fileURL: directory.appending(path: "projects.json"))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: store.fileURL)
+
+        var list = try store.load()
+        #expect(list.workspaces.isEmpty)
+        let changed = list.assignWorkspaces()
+        #expect(changed)
+        #expect(list.workspaces.map(\.name) == [Workspace.defaultName])
+        #expect(list.projects.allSatisfy { $0.workspaceID == list.workspaces[0].id })
+        let changedAgain = list.assignWorkspaces()
+        #expect(!changedAgain)
+    }
+
+    @Test func movesProjectsOfUnknownWorkspacesIntoTheFirst() {
+        let first = Workspace(name: "One", color: .emerald)
+        let second = Workspace(name: "Two", color: .mimosa)
+        var list = ProjectList(projects: [
+            Project(path: "/a", workspaceID: second.id),
+            Project(path: "/b", workspaceID: UUID()),
+        ], workspaces: [first, second])
+        let changed = list.assignWorkspaces()
+        #expect(changed)
+        #expect(list.projects.map(\.workspaceID) == [second.id, first.id])
+    }
+
+    @Test func listsAWorkspaceMostRecentlyOpenedFirst() {
+        let workspace = UUID()
+        let projects = [
+            Project(path: "/never", workspaceID: workspace),
+            Project(path: "/old", workspaceID: workspace, lastOpenedAt: Date(timeIntervalSince1970: 100)),
+            Project(path: "/elsewhere", workspaceID: UUID(), lastOpenedAt: Date(timeIntervalSince1970: 300)),
+            Project(path: "/new", workspaceID: workspace, lastOpenedAt: Date(timeIntervalSince1970: 200)),
+            Project(path: "/never-either", workspaceID: workspace),
+        ]
+        #expect(projects.inWorkspace(workspace).map(\.path) == ["/new", "/old", "/never", "/never-either"])
     }
 
     @Test func decodesListsWithoutOrWithUnknownColors() throws {
@@ -39,7 +88,7 @@ import Testing
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try Data(json.utf8).write(to: store.fileURL)
 
-        let loaded = try store.load()
+        let loaded = try store.load().projects
         #expect(loaded.map(\.color) == [nil, nil, .greenery])
         #expect(loaded[0].id == id)
     }

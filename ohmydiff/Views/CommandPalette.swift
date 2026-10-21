@@ -142,7 +142,7 @@ struct CommandPalette: View {
     private func row(for item: PaletteItem) -> some View {
         if case .project(let project) = item.icon {
             ProjectRow(model: model, project: project, nameIndices: item.indices,
-                       isCurrent: project.id == model.selectedProjectID, showsShortcut: true)
+                       isCurrent: project.id == model.selectedProjectID, showsShortcut: true, showsWorkspace: true)
         } else {
             HStack(spacing: 10) {
                 icon(for: item.icon)
@@ -241,8 +241,12 @@ struct CommandPalette: View {
         }
     }
 
+    /// The workspace's projects first, then those of the others, each the most recently opened first. Picking
+    /// one of another workspace switches to it.
     private var projects: [PaletteItem] {
-        model.projects.map { project in
+        let visible = model.visibleProjects
+        let others = model.workspaces.filter { $0.id != model.selectedWorkspaceID }.flatMap { model.projects(in: $0.id) }
+        return (visible + others).map { project in
             PaletteItem(id: "project:\(project.id)", title: project.displayName, icon: .project(project)) {
                 model.selectedProjectID = project.id
             }
@@ -347,6 +351,11 @@ struct CommandPalette: View {
             add("Show in Finder", "folder") { NSWorkspace.shared.activateFileViewerSelecting([project.url]) }
         }
         add("Add Project…", "plus", "⇧⌘O") { model.isImporterPresented = true }
+        for (position, workspace) in model.workspaces.enumerated() where workspace.id != model.selectedWorkspaceID {
+            add("Switch to \(workspace.name)", "square.stack", position < 9 ? "⌃⌘\(position + 1)" : nil) {
+                model.selectWorkspace(workspace.id)
+            }
+        }
         for option in AppAppearance.allCases where option != appearance {
             let symbol = switch option {
             case .system: "circle.lefthalf.filled"

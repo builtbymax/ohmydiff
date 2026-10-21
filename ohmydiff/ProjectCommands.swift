@@ -85,12 +85,24 @@ struct ProjectCommands: Commands {
 
             Divider()
 
+            let projects = model.visibleProjects
             ForEach(0..<9, id: \.self) { position in
-                Button(model.projects.indices.contains(position) ? model.projects[position].displayName : "Project \(position + 1)") {
+                Button(projects.indices.contains(position) ? projects[position].displayName : "Project \(position + 1)") {
                     model.select(position: position)
                 }
                 .keyboardShortcut(KeyEquivalent(Character("\(position + 1)")))
-                .disabled(!model.projects.indices.contains(position))
+                .disabled(!projects.indices.contains(position))
+            }
+
+            Divider()
+
+            ForEach(0..<9, id: \.self) { position in
+                let workspace = model.workspaces.indices.contains(position) ? model.workspaces[position] : nil
+                Button(workspace?.name ?? "Workspace \(position + 1)") {
+                    workspace.map { model.selectWorkspace($0.id) }
+                }
+                .keyboardShortcut(KeyEquivalent(Character("\(position + 1)")), modifiers: [.command, .control])
+                .disabled(workspace == nil)
             }
 
             Divider()

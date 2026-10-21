@@ -1,6 +1,7 @@
+import OhMyDiffCore
 import SwiftUI
 
-/// The glass rail on the left: Changes / History, the project switcher and Settings.
+/// The glass rail on the left: the workspace switcher, Changes / History, the project switcher and Settings.
 /// Projects are switched from the breadcrumb in the toolbar.
 struct RailView: View {
     @Bindable var model: AppModel
@@ -9,6 +10,10 @@ struct RailView: View {
 
     var body: some View {
         VStack(spacing: 6) {
+            WorkspaceButton(model: model)
+            Divider()
+                .frame(width: 24)
+                .padding(.vertical, 2)
             RailButton(title: "Changes", systemImage: "plusminus", isSelected: mode == .changes) { mode = .changes }
             RailButton(title: "History", systemImage: "clock", isSelected: mode == .history) { mode = .history }
             RailButton(title: "Switch Project  ⌘K", systemImage: "magnifyingglass", isSelected: model.isSwitcherPresented) {
@@ -39,6 +44,29 @@ struct RailView: View {
             Task { await model.addProjects(folders) }
             return true
         }
+    }
+}
+
+/// The selected workspace's monogram; opens the workspace dropdown.
+private struct WorkspaceButton: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        Button { model.isWorkspaceMenuPresented.toggle() } label: {
+            Group {
+                if let workspace = model.selectedWorkspace {
+                    WorkspaceMonogram(workspace: workspace, size: 30)
+                } else {
+                    Image(systemName: "square.stack")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 42, height: 42)
+        }
+        .buttonStyle(.hover(cornerRadius: 13, isSelected: model.isWorkspaceMenuPresented))
+        .focusEffectDisabled()
+        .glassTooltip(model.selectedWorkspace.map { "\($0.name) — Switch Workspace" } ?? "Switch Workspace", edge: .trailing)
     }
 }
 

@@ -2,7 +2,7 @@ import AppKit
 import OhMyDiffCore
 import SwiftUI
 
-/// The dropdown below the breadcrumb's project name: every project, then project actions.
+/// The dropdown below the breadcrumb's project name: the workspace's projects, then project actions.
 struct ProjectDropdown: View {
     @Bindable var model: AppModel
     @State private var highlighted: Int?
@@ -21,18 +21,19 @@ struct ProjectDropdown: View {
     }
 
     private var panel: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let projects = model.visibleProjects
+        return VStack(alignment: .leading, spacing: 2) {
             HStack {
-                Text("Projects")
+                Text(model.selectedWorkspace?.name ?? "Projects")
                 Spacer()
-                Text("\(model.projects.count)").monospacedDigit()
+                Text("\(projects.count)").monospacedDigit()
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.top, 6)
             .padding(.bottom, 4)
-            ForEach(Array(model.projects.enumerated()), id: \.element.id) { offset, project in
+            ForEach(Array(projects.enumerated()), id: \.element.id) { offset, project in
                 Button { select(project) } label: {
                     ProjectRow(model: model, project: project, isCurrent: project.id == model.selectedProjectID, showsShortcut: true)
                 }
@@ -45,6 +46,9 @@ struct ProjectDropdown: View {
             if let project = model.selectedProject {
                 action("Show in Finder", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting([project.url]) }
                     .disabled(!project.exists)
+                if model.workspaces.count > 1 {
+                    moveMenu(project)
+                }
                 action("Remove \(project.displayName)", systemImage: "minus.circle", role: .destructive) { model.remove(project.id) }
             }
         }
@@ -53,7 +57,27 @@ struct ProjectDropdown: View {
         .glassEffect(Theme.barGlass, in: .rect(cornerRadius: 18))
         .shadow(color: Theme.overlayShadow, radius: 24, y: 10)
         .paletteKeys(up: { move(-1) }, down: { move(1) }, choose: chooseHighlighted, dismiss: dismiss)
-        .onAppear { highlighted = model.projects.firstIndex { $0.id == model.selectedProjectID } }
+        .onAppear { highlighted = projects.firstIndex { $0.id == model.selectedProjectID } }
+    }
+
+    /// The other workspaces to sort the project into; the view follows it there.
+    private func moveMenu(_ project: Project) -> some View {
+        Menu {
+            ForEach(model.workspaces.filter { $0.id != project.workspaceID }) { workspace in
+                Button(workspace.name) {
+                    dismiss()
+                    model.move(project.id, to: workspace.id)
+                }
+            }
+        } label: {
+            actionLabel("Move to Workspace", systemImage: "arrow.right.square", trailing: Image(systemName: "chevron.right")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary))
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.hover(cornerRadius: 10))
+        .focusEffectDisabled()
     }
 
     private func action(
@@ -64,34 +88,39 @@ struct ProjectDropdown: View {
             dismiss()
             perform()
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 28)
-                    .foregroundStyle(role == .destructive ? AnyShapeStyle(tint) : AnyShapeStyle(.secondary))
-                Text(title)
-                    .foregroundStyle(role == .destructive ? AnyShapeStyle(tint) : AnyShapeStyle(.primary))
-                    .lineLimit(1)
-                Spacer()
-                if let shortcut { KeyCap(shortcut) }
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 32)
-            .contentShape(.rect)
+            actionLabel(title, systemImage: systemImage, tint: tint, trailing: shortcut.map { KeyCap($0) })
         }
         .buttonStyle(.hover(cornerRadius: 10, tint: tint))
         .focusEffectDisabled()
     }
 
+    private func actionLabel(_ title: String, systemImage: String, tint: Color = .primary, trailing: (some View)?) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 28)
+                .foregroundStyle(tint == .primary ? AnyShapeStyle(.secondary) : AnyShapeStyle(tint))
+            Text(title)
+                .foregroundStyle(tint)
+                .lineLimit(1)
+            Spacer()
+            trailing
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 32)
+        .contentShape(.rect)
+    }
+
     private func move(_ delta: Int) {
-        guard !model.projects.isEmpty else { return }
-        let count = model.projects.count
+        let count = model.visibleProjects.count
+        guard count > 0 else { return }
         highlighted = ((highlighted ?? (delta > 0 ? -1 : 0)) + delta + count) % count
     }
 
     private func chooseHighlighted() {
-        guard let highlighted, model.projects.indices.contains(highlighted) else { return }
-        select(model.projects[highlighted])
+        let projects = model.visibleProjects
+        guard let highlighted, projects.indices.contains(highlighted) else { return }
+        select(projects[highlighted])
     }
 
     private func select(_ project: Project) {
@@ -104,13 +133,15 @@ struct ProjectDropdown: View {
     }
 }
 
-/// A project in the palette or the dropdown: monogram, name, kind, path, change count and ⌘ shortcut.
+/// A project in the palette or the dropdown: monogram, name, kind, path, change count and ⌘ shortcut, or
+/// its workspace when that is not the one shown.
 struct ProjectRow: View {
     let model: AppModel
     let project: Project
     var nameIndices: [Int] = []
     var isCurrent = false
     var showsShortcut = false
+    var showsWorkspace = false
 
     var body: some View {
         let session = model.session(for: project.id)
@@ -139,7 +170,13 @@ struct ProjectRow: View {
                     .background(Color.primary.opacity(0.06), in: .capsule)
                     .fixedSize()
             }
-            if showsShortcut, let position = model.projects.firstIndex(of: project), position < 9 {
+            if showsWorkspace, let workspace = model.workspace(of: project), workspace.id != model.selectedWorkspaceID {
+                Text(workspace.name)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+            } else if showsShortcut, let position = model.visibleProjects.firstIndex(where: { $0.id == project.id }), position < 9 {
                 KeyCap("⌘\(position + 1)")
             }
         }
@@ -166,12 +203,32 @@ struct ProjectMonogram: View {
     var size: CGFloat = 30
 
     var body: some View {
-        let color = project.color ?? ProjectColor.allCases[0]
-        Text(projectMonogram(project.displayName))
+        ColorMonogram(name: project.displayName, color: project.color ?? ProjectColor.allCases[0], size: size)
+    }
+}
+
+/// A workspace's two letters on its Pantone color, rounder than a project's.
+struct WorkspaceMonogram: View {
+    let workspace: Workspace
+    var size: CGFloat = 30
+
+    var body: some View {
+        ColorMonogram(name: workspace.name, color: workspace.color, size: size, cornerRatio: 0.5)
+    }
+}
+
+private struct ColorMonogram: View {
+    let name: String
+    let color: ProjectColor
+    let size: CGFloat
+    var cornerRatio: CGFloat = 0.28
+
+    var body: some View {
+        Text(projectMonogram(name))
             .font(.system(size: size * 0.38, weight: .bold))
             .foregroundStyle(color.isLight ? Color.black.opacity(0.8) : .white)
             .frame(width: size, height: size)
-            .background(Theme.projectColor(color).gradient, in: .rect(cornerRadius: size * 0.28))
+            .background(Theme.projectColor(color).gradient, in: .rect(cornerRadius: size * cornerRatio))
     }
 }
 
