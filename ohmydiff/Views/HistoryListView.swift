@@ -13,7 +13,7 @@ struct HistoryListView: View {
 
     var body: some View {
         content
-            .butCompatibilityBanner(session.butIncompatibility)
+            .butCompatibilityBanner(session)
             // Runs on appear and after every refresh of the project, so live updates reach History too.
             .task(id: session.lastRefreshed) { await session.refreshHistory() }
             .branchActionPresentation(history) { await session.suggestions() }

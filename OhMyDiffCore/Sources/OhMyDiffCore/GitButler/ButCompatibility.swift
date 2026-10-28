@@ -50,6 +50,22 @@ public struct ButIncompatibility: Sendable, Hashable, CustomStringConvertible {
     }
 }
 
+/// The installed `but` is not the release ohmydiff was tested against; the GitButler view stays on.
+public struct ButVersionMismatch: Sendable, Hashable, CustomStringConvertible {
+    /// `nil` when `but --version` printed nothing recognizable.
+    public var installed: ButVersion?
+    public var tested: ButVersion
+
+    public init(installed: ButVersion?, tested: ButVersion) {
+        self.installed = installed
+        self.tested = tested
+    }
+
+    public var description: String {
+        "GitButler \(installed?.description ?? "(unknown version)") is untested, some features may not work until ohmydiff supports it"
+    }
+}
+
 /// Guards against `but` releases whose JSON ohmydiff would misread.
 public enum ButCompatibility {
     /// The newest `but` release the contract tests passed against, from `gitbutler.json` next to this file.
@@ -78,5 +94,11 @@ public enum ButCompatibility {
         if let version, let knownGood, version <= knownGood { return nil }
         let violations = ButContract.violations(in: status)
         return violations.isEmpty ? nil : ButIncompatibility(version: version, violations: violations)
+    }
+
+    /// Any release other than the known-good one, older or newer, may differ in commands ohmydiff runs.
+    public static func mismatch(version: ButVersion?, knownGood: ButVersion? = knownGood) -> ButVersionMismatch? {
+        guard let knownGood, version != knownGood else { return nil }
+        return ButVersionMismatch(installed: version, tested: knownGood)
     }
 }

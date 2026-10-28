@@ -26,12 +26,19 @@ public struct Repository: Sendable {
     /// Set when the folder is a GitButler workspace but the installed `but` is not supported, so
     /// `kind` fell back to plain git.
     public let butIncompatibility: ButIncompatibility?
+    /// Set when the folder is a GitButler workspace shown as one, but the installed `but` is not the
+    /// release ohmydiff was tested against.
+    public let butVersionMismatch: ButVersionMismatch?
 
-    public init(root: URL, kind: RepositoryKind, toolchain: Toolchain, butIncompatibility: ButIncompatibility? = nil) {
+    public init(
+        root: URL, kind: RepositoryKind, toolchain: Toolchain,
+        butIncompatibility: ButIncompatibility? = nil, butVersionMismatch: ButVersionMismatch? = nil
+    ) {
         self.root = root
         self.kind = kind
         self.toolchain = toolchain
         self.butIncompatibility = butIncompatibility
+        self.butVersionMismatch = butVersionMismatch
     }
 
     /// Resolves the repository containing `path` and detects whether it is a GitButler workspace.
@@ -44,30 +51,35 @@ public struct Repository: Sendable {
             if case .nonZeroExit = error { throw RepositoryError.notARepository(path.path) }
             throw error
         }
-        let (kind, incompatibility) = await detectKind(root: root, toolchain: toolchain)
-        return Repository(root: root, kind: kind, toolchain: toolchain, butIncompatibility: incompatibility)
+        let detected = await detectKind(root: root, toolchain: toolchain)
+        return Repository(
+            root: root, kind: detected.kind, toolchain: toolchain,
+            butIncompatibility: detected.incompatibility, butVersionMismatch: detected.mismatch)
     }
 
     /// GitButler when `<git-common-dir>/gitbutler` exists and `but --json status` succeeds; plain git otherwise.
     /// A `but` release newer than the known-good one must also pass `ButContract`, or the workspace is
-    /// shown as plain git with the reason.
-    public static func detectKind(root: URL, toolchain: Toolchain) async -> (RepositoryKind, ButIncompatibility?) {
+    /// shown as plain git with the reason. A GitButler workspace on any release but the known-good one
+    /// gets a `mismatch`.
+    public static func detectKind(root: URL, toolchain: Toolchain) async
+        -> (kind: RepositoryKind, incompatibility: ButIncompatibility?, mismatch: ButVersionMismatch?)
+    {
         guard toolchain.but != nil,
               let output = try? await toolchain.git(["rev-parse", "--path-format=absolute", "--git-common-dir"], in: root)
-        else { return (.git, nil) }
+        else { return (.git, nil, nil) }
 
         let commonDir = URL(fileURLWithPath: output.stdoutString.trimmingCharacters(in: .newlines), isDirectory: true)
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: commonDir.appending(path: "gitbutler").path, isDirectory: &isDirectory),
               isDirectory.boolValue
-        else { return (.git, nil) }
+        else { return (.git, nil, nil) }
 
-        guard let status = try? await toolchain.but(["--json", "status"], in: root) else { return (.git, nil) }
+        guard let status = try? await toolchain.but(["--json", "status"], in: root) else { return (.git, nil, nil) }
         let version = await ButCompatibility.version(of: toolchain)
         if let incompatibility = ButCompatibility.check(status: status.stdout, version: version) {
-            return (.git, incompatibility)
+            return (.git, incompatibility, nil)
         }
-        return (.gitButler, nil)
+        return (.gitButler, nil, ButCompatibility.mismatch(version: version))
     }
 
     // MARK: - Status
