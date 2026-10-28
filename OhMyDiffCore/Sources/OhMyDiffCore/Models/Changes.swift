@@ -8,7 +8,7 @@ public enum ChangeSource: Sendable, Hashable {
     case untracked
     /// Unmerged path during a merge or rebase.
     case conflicted
-    /// Worktree vs. the GitButler workspace commit (HEAD).
+    /// Worktree vs. HEAD: the GitButler workspace commit, or the only applied branch.
     case workspace
 }
 

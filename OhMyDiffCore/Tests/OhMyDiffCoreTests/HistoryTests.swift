@@ -97,7 +97,9 @@ struct GitButlerHistoryTests {
         let branch = try #require(groups.flatMap(\.branches).first { $0.name == "feature/one" })
         #expect(branch.commits.map(\.summary) == ["extend one", "add one"])
         #expect(branch.status == .unpushed)
-        #expect(branch.baseName == "origin/main")
+        // `origin/main` before 0.23, the local `main` since.
+        let target = await repository.butTarget()
+        #expect(target != nil && branch.baseName == target)
 
         let whole = try await repository.diff(from: try #require(branch.base), to: branch.tip)
         #expect(whole.map(\.path) == ["one.txt"])
