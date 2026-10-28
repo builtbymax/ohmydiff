@@ -11,7 +11,7 @@ struct ChangesListView: View {
 
     var body: some View {
         content
-            .butCompatibilityBanner(session.butIncompatibility)
+            .butCompatibilityBanner(session)
             .fileImporter(isPresented: $isLocating, allowedContentTypes: [.folder]) { result in
                 guard case .success(let url) = result else { return }
                 Task { await model.relocate(session.project.id, to: url) }

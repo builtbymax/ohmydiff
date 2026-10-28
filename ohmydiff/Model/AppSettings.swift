@@ -14,6 +14,8 @@ enum AppSettings {
     /// Width of the file list column, and whether it is hidden to give the diff the whole panel.
     static let listWidthKey = "listWidth"
     static let isListHiddenKey = "isListHidden"
+    /// The untested GitButler version whose note was dismissed, as `<installed>/<tested>`.
+    static let dismissedButMismatchKey = "dismissedButVersionMismatch"
     static let listWidths: ClosedRange<Double> = 240...560
     /// Width of the file list beside a commit's or branch's diff in History mode.
     static let historyFilesWidthKey = "historyFilesWidth"

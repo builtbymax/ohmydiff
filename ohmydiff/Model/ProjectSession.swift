@@ -47,6 +47,8 @@ final class ProjectSession {
     private(set) var diff: DiffState?
     /// Why a GitButler workspace is shown as plain git; `nil` when it is not one or `but` is supported.
     private(set) var butIncompatibility: ButIncompatibility?
+    /// Set when a GitButler workspace runs on a `but` release ohmydiff was not tested against.
+    private(set) var butVersionMismatch: ButVersionMismatch?
     /// A discard waiting for confirmation or a commit waiting for its message.
     var actionRequest: ActionRequest?
     private(set) var isPerformingAction = false
@@ -267,6 +269,7 @@ final class ProjectSession {
         let marker = try? await repository.gitDirectories().commonDir.appending(path: "gitbutler")
         gitButlerMarker = marker.map { ($0, Self.isDirectory($0)) }
         if repository.butIncompatibility != butIncompatibility { butIncompatibility = repository.butIncompatibility }
+        if repository.butVersionMismatch != butVersionMismatch { butVersionMismatch = repository.butVersionMismatch }
         if repository.kind != project.kind {
             project.kind = repository.kind
             onKindChange?(repository.kind)

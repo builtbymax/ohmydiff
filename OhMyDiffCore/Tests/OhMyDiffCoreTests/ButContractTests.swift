@@ -91,6 +91,19 @@ import Testing
         #expect(ButCompatibility.check(status: broken, version: knownGood, knownGood: nil) != nil)
     }
 
+    @Test func flagsAnyOtherRelease() throws {
+        let knownGood = ButVersion([0, 22, 3])
+        #expect(ButCompatibility.mismatch(version: ButVersion([0, 22, 3]), knownGood: knownGood) == nil)
+        #expect(ButCompatibility.mismatch(version: ButVersion([0, 22, 3, 0]), knownGood: knownGood) == nil)
+        #expect(ButCompatibility.mismatch(version: ButVersion([0, 23, 1]), knownGood: nil) == nil)
+
+        let newer = try #require(ButCompatibility.mismatch(version: ButVersion([0, 23, 1]), knownGood: knownGood))
+        #expect(newer == ButVersionMismatch(installed: ButVersion([0, 23, 1]), tested: knownGood))
+        #expect(newer.description == "GitButler 0.23.1 is untested, some features may not work until ohmydiff supports it")
+        #expect(ButCompatibility.mismatch(version: ButVersion([0, 21]), knownGood: knownGood) != nil)
+        #expect(ButCompatibility.mismatch(version: nil, knownGood: knownGood)?.installed == nil)
+    }
+
     @Test func bundlesKnownGoodVersion() {
         #expect(ButCompatibility.knownGood != nil)
     }
@@ -158,6 +171,7 @@ struct ButLiveContractTests {
         let repository = try await repo.open()
         #expect(repository.kind == .gitButler)
         #expect(repository.butIncompatibility == nil)
+        #expect(repository.butVersionMismatch == ButCompatibility.mismatch(version: version))
 
         // A conflicted commit is read through its checked-out tree, not GitButler's conflict bookkeeping.
         let conflicted = try #require(branches["feature/two"]?.commits.first?.commitId)
@@ -186,6 +200,29 @@ struct ButLiveContractTests {
         let incompatibility = try #require(repository.butIncompatibility)
         #expect(incompatibility.version == ButVersion([99, 0, 0]))
         #expect(incompatibility.violations.contains("stacks[].branches[].name: missing"))
+        #expect(repository.butVersionMismatch == nil)
+    }
+
+    @Test func untestedReleaseKeepsGitButlerView() async throws {
+        let repo = try await TestRepo(gitButler: true)
+        // A future `but` whose status output still conforms.
+        let fake = repo.directory.appending(path: "but")
+        let status = repo.directory.appending(path: "status.json")
+        try Data(ButStatusTests.sample.utf8).write(to: status)
+        try Data("""
+            #!/bin/sh
+            case "$*" in
+                *--version*) echo "but 99.0.0" ;;
+                *) cat '\(status.path)' ;;
+            esac
+            """.utf8).write(to: fake)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+        let toolchain = Toolchain(git: repo.toolchain.git, but: fake, environment: repo.toolchain.environment)
+
+        let repository = try await Repository.open(repo.root, toolchain: toolchain)
+        #expect(repository.kind == .gitButler)
+        #expect(repository.butIncompatibility == nil)
+        #expect(repository.butVersionMismatch?.installed == ButVersion([99, 0, 0]))
     }
 
     private func writeReport(version: ButVersion?, violations: [String]) throws {
