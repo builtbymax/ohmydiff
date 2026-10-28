@@ -296,7 +296,8 @@ public struct Repository: Sendable {
         case .untracked:
             return try await untrackedDiff(file.path)
         case .workspace:
-            // HEAD is the GitButler workspace commit, so this covers every applied branch.
+            // HEAD is the GitButler workspace commit, or since 0.23 the tip of the only applied branch,
+            // so this covers every applied branch.
             arguments = ["diff", "HEAD"] + Self.diffOptions + ["--"] + paths
         }
 

@@ -143,6 +143,14 @@ extension TestRepo {
 
             """)
     }
+
+    @Test func readsDependencyHints() {
+        let hint = "Hint: to apply these changes, create bar stacked on top of foo and try again:\n  but branch new bar --above "
+        #expect(Repository.dependencyAnchor(hint + "feature/base\n") == "feature/base")
+        #expect(Repository.dependencyAnchor(hint + "'feature/base'\n") == "feature/base")
+        #expect(Repository.dependencyAnchor("  but branch new bar --anchor feature/base") == "feature/base")
+        #expect(Repository.dependencyAnchor("Cannot commit") == nil)
+    }
 }
 
 @Suite struct GitCommitTests {
@@ -301,7 +309,8 @@ struct GitButlerActionTests {
         let repo = try await TestRepo(gitButler: true)
         try repo.write("notes.txt", twentyLines)
         try await repo.but("commit", "-b", "feature/base", "-m", "add notes")
-        try repo.write("notes.txt", edited([2: "edited"]))
+        // A size-changing edit: `but` 0.23.1 sometimes misses a same-size one right after a commit.
+        try repo.write("notes.txt", edited([2: "line 2 edited"]))
         let repository = try await repo.open()
         let target = ChangeTarget(file: try await repo.file("notes.txt", in: .unassigned, of: repository))
 

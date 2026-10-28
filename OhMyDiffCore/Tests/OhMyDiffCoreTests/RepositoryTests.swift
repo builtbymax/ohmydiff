@@ -38,8 +38,11 @@ final class TestRepo {
             let remote = directory.appending(path: "remote.git")
             try await git("init", "-q", "--bare", remote.path)
             try await git("remote", "add", "origin", remote.path)
-            try await git("push", "-q", "origin", "main")
+            // The upstream is where `but push` pushes to since 0.23.
+            try await git("push", "-q", "-u", "origin", "main")
+            // A no-op since 0.23, where using `but` in a repository sets up its workspace.
             try await but("setup")
+            try await but("status")
         }
     }
 
@@ -234,7 +237,10 @@ struct GitButlerRepositoryTests {
         let commitFiles = try await repository.diff(commit: commit.commitId)
         #expect(commitFiles.map(\.path) == ["feature.txt"])
         #expect(commitFiles.first?.kind == .added)
-        #expect(headCommit != commit.commitId)
+        // HEAD is the workspace commit, or since 0.23 the only applied branch itself; either holds the commit.
+        let ancestry = try await repo.toolchain.git(
+            ["merge-base", "--is-ancestor", commit.commitId, headCommit], in: repo.root, allowedExitCodes: [0, 1])
+        #expect(ancestry.exitCode == 0)
     }
 
     @Test func plainRepoWithButInstalledIsGit() async throws {

@@ -111,7 +111,7 @@ struct ButLiveContractTests {
         // Two stacks, one of them two branches deep.
         try repo.write("one.txt", "one\n")
         try await repo.but("commit", "-b", "feature/one", "-m", "add one")
-        try await repo.but("branch", "new", "feature/three", "--anchor", "feature/one")
+        try await repo.but("branch", "new", "feature/three", "--above", "feature/one")
         try repo.write("three.txt", "three\n")
         try await repo.but("commit", "-b", "feature/three", "-m", "add three")
         try repo.write("README.md", "readme\nfrom the branch\n")

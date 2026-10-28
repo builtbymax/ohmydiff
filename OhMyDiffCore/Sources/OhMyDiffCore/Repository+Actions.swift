@@ -212,7 +212,7 @@ extension Repository {
         switch kind {
         case .gitButler:
             if let anchor {
-                _ = try await toolchain.but(["branch", "new", branch, "--anchor", anchor], in: root, timeout: .seconds(60))
+                _ = try await toolchain.but(["branch", "new", branch, "--above", anchor], in: root, timeout: .seconds(60))
             }
             let ids = try await butIDs(for: targets)
             do {
@@ -265,11 +265,13 @@ extension Repository {
 
     // MARK: - Helpers
 
-    /// The branch `but commit` says the changes depend on, from its hint `but branch new <name> --anchor <branch>`.
+    /// The branch `but commit` says the changes depend on, from its hint `but branch new <name> --above <branch>`
+    /// (`--anchor` before 0.23), whose branch may be shell-quoted.
     static func dependencyAnchor(_ stderr: String) -> String? {
-        guard let range = stderr.range(of: "--anchor ") else { return nil }
+        guard let range = stderr.range(of: "--above ") ?? stderr.range(of: "--anchor ") else { return nil }
         let anchor = stderr[range.upperBound...].prefix { !$0.isWhitespace }
-        return anchor.isEmpty ? nil : String(anchor)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+        return anchor.isEmpty ? nil : anchor
     }
 
     private func check(_ action: ChangeAction, _ targets: [ChangeTarget]) throws {
