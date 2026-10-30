@@ -11,19 +11,23 @@ update themselves with [Sparkle](https://sparkle-project.org) from `appcast.xml`
 - [ ] The Sparkle private key in the login keychain under the account `ohmydiff`. Back it up once with
       `build/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys --account ohmydiff -x ohmydiff-sparkle.key`
       and keep the file somewhere safe. Without it, installed copies can never update again.
+- [ ] Off-machine backups of both the Sparkle key file and the Developer ID certificate with its private key
+      (exported as `.p12`), in an encrypted store only you can open, e.g. a password manager. Never in the repository.
 
 ## Before the release
 
 - [ ] Everything is merged and pushed to `main`. `make release` builds `origin/main`, not the working tree, and
       the build number is its commit count: Sparkle only offers builds with a higher number than the installed one.
-- [ ] `make test` passes.
+- [ ] `make test` passes. `make release` runs the tests again on the exported commit and stops if they fail.
 - [ ] Optional release notes in `build/releases/x.y.z/ohmydiff-x.y.z.md` (Markdown), used as the GitHub release notes.
       Open with a short paragraph before the first heading: the update bar's What's New card shows only that part.
 
 ## Build
 
 - [ ] `make release VERSION=x.y.z` (universal build, signing, notarization, appcast).
-- [ ] It ends with "ohmydiff x.y.z (…) is ready in build/releases/x.y.z".
+- [ ] Every line of the archive check is `ok` (both architectures, Developer ID, notarization, no `get-task-allow`,
+      versions, Sparkle key and signature), and it ends with "ohmydiff x.y.z (…) is ready in build/releases/x.y.z".
+      `scripts/verify-release.sh <zip> <version> <build> [appcast.xml]` re-checks a zip, also a downloaded one.
 
 ## Publish
 

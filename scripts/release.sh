@@ -2,7 +2,8 @@
 # Builds a notarized, universal release of ohmydiff plus the Sparkle appcast: scripts/release.sh 1.1.0 [ref]
 #
 # Builds `ref` (default origin/main, fetched first) from a clean export, not the working tree, so a release is
-# exactly a pushed commit and never the GitButler workspace.
+# exactly a pushed commit and never the GitButler workspace. The export's tests must pass first, and the final
+# zip is checked with scripts/verify-release.sh before it is ready to publish.
 #
 # One-time setup:
 #   1. A "Developer ID Application" certificate in the login keychain.
@@ -40,10 +41,14 @@ mkdir -p "$SRC"
 git archive "$COMMIT" | tar -x -C "$SRC"
 [[ -n "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$SRC/Config/Info.plist" 2>/dev/null)" ]] \
   || { echo "SUPublicEDKey in Config/Info.plist of ${COMMIT:0:7} is empty, run Sparkle's generate_keys --account ohmydiff first" >&2; exit 1; }
+# The released commit's own tests must pass, with exactly the dependency versions it pins.
+(cd "$SRC/OhMyDiffCore" && swift test --only-use-versions-from-resolved-file) \
+  || { echo "Tests fail on ${COMMIT:0:7}; not releasing it" >&2; exit 1; }
 xcodebuild -project "$SRC/ohmydiff.xcodeproj" -scheme ohmydiff -configuration Release \
-  -destination 'generic/platform=macOS' -derivedDataPath "$DERIVED" -quiet \
+  -destination 'generic/platform=macOS' -derivedDataPath "$DERIVED" -quiet -onlyUsePackageVersionsFromResolvedFile \
   MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD" build
-scripts/sign.sh "$APP" "$IDENTITY"
+# Signing and checking use the released commit's scripts, not whatever the working tree holds.
+"$SRC/scripts/sign.sh" "$APP" "$IDENTITY"
 
 OUT="build/releases/$VERSION"
 ZIP="$OUT/ohmydiff-$VERSION.zip"
@@ -63,5 +68,8 @@ spctl --assess --type execute --verbose "$APP"
 "$DERIVED"/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_appcast --account ohmydiff --embed-release-notes \
   --download-url-prefix "https://github.com/builtbymax/ohmydiff/releases/download/v$VERSION/" \
   --full-release-notes-url "https://github.com/builtbymax/ohmydiff/releases/tag/v$VERSION" "$OUT"
+
+OHMYDIFF_SPARKLE_BIN="$DERIVED/SourcePackages/artifacts/sparkle/Sparkle/bin" \
+  "$SRC/scripts/verify-release.sh" "$ZIP" "$VERSION" "$BUILD" "$OUT/appcast.xml"
 
 echo "\nohmydiff $VERSION ($BUILD, ${COMMIT:0:7}) is ready in $OUT. Publish it with: make publish VERSION=$VERSION"
