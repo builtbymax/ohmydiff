@@ -84,3 +84,49 @@ import Testing
         #expect(output.exitCode == 0)
     }
 }
+
+/// Children that misbehave must not hold the app up past the timeout, nor fill memory.
+@Suite struct ProcessRunnerLimitTests {
+    private let runner = ProcessRunner()
+    private let sh = URL(fileURLWithPath: "/bin/sh")
+
+    @Test func killsAChildThatIgnoresSIGTERM() async throws {
+        let start = ContinuousClock.now
+        await #expect {
+            try await runner.run(sh, arguments: ["-c", "trap '' TERM; sleep 5"], timeout: .milliseconds(100))
+        } throws: { error in
+            if case ProcessError.timedOut = error { true } else { false }
+        }
+        #expect(ContinuousClock.now - start < .seconds(3))
+    }
+
+    @Test func stopsTheChildsDescendantsOnTimeout() async throws {
+        let marker = "30.\(Int.random(in: 100_000...999_999))"
+        await #expect(throws: ProcessError.self) {
+            try await runner.run(sh, arguments: ["-c", "trap '' TERM; sleep \(marker) & wait"], timeout: .milliseconds(100))
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        let left = try await runner.run(URL(fileURLWithPath: "/usr/bin/pgrep"), arguments: ["-f", "sleep \(marker)"])
+        #expect(left.stdoutString.isEmpty)
+    }
+
+    @Test func doesNotWaitForDescendantsHoldingTheOutputOpen() async throws {
+        let start = ContinuousClock.now
+        let output = try await runner.run(sh, arguments: ["-c", "sleep 5 & echo done"], timeout: .seconds(10))
+        #expect(output.stdoutString == "done\n")
+        #expect(ContinuousClock.now - start < .seconds(3))
+    }
+
+    @Test func stopsAtTheOutputLimit() async throws {
+        let start = ContinuousClock.now
+        await #expect {
+            try await runner.run(sh, arguments: ["-c", "yes"], timeout: .seconds(10), outputLimit: 1 << 20)
+        } throws: { error in
+            if case ProcessError.outputTooLarge = error { true } else { false }
+        }
+        #expect(ContinuousClock.now - start < .seconds(3))
+        // Up to the limit is fine, on either stream.
+        let output = try await runner.run(sh, arguments: ["-c", "head -c 1048576 /dev/zero >&2"], outputLimit: 1 << 20)
+        #expect(output.stderr.count == 1 << 20)
+    }
+}
