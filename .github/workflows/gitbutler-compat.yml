@@ -6,6 +6,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    paths-ignore: ["**.md", ".github/assets/**", "LICENSE"]
   schedule:
     - cron: "23 5 * * *"
   workflow_dispatch:
@@ -23,6 +24,16 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
+      # Cloning the tree-sitter grammars takes about two minutes, against seconds for the tests.
+      - name: Cache SwiftPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            OhMyDiffCore/.build/repositories
+            OhMyDiffCore/.build/checkouts
+          key: spm-${{ runner.os }}-${{ hashFiles('OhMyDiffCore/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
 
       - name: Install the latest GitButler
         run: |
