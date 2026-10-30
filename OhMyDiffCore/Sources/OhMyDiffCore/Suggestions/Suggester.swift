@@ -30,18 +30,26 @@ public struct Suggester: Sendable {
         self.toolchain = toolchain
     }
 
-    /// Runs `prompt` in `directory` and returns the cleaned answer.
-    public func complete(_ prompt: String, in directory: URL, timeout: Duration = .seconds(180)) async throws -> String {
+    /// Asks for `prompt` and returns the cleaned answer.
+    ///
+    /// The provider runs in a fresh, empty directory rather than the repository, so it never finds the
+    /// repository's settings, hooks, plugins, MCP servers or instructions, and with its tools turned off
+    /// where the CLI allows. The prompt itself carries everything the answer needs.
+    public func complete(_ prompt: String, timeout: Duration = .seconds(180)) async throws -> String {
         guard let executable = ClaudeCodeLauncher.locate(provider, environment: toolchain.environment) else {
             throw SuggestionError.notInstalled(provider)
         }
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "ohmydiff-suggestion-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
         // Codex prints progress on stdout; its final answer goes to a file instead.
-        let answerFile = FileManager.default.temporaryDirectory.appending(path: "ohmydiff-suggestion-\(UUID().uuidString).txt")
-        defer { try? FileManager.default.removeItem(at: answerFile) }
+        let answerFile = directory.appending(path: "answer.txt")
 
         let output = try await toolchain.runner.run(
             executable, arguments: provider.completionArguments(prompt: prompt, model: model, answerFile: answerFile.path),
-            currentDirectory: directory, environment: ClaudeCodeLauncher.sessionFree(toolchain.environment), timeout: timeout)
+            currentDirectory: directory, environment: provider.completionEnvironment(toolchain.environment, directory: directory),
+            timeout: timeout)
         guard output.exitCode == 0 else {
             let message = Self.stripANSI(output.stderrString.isEmpty ? output.stdoutString : output.stderrString)
             throw SuggestionError.failed(provider, String(message.trimmingCharacters(in: .whitespacesAndNewlines).suffix(600)))
@@ -53,17 +61,17 @@ public struct Suggester: Sendable {
     }
 
     /// A commit message, without the `Refs:` line when no ticket is linked.
-    public func commitMessage(template: String, context: TemplateContext, in directory: URL) async throws -> String {
-        let answer = try await complete(Self.prompt(template, context), in: directory)
+    public func commitMessage(template: String, context: TemplateContext) async throws -> String {
+        let answer = try await complete(Self.prompt(template, context))
         return context.ticket == nil ? Self.removingEmptyRefs(answer) : answer
     }
 
-    public func pullRequest(template: String, context: TemplateContext, in directory: URL) async throws -> String {
-        try await complete(Self.prompt(template, context), in: directory)
+    public func pullRequest(template: String, context: TemplateContext) async throws -> String {
+        try await complete(Self.prompt(template, context))
     }
 
-    public func branchName(context: TemplateContext, in directory: URL) async throws -> String {
-        let answer = try await complete(Self.prompt(PromptTemplate.branchName, context), in: directory)
+    public func branchName(context: TemplateContext) async throws -> String {
+        let answer = try await complete(Self.prompt(PromptTemplate.branchName, context))
         guard let name = Self.branchName(from: answer) else { throw SuggestionError.emptyAnswer(provider) }
         return name
     }
@@ -128,14 +136,34 @@ public struct Suggester: Sendable {
 }
 
 extension AIProvider {
-    /// Arguments that answer `prompt` once and exit, printing only the answer.
+    /// Arguments that answer `prompt` once and exit, printing only the answer, with as few tools as the CLI
+    /// allows. A CLI too old for these flags fails rather than running unrestricted.
     func completionArguments(prompt: String, model: String, answerFile: String) -> [String] {
         let modelFlag = model.isEmpty ? [] : ["--model", model]
         return switch self {
-        case .claude: ["-p", "--output-format", "text"] + modelFlag + [prompt]
-        case .codex: ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "--output-last-message", answerFile] + modelFlag + [prompt]
-        case .gemini: modelFlag + ["--prompt", prompt]
+        // `--tools` takes a list, so another flag must follow it before the prompt.
+        case .claude:
+            ["-p", "--tools", "", "--output-format", "text", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"]
+                + modelFlag + [prompt]
+        case .codex:
+            ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--output-last-message", answerFile] + modelFlag + [prompt]
+        // Headless Gemini refuses tools that need approval; this keeps a configured `yolo` default from applying.
+        case .gemini: ["--approval-mode", "default"] + modelFlag + ["--prompt", prompt]
         case .opencode: ["run"] + modelFlag + [prompt]
         }
+    }
+
+    /// The app's environment without what could point the CLI at a repository or another agent session, run
+    /// from `directory`. OpenCode gets its tools denied through inline config, which outranks its other configs.
+    func completionEnvironment(_ environment: [String: String], directory: URL) -> [String: String] {
+        var result = ClaudeCodeLauncher.sessionFree(environment).filter { key, _ in !key.hasPrefix("GIT_") }
+        result["PWD"] = directory.path
+        if self == .opencode {
+            result["OPENCODE_CONFIG_CONTENT"] = #"{"permission":{"*":"deny"}}"#
+            result["OPENCODE_DISABLE_PROJECT_CONFIG"] = "1"
+            result["OPENCODE_DISABLE_CLAUDE_CODE"] = "1"
+            result["OPENCODE_DISABLE_EXTERNAL_SKILLS"] = "1"
+        }
+        return result
     }
 }

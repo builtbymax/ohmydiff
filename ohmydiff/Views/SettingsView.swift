@@ -380,7 +380,7 @@ private struct AISettings: View {
                                 .frame(height: 30)
                             ModelField(provider: selected, model: $model)
                         }
-                        caption("Runs `\(selected.executable)` once per suggestion, in the repository. Leave the model empty for its default; Templates decide what it is asked.")
+                        caption("Runs `\(selected.executable)` once per suggestion in an empty folder with its tools off, so the repository's settings and plugins never load. The diff, branch, commits and linked ticket are sent to \(selected.displayName); choose Off while working on code that must not leave this Mac. Leave the model empty for its default; Templates decide what it is asked.")
                     } else {
                         caption("Pick a provider to generate commit messages and branch names in the commit sheet, and pull request drafts in History.")
                     }

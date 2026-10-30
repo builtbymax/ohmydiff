@@ -27,15 +27,15 @@ struct Suggestions {
     }
 
     func commitMessage(_ context: TemplateContext) async throws -> String {
-        try await suggester().commitMessage(template: AppSettings.commitTemplate(), context: context, in: root)
+        try await suggester().commitMessage(template: AppSettings.commitTemplate(), context: context)
     }
 
     func branchName(_ context: TemplateContext) async throws -> String {
-        try await suggester().branchName(context: context, in: root)
+        try await suggester().branchName(context: context)
     }
 
     func pullRequest(_ context: TemplateContext) async throws -> String {
-        try await suggester().pullRequest(template: AppSettings.pullRequestTemplate(), context: context, in: root)
+        try await suggester().pullRequest(template: AppSettings.pullRequestTemplate(), context: context)
     }
 
     /// `<short sha> <subject>` per commit, newest first, for `{{commits}}`.
