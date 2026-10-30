@@ -303,8 +303,10 @@ import Testing
         try await repo.git("add", "-f", ".gitignore", "tracked.log")
         let repository = try await repo.open()
 
-        let ignored = try await repository.ignoredPaths(["build/out.o", "src/a.swift", "debug.log", "tracked.log", "dir with space/x.log"])
-        #expect(ignored == ["build/out.o", "debug.log", "dir with space/x.log"])
+        let ignored = try await repository.ignoredPaths([
+            "build/out.o", "src/a.swift", "debug.log", "tracked.log", "dir with space/x.log", ":(glob)x.log", ":/a.swift", "a[1].log",
+        ])
+        #expect(ignored == ["build/out.o", "debug.log", "dir with space/x.log", ":(glob)x.log", "a[1].log"])
         #expect(try await repository.ignoredPaths([]).isEmpty)
     }
 

@@ -399,3 +399,112 @@ struct GitButlerActionTests {
         #expect(try await repository.butStatus().stacks.map { $0.branches.map(\.name) }.sorted { $0[0] < $1[0] } == [["feature/a"], ["feature/b"]])
     }
 }
+
+/// Selected paths name exactly one file, never a pathspec pattern that also matches its neighbours.
+@Suite struct LiteralPathTests {
+    /// A selected name that git would read as a pattern, and an unselected file it would match.
+    static let lookalikes: [(selected: String, bystander: String)] = [
+        ("victim[1].txt", "victim1.txt"),
+        ("star*.txt", "starlight.txt"),
+        ("what?.txt", "whatX.txt"),
+        (":(glob)magic.txt", "magic.txt"),
+        (":/top.txt", "top.txt"),
+        ("dir[a]/file.txt", "dira/file.txt"),
+    ]
+
+    private func setUp(_ selected: String, _ bystander: String) async throws -> (TestRepo, Repository) {
+        let repo = try await TestRepo()
+        try repo.write(selected, twentyLines)
+        try repo.write(bystander, twentyLines)
+        try await repo.commitAll("init")
+        try repo.write(selected, edited([1: "selected"]))
+        try repo.write(bystander, edited([1: "bystander"]))
+        return (repo, try await repo.open())
+    }
+
+    private func contents(_ path: String, in repo: TestRepo) throws -> String {
+        try String(contentsOf: repo.root.appending(path: path), encoding: .utf8)
+    }
+
+    @Test(arguments: lookalikes) func discardsOnlyTheSelectedFile(selected: String, bystander: String) async throws {
+        let (repo, repository) = try await setUp(selected, bystander)
+        try await repository.discard([ChangeTarget(file: repo.file(selected, in: .unstaged, of: repository))])
+        #expect(try contents(selected, in: repo) == twentyLines)
+        #expect(try contents(bystander, in: repo) == edited([1: "bystander"]))
+    }
+
+    @Test(arguments: lookalikes) func stagesOnlyTheSelectedFile(selected: String, bystander: String) async throws {
+        let (repo, repository) = try await setUp(selected, bystander)
+        try await repository.stage([ChangeTarget(file: repo.file(selected, in: .unstaged, of: repository))])
+        #expect(try await repo.paths(in: .staged, of: repository) == [selected])
+        try await repository.unstage([ChangeTarget(file: repo.file(selected, in: .staged, of: repository))])
+        #expect(try await repo.paths(in: .staged, of: repository).isEmpty)
+        #expect(Set(try await repo.paths(in: .unstaged, of: repository)) == [selected, bystander])
+    }
+
+    @Test(arguments: lookalikes) func commitsOnlyTheSelectedFile(selected: String, bystander: String) async throws {
+        let (repo, repository) = try await setUp(selected, bystander)
+        try await repo.git("add", "--", bystander)
+        try await repository.commit([ChangeTarget(file: repo.file(selected, in: .unstaged, of: repository))], toBranch: "main", message: "one")
+        #expect(try await repo.git("show", "--name-only", "--format=", "HEAD").split(separator: "\n") == [Substring(selected)])
+        // The bystander stays staged, with its change.
+        #expect(try await repo.paths(in: .staged, of: repository) == [bystander])
+        #expect(try contents(bystander, in: repo) == edited([1: "bystander"]))
+    }
+
+    @Test(arguments: lookalikes) func handlesHunksOfTheSelectedFile(selected: String, bystander: String) async throws {
+        let (repo, repository) = try await setUp(selected, bystander)
+        let file = try await repo.file(selected, in: .unstaged, of: repository)
+        let hunk = try #require(try await repository.diff(for: file)?.hunks.first)
+        try await repository.stage([ChangeTarget(file: file, hunk: hunk)])
+        #expect(try await repo.paths(in: .staged, of: repository) == [selected])
+        try await repository.unstage([ChangeTarget(file: repo.file(selected, in: .staged, of: repository), hunk: hunk)])
+        try await repository.discard([ChangeTarget(file: file, hunk: hunk)])
+        #expect(try contents(selected, in: repo) == twentyLines)
+        #expect(try contents(bystander, in: repo) == edited([1: "bystander"]))
+    }
+
+    @Test func stagesAndCommitsRenamesOfPatternNames() async throws {
+        let repo = try await TestRepo()
+        try repo.write("old[1].txt", twentyLines)
+        try repo.write("old1.txt", twentyLines)
+        try await repo.commitAll("init")
+        try FileManager.default.moveItem(at: repo.root.appending(path: "old[1].txt"), to: repo.root.appending(path: "new[1].txt"))
+        try repo.write("old1.txt", edited([1: "bystander"]))
+        let repository = try await repo.open()
+        try await repository.stage([ChangeTarget(file: repo.file("new[1].txt", in: .untracked, of: repository))])
+        try await repository.stage([ChangeTarget(file: repo.file("old[1].txt", in: .unstaged, of: repository))])
+        let renamed = try await repo.file("new[1].txt", in: .staged, of: repository)
+        #expect(renamed.previousPath == "old[1].txt")
+        try await repository.commit([ChangeTarget(file: renamed)], toBranch: "main", message: "rename")
+        #expect(try await repo.paths(in: .staged, of: repository).isEmpty)
+        #expect(try await repo.paths(in: .unstaged, of: repository) == ["old1.txt"])
+    }
+
+    /// Names git C-quotes in patch headers: quotes, backslashes, tabs and newlines.
+    @Test(arguments: ["say \"hi\".txt", "back\\slash.txt", "tab\there.txt", "new\nline.txt"])
+    func handlesHunksOfQuotedNames(name: String) async throws {
+        let (repo, repository) = try await setUp(name, "bystander.txt")
+        let file = try await repo.file(name, in: .unstaged, of: repository)
+        let hunk = try #require(try await repository.diff(for: file)?.hunks.first)
+        try await repository.stage([ChangeTarget(file: file, hunk: hunk)])
+        #expect(try await repo.paths(in: .staged, of: repository) == [name])
+        try await repository.commit([ChangeTarget(file: repo.file(name, in: .staged, of: repository))], toBranch: "main", message: "one")
+        try repo.write(name, edited([2: "again"]))
+        let again = try #require(try await repository.diff(for: repo.file(name, in: .unstaged, of: repository))?.hunks.first)
+        try await repository.discard([ChangeTarget(file: repo.file(name, in: .unstaged, of: repository), hunk: again)])
+        #expect(try contents(name, in: repo) == edited([1: "selected"]))
+    }
+
+    @Test func quotesUnusualNamesInPatchHeaders() {
+        let hunk = Hunk(oldStart: 1, oldCount: 1, newStart: 1, newCount: 1, lines: [
+            DiffLine(kind: .deletion, text: "a", oldLineNumber: 1, newLineNumber: nil),
+            DiffLine(kind: .addition, text: "b", oldLineNumber: nil, newLineNumber: 1),
+        ])
+        #expect(Repository.patch(path: "a \"b\"\\\t\n\u{1}ü.txt", hunk: hunk).split(separator: "\n").prefix(3) == [
+            #"diff --git "a/a \"b\"\\\t\n\001ü.txt" "b/a \"b\"\\\t\n\001ü.txt""#,
+            #"--- "a/a \"b\"\\\t\n\001ü.txt""#,
+            #"+++ "b/a \"b\"\\\t\n\001ü.txt""#,
+        ])
+    }
+}

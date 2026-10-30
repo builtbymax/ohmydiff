@@ -141,6 +141,8 @@ extension Toolchain {
         environment["GIT_OPTIONAL_LOCKS"] = "0"
         environment["GIT_TERMINAL_PROMPT"] = "0"
         environment["GIT_PAGER"] = "cat"
+        // Paths after `--` name files, never patterns: `a[1].txt` must not also match `a1.txt`.
+        environment["GIT_LITERAL_PATHSPECS"] = "1"
         return environment
     }
 }

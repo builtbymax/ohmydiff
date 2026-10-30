@@ -283,11 +283,14 @@ public struct Repository: Sendable {
     /// The subset of worktree-relative `paths` that `.gitignore` rules exclude (tracked files never count as ignored).
     public func ignoredPaths(_ paths: [String]) async throws -> Set<String> {
         guard !paths.isEmpty else { return [] }
-        let input = Data(paths.joined(separator: "\0").utf8 + [0])
+        // `check-ignore` refuses literal pathspecs; the `./` prefix keeps a leading `:` from reading as magic
+        // instead. It only tests each path itself, so globs in names match nothing else.
+        let input = Data(paths.map { "./" + $0 }.joined(separator: "\0").utf8 + [0])
         // Exits 0 when something matched and 1 when nothing did.
         let output = try await toolchain.git(
-            ["check-ignore", "-z", "--stdin"], in: root, allowedExitCodes: [0, 1], input: input)
-        return Set(output.stdout.split(separator: 0).map { String(decoding: $0, as: UTF8.self) })
+            ["check-ignore", "-z", "--stdin"], in: root, allowedExitCodes: [0, 1], input: input,
+            environment: ["GIT_LITERAL_PATHSPECS": "0"])
+        return Set(output.stdout.split(separator: 0).map { String(decoding: $0.dropFirst(2), as: UTF8.self) })
     }
 
     // MARK: - Diffs
