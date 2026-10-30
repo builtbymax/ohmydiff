@@ -1,16 +1,41 @@
+<div align="center">
+
+<img src=".github/assets/icon.png" width="128" height="128" alt="ohmydiff icon">
+
 # ohmydiff
 
 A native macOS diff viewer for git and [GitButler](https://gitbutler.com) workspaces.
 
-## Requirements
+[![Latest release](https://img.shields.io/github/v/release/builtbymax/ohmydiff?style=flat-square&label=release)](https://github.com/builtbymax/ohmydiff/releases/latest)
+[![macOS 26+](https://img.shields.io/badge/macOS-26%2B-000?style=flat-square&logo=apple)](#install)
+[![License: MIT](https://img.shields.io/github/license/builtbymax/ohmydiff?style=flat-square)](LICENSE)
 
-- macOS 26+
-- Xcode 26+
+[**Download**](https://github.com/builtbymax/ohmydiff/releases/latest) · [Releases](https://github.com/builtbymax/ohmydiff/releases) · [Issues](https://github.com/builtbymax/ohmydiff/issues)
 
-## Layout
+<img src=".github/assets/screenshot.jpg" alt="ohmydiff showing an uncommitted hunk in a git repository" width="900">
 
-- `ohmydiff.xcodeproj` / `ohmydiff/` — the SwiftUI app
-- `OhMyDiffCore/` — local Swift package with the git/but integration, diff parsing and models
+</div>
+
+> [!NOTE]
+> ohmydiff is a side project I built with [Claude](https://claude.ai) for myself. It's open source
+> for anyone who wants to use it or look at how it works. Releases are signed, notarized by Apple
+> and updated regularly.
+
+## Features
+
+- Uncommitted changes, branches and commit history for plain git repositories and GitButler workspaces
+- Stage, unstage, discard and commit by file or hunk, always through `but` in GitButler workspaces
+- Opens files at the right line in Cursor, VS Code, Zed, Xcode, Sublime Text or a custom editor
+- AI-generated commit messages, branch names and pull request drafts, linked to Linear, Jira, GitHub or GitLab tickets
+- An `ohmydiff` command line tool and a local MCP server for coding agents
+
+## Install
+
+1. Download `ohmydiff-x.y.z.zip` from the [latest release](https://github.com/builtbymax/ohmydiff/releases/latest).
+2. Unzip it and move `ohmydiff.app` to `/Applications`.
+3. Open it and add a repository with **⇧⌘O**.
+
+Requires macOS 26 or later. ohmydiff updates itself (see [Updates](#updates)).
 
 ## Usage
 
@@ -22,7 +47,12 @@ A native macOS diff viewer for git and [GitButler](https://gitbutler.com) worksp
 - **AI suggestions:** choose a provider and model under Settings → AI → Commit Messages & Branch Names. The commit sheet then generates a message (✦ Generate) and a new branch name (✦ Suggest) from the selected changes, and History drafts a pull request for a branch. Nothing is committed or pushed on its own. Settings → Templates holds the commit and pull request prompts with `{{diff}}`, `{{commits}}`, `{{branch}}` and `{{ticket.id}}`, `{{ticket.title}}`, `{{ticket.description}}`, `{{ticket.url}}`. Settings → Tickets connects Linear and Jira (keys in the Keychain) and GitHub or GitLab issues through `gh` / `glab`; a branch like `feature/hal-128` links its ticket, or you search for one in the sheet.
 - **Coding agents:** `ohmydiff mcp` is a local MCP server on stdio (`claude mcp add ohmydiff -- ohmydiff mcp`). Its read-only tools (`list_projects`, `list_changes`, `get_diff`, `list_branches`) answer from git and `but` without the app; `open_project`, `show_file`, `show_branch` and `show_commit` bring the app to the front at that file, line, branch or commit.
 
-## Development
+## Build it yourself
+
+Requires macOS 26+ and Xcode 26+.
+
+- `ohmydiff.xcodeproj` / `ohmydiff/`: the SwiftUI app
+- `OhMyDiffCore/`: local Swift package with the git/but integration, diff parsing and models
 
 ```sh
 make run       # build and launch ohmydiff Dev, beside the installed app
@@ -52,3 +82,7 @@ tests daily against the latest GitButler release and opens an issue when one bre
 last known-good version lives in `OhMyDiffCore/Sources/OhMyDiffCore/GitButler/gitbutler.json`
 and ships with the app: with a newer `but`, the app checks `but --json status` against the
 contract and shows a workspace that fails it as a plain git repository, with a banner.
+
+## License
+
+[MIT](LICENSE)
