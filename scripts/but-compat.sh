@@ -36,7 +36,9 @@ check)
 issue)
     report=$2
     log=$3
-    version=$(installed 2>/dev/null || echo unknown)
+    # The report job has no `but`; the contract job passes its version on.
+    version=$(echo "${OHMYDIFF_BUT_VERSION:-}" | grep -oE '[0-9]+(\.[0-9]+)+' | head -n 1 || true)
+    [ -n "$version" ] || version=$(installed 2>/dev/null || echo unknown)
     title="GitButler $version breaks ohmydiff's but --json contract"
     body=$(mktemp)
     {
