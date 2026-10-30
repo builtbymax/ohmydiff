@@ -153,9 +153,9 @@ extension Repository {
         if !indexPaths.isEmpty {
             _ = try await toolchain.git(["update-index", "--force-remove", "--"] + indexPaths, in: root, environment: temporary)
             let entries = try await toolchain.git(["ls-files", "--stage", "-z", "--"] + indexPaths, in: root)
-            let info = entries.stdout.split(separator: 0).map { String(decoding: $0, as: UTF8.self) + "\n" }.joined()
-            if !info.isEmpty {
-                _ = try await toolchain.git(["update-index", "--index-info"], in: root, input: Data(info.utf8), environment: temporary)
+            // NUL-terminated both ways, so names with newlines survive.
+            if !entries.stdout.isEmpty {
+                _ = try await toolchain.git(["update-index", "-z", "--index-info"], in: root, input: entries.stdout, environment: temporary)
             }
         }
         let fromWorktree = files.filter { $0.file.source != .staged }
@@ -307,7 +307,27 @@ extension Repository {
     }
 
     static func patch(path: String, hunk: Hunk) -> String {
-        "diff --git a/\(path) b/\(path)\n--- a/\(path)\n+++ b/\(path)\n" + hunk.patch
+        let old = quoted("a/" + path), new = quoted("b/" + path)
+        return "diff --git \(old) \(new)\n--- \(old)\n+++ \(new)\n" + hunk.patch
+    }
+
+    /// `name` as git writes it in patch headers: C-quoted when it has quotes, backslashes or control
+    /// characters, which would otherwise end or garble the header line.
+    static func quoted(_ name: String) -> String {
+        let escapes: [Unicode.Scalar: String] = ["\u{7}": "a", "\u{8}": "b", "\t": "t", "\n": "n", "\u{B}": "v", "\u{C}": "f", "\r": "r", "\"": "\"", "\\": "\\"]
+        func isControl(_ scalar: Unicode.Scalar) -> Bool { scalar.value < 0x20 || scalar.value == 0x7F }
+        guard name.unicodeScalars.contains(where: { escapes[$0] != nil || isControl($0) }) else { return name }
+        var result = "\""
+        for scalar in name.unicodeScalars {
+            if let escape = escapes[scalar] {
+                result += "\\" + escape
+            } else if isControl(scalar) {
+                result += "\\" + String(format: "%03o", scalar.value)
+            } else {
+                result.unicodeScalars.append(scalar)
+            }
+        }
+        return result + "\""
     }
 
     /// The `but` CLI IDs of files (from `but --json status`) or hunks (from `but --json diff`, matched by
