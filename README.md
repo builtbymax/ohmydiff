@@ -83,6 +83,10 @@ last known-good version lives in `OhMyDiffCore/Sources/OhMyDiffCore/GitButler/gi
 and ships with the app: with a newer `but`, the app checks `but --json status` against the
 contract and shows a workspace that fails it as a plain git repository, with a banner.
 
+## Security
+
+[SECURITY.md](SECURITY.md) describes what ohmydiff trusts, what it guards against, and how to report a vulnerability privately.
+
 ## License
 
 [MIT](LICENSE)
