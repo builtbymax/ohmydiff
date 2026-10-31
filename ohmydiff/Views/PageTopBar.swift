@@ -55,9 +55,7 @@ private struct ChangesTopBar: View {
     let session: ProjectSession
 
     var body: some View {
-        if let file = session.selectedFile {
-            FileTab(file: file, isSelected: true)
-        }
+        FileTabs(session: session)
         Spacer(minLength: 8)
         if session.project.kind != .gitButler, let branch = session.currentBranch {
             Chip(branch, systemImage: "arrow.triangle.branch")
@@ -87,10 +85,69 @@ private struct ChangesTopBar: View {
 }
 
 /// An open file: its change letter and name.
+/// The files opened lately as tabs, newest kept; the ones that do not fit go in a `+N` menu.
+private struct FileTabs: View {
+    let session: ProjectSession
+
+    var body: some View {
+        let files = session.tabFiles
+        ViewThatFits(in: .horizontal) {
+            ForEach((1...max(files.count, 1)).reversed(), id: \.self) { shown in
+                row(files, shown: shown)
+            }
+        }
+    }
+
+    /// The selected tab always shows; the rest fill up from the newest.
+    private func row(_ files: [ChangedFile], shown: Int) -> some View {
+        let visible = visibleFiles(files, count: shown)
+        let hidden = files.filter { file in !visible.contains { $0.id == file.id } }
+        return HStack(spacing: 2) {
+            ForEach(visible) { file in
+                FileTab(file: file, isSelected: file.id == session.selectedFileID) {
+                    session.closeTab(file.id)
+                }
+                .onTapGesture { session.selectedFileID = file.id }
+            }
+            if !hidden.isEmpty {
+                Menu {
+                    ForEach(hidden) { file in
+                        Button((file.path as NSString).lastPathComponent) { session.selectedFileID = file.id }
+                    }
+                } label: {
+                    Text("+\(hidden.count)")
+                        .font(.detail)
+                        .foregroundStyle(Theme.textTertiary)
+                        .padding(.horizontal, 4)
+                        .frame(height: 30)
+                        .contentShape(.rect)
+                }
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .fixedSize()
+            }
+        }
+        .fixedSize()
+    }
+
+    private func visibleFiles(_ files: [ChangedFile], count: Int) -> [ChangedFile] {
+        guard files.count > count else { return files }
+        var picked = Array(files.suffix(count))
+        if let selected = files.first(where: { $0.id == session.selectedFileID }), !picked.contains(where: { $0.id == selected.id }) {
+            picked.removeFirst()
+            picked.append(selected)
+        }
+        return files.filter { file in picked.contains { $0.id == file.id } }
+    }
+}
+
 struct FileTab: View {
     let file: ChangedFile
     let isSelected: Bool
     var onClose: (() -> Void)?
+
+    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 7) {
@@ -107,13 +164,19 @@ struct FileTab: View {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(Theme.textTertiary)
                         .frame(width: 12, height: 12)
+                        .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
+                // Room is kept so tabs do not shift; the ✕ shows on the selected and hovered tab.
+                .opacity(isSelected || isHovered ? 1 : 0)
+                .help("Close Tab")
             }
         }
         .padding(.horizontal, 10)
         .frame(height: 30)
-        .background(isSelected ? Theme.selected : .clear, in: .rect(cornerRadius: 8))
+        .background(isSelected ? Theme.selected : isHovered ? Theme.hover : .clear, in: .rect(cornerRadius: 8))
+        .contentShape(.rect(cornerRadius: 8))
+        .onHover { isHovered = $0 }
     }
 }
 
