@@ -153,6 +153,7 @@ struct FileDiffView: View {
             url: root.appending(path: diff.path), relativePath: diff.path, line: focusLine))
         .focusedSceneValue(\.diffPopout, popout)
         .focusedSceneValue(\.diffPrompt, promptTarget)
+        .focusedSceneValue(\.diffHunk, hunkContext)
         .task(id: prefersWholeFile && DiffSettings.canShowWholeFile(diff) ? diff : nil) {
             guard prefersWholeFile, DiffSettings.canShowWholeFile(diff), wholeFile?.source != diff else { return }
             let old = await contents(.old)
@@ -162,6 +163,15 @@ struct FileDiffView: View {
             else { return }
             wholeFile = (diff, expanded.diff, expanded.highlights)
         }
+    }
+
+    private var hunkContext: DiffHunkContext? {
+        guard showsTable, !diff.hunks.isEmpty else { return nil }
+        let index = min(visibleHunk ?? 0, diff.hunks.count - 1)
+        return DiffHunkContext(
+            path: diff.path, index: index, hunk: diff.hunks[index], count: diff.hunks.count, actions: hunkActions,
+            perform: { action in onHunkAction(action, index) },
+            explain: promptTarget == nil ? nil : { explain(index) })
     }
 
     /// Asks the AI provider to explain a hunk in Claude Code.

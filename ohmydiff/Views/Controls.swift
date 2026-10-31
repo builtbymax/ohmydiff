@@ -153,8 +153,13 @@ struct Chip: View {
 
 extension View {
     /// Arrow keys, Return and Escape for a palette while it is shown, even when its search field has focus.
-    func paletteKeys(up: @escaping () -> Void, down: @escaping () -> Void, choose: @escaping () -> Void, dismiss: @escaping () -> Void) -> some View {
-        modifier(PaletteKeys(handlers: .init(up: up, down: down, choose: choose, dismiss: dismiss)))
+    /// `right`, `left`, `tab` and `chooseKeepingOpen` (⌘↩) are only taken when given.
+    func paletteKeys(
+        up: @escaping () -> Void, down: @escaping () -> Void, choose: @escaping () -> Void, dismiss: @escaping () -> Void,
+        right: (() -> Bool)? = nil, left: (() -> Bool)? = nil, tab: (() -> Bool)? = nil, chooseKeepingOpen: (() -> Void)? = nil
+    ) -> some View {
+        modifier(PaletteKeys(handlers: .init(
+            up: up, down: down, choose: choose, dismiss: dismiss, right: right, left: left, tab: tab, chooseKeepingOpen: chooseKeepingOpen)))
     }
 }
 
@@ -164,6 +169,10 @@ private struct PaletteKeys: ViewModifier {
         var down: () -> Void
         var choose: () -> Void
         var dismiss: () -> Void
+        var right: (() -> Bool)?
+        var left: (() -> Bool)?
+        var tab: (() -> Bool)?
+        var chooseKeepingOpen: (() -> Void)?
     }
 
     /// The handlers of the latest render, read by the monitor; they capture the items as shown then.
@@ -180,13 +189,21 @@ private struct PaletteKeys: ViewModifier {
         return content
             .onAppear {
                 monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [box] event in
-                    guard let handlers = box.handlers,
-                          event.modifierFlags.intersection([.command, .option, .control]).isEmpty else { return event }
+                    guard let handlers = box.handlers else { return event }
+                    let modifiers = event.modifierFlags.intersection([.command, .option, .control])
+                    if modifiers == .command, [36, 76].contains(event.keyCode), let keepOpen = handlers.chooseKeepingOpen {
+                        keepOpen()
+                        return nil
+                    }
+                    guard modifiers.isEmpty else { return event }
                     switch event.keyCode {
                     case 126: handlers.up()
                     case 125: handlers.down()
                     case 36, 76: handlers.choose()
                     case 53: handlers.dismiss()
+                    case 124: return handlers.right?() == true ? nil : event
+                    case 123: return handlers.left?() == true ? nil : event
+                    case 48: return handlers.tab?() == true ? nil : event
                     default: return event
                     }
                     return nil
