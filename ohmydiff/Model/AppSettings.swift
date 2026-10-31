@@ -199,9 +199,24 @@ struct DiffPromptTarget: Equatable {
     }
 }
 
+/// The hunk the diff is at, for the launcher: what it is and what can be done with it.
+struct DiffHunkContext {
+    var path: String
+    var index: Int
+    var hunk: Hunk
+    var count: Int
+    var actions: [ChangeAction]
+    var perform: (ChangeAction) -> Void
+    /// `nil` when the diff cannot be explained, e.g. in a diff window.
+    var explain: (() -> Void)?
+
+    var fileName: String { (path as NSString).lastPathComponent }
+}
+
 extension FocusedValues {
     @Entry var diffFile: DiffFileTarget?
     @Entry var diffPrompt: DiffPromptTarget?
+    @Entry var diffHunk: DiffHunkContext?
 }
 
 /// Copies a prompt or starts Claude Code with it; set on each window's root view.
