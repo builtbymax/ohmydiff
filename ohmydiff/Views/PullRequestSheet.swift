@@ -126,7 +126,7 @@ struct PullRequestSheet: View {
             service = await suggestions()
             tickets = service?.tickets
             if let tickets, !tickets.isEmpty {
-                ticket = await tickets.ticket(forBranch: branch.name)
+                ticket = await tickets.ticket(forBranch: branch.name, pattern: AppSettings.ticketPattern())
             }
             isDetectingTicket = false
             // No draft yet: the ticket can be linked first, then Generate writes it.

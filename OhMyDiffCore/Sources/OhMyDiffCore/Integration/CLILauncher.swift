@@ -182,6 +182,13 @@ public enum CLILauncher {
         return url
     }
 
+    /// Removes the command, but only when it is ohmydiff's, so a different `ohmydiff` on the PATH stays.
+    public static func uninstall(app: String, in directory: URL = defaultDirectory) throws {
+        let url = directory.appending(path: "ohmydiff")
+        guard let text = try? String(contentsOf: url, encoding: .utf8), text.contains("Installed from ohmydiff's Settings") else { return }
+        try FileManager.default.removeItem(at: url)
+    }
+
     public static func installState(app: String, in directory: URL = defaultDirectory) -> InstallState {
         guard let data = try? Data(contentsOf: directory.appending(path: "ohmydiff")) else { return .missing }
         return data == Data(script(app: app).utf8) ? .current : .outdated

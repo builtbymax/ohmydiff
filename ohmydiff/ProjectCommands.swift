@@ -121,7 +121,8 @@ struct ProjectCommands: Commands {
                 Button(projects.indices.contains(position) ? projects[position].displayName : "Project \(position + 1)") {
                     model.select(position: position)
                 }
-                .keyboardShortcut(KeyEquivalent(Character("\(position + 1)")), modifiers: .control)
+                .keyboardShortcut(
+                    AppSettings.isOn(AppSettings.controlSwitchesProjectsKey) ? KeyboardShortcut(KeyEquivalent(Character("\(position + 1)")), modifiers: .control) : nil)
                 .disabled(!projects.indices.contains(position))
             }
 

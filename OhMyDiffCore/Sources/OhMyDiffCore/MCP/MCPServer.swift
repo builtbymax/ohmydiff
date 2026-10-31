@@ -19,11 +19,15 @@ public struct MCPServer: Sendable {
     let projects: ProjectStore
     let version: String
     let openURL: URLOpener
+    /// Told the client's name, e.g. `claude-code`, when an agent connects; for Settings' "last used".
+    let onConnect: @Sendable (String) -> Void
 
     public init(
         toolchain: Toolchain?, workingDirectory: URL, projects: ProjectStore = ProjectStore(fileURL: ProjectStore.defaultFileURL),
-        version: String = "1.0", openURL: @escaping URLOpener = MCPServer.openWithLaunchServices
+        version: String = "1.0", openURL: @escaping URLOpener = MCPServer.openWithLaunchServices,
+        onConnect: @escaping @Sendable (String) -> Void = { _ in }
     ) {
+        self.onConnect = onConnect
         self.toolchain = toolchain
         self.workingDirectory = workingDirectory
         self.projects = projects
@@ -76,6 +80,7 @@ public struct MCPServer: Sendable {
         let result: JSONValue
         switch method {
         case "initialize":
+            onConnect(params?["clientInfo"]?["name"]?.stringValue ?? "")
             let requested = params?["protocolVersion"]?.stringValue
             result = [
                 "protocolVersion": .string(requested.flatMap { Self.protocolVersions.contains($0) ? $0 : nil } ?? Self.protocolVersions[0]),

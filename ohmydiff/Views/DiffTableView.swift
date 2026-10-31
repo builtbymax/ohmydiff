@@ -25,6 +25,7 @@ struct DiffTableView: NSViewRepresentable {
     let highlights: SyntaxHighlights?
     let mode: DiffLayoutMode
     let fontSize: CGFloat
+    var lineSpacing: CGFloat = 1
     var theme = SyntaxTheme()
     /// The diff is expanded to the whole file: hunk headers are left out and `n` / `p` jump to each hunk's first change.
     var isWholeFile = false
@@ -102,8 +103,8 @@ struct DiffTableView: NSViewRepresentable {
         context.coordinator.onExpand = onExpand
         context.coordinator.currentHunk = currentHunk
         context.coordinator.show(
-            diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize, theme: theme, isWholeFile: isWholeFile,
-            showsLineNumbers: showsLineNumbers, wrapsLines: wrapsLines)
+            diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize, lineSpacing: lineSpacing, theme: theme,
+            isWholeFile: isWholeFile, showsLineNumbers: showsLineNumbers, wrapsLines: wrapsLines)
         context.coordinator.targetedHunk = targetedHunk
         if let reveal { context.coordinator.reveal(reveal) }
     }
@@ -127,6 +128,7 @@ struct DiffTableView: NSViewRepresentable {
         private var unifiedCharacters = 0
         private var formatter = DiffRowFormatter()
         private var fontSize: CGFloat?
+        private var lineSpacing: CGFloat = 1
         private var showsLineNumbers = true
         private var wrapsLines = false
         private var theme = SyntaxTheme()
@@ -187,11 +189,11 @@ struct DiffTableView: NSViewRepresentable {
 
         func show(
             _ diff: FileDiff, highlights: SyntaxHighlights?, fileID: ChangedFile.ID, mode: DiffLayoutMode, fontSize: CGFloat,
-            theme: SyntaxTheme, isWholeFile: Bool, showsLineNumbers: Bool, wrapsLines: Bool
+            lineSpacing: CGFloat, theme: SyntaxTheme, isWholeFile: Bool, showsLineNumbers: Bool, wrapsLines: Bool
         ) {
             guard let tableView,
                   diff != self.diff || highlights != self.highlights || fileID != self.fileID || mode != self.mode
-                    || fontSize != self.fontSize || theme != self.theme || isWholeFile != self.isWholeFile
+                    || fontSize != self.fontSize || lineSpacing != self.lineSpacing || theme != self.theme || isWholeFile != self.isWholeFile
                     || showsLineNumbers != self.showsLineNumbers || wrapsLines != self.wrapsLines
             else { return }
             // Rows of the other layout do not line up with the current ones, so start over at the top.
@@ -212,13 +214,14 @@ struct DiffTableView: NSViewRepresentable {
             self.fileID = fileID
             self.mode = mode
             self.fontSize = fontSize
+            self.lineSpacing = lineSpacing
             self.theme = theme
             self.isWholeFile = isWholeFile
             // Word highlights only depend on the diff, so they are kept when just the colors, theme or font change.
             let words = diff == self.diff ? formatter.words : WordHighlights(diff: diff)
             self.diff = diff
             formatter = DiffRowFormatter(
-                diff: diff, highlights: highlights, theme: theme, metrics: DiffMetrics(fontSize: fontSize), words: words,
+                diff: diff, highlights: highlights, theme: theme, metrics: DiffMetrics(fontSize: fontSize, lineSpacing: lineSpacing), words: words,
                 showsLineNumbers: showsLineNumbers)
             tableView.rowHeight = formatter.metrics.rowHeight
 
@@ -775,12 +778,13 @@ struct DiffMetrics: Equatable {
     let lineHeight: CGFloat
     let characterWidth: CGFloat
 
-    init(fontSize: CGFloat = defaultFontSize) {
+    /// `lineSpacing` scales the row height: 0.9 compact, 1 default, 1.2 relaxed.
+    init(fontSize: CGFloat = defaultFontSize, lineSpacing: CGFloat = 1) {
         font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         gutterFont = NSFont.monospacedSystemFont(ofSize: fontSize - 1, weight: .regular)
         lineHeight = ceil(NSLayoutManager().defaultLineHeight(for: font))
         // 20 pt rows at the default 12 pt, scaled with the font.
-        rowHeight = max(ceil(fontSize * 5 / 3), lineHeight + 3)
+        rowHeight = max(ceil(fontSize * 5 / 3 * lineSpacing), lineHeight + 2)
         characterWidth = ("M" as NSString).size(withAttributes: [.font: font]).width
         gutterKern = characterWidth - ("M" as NSString).size(withAttributes: [.font: gutterFont]).width
     }

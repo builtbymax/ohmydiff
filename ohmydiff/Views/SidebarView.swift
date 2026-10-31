@@ -181,7 +181,7 @@ private struct NavRow: View {
                 }
             }
             .padding(.horizontal, 8)
-            .frame(height: 28)
+            .frame(height: Theme.rowHeight(28))
             .contentShape(.rect)
         }
         .buttonStyle(.row(isSelected: isSelected))
@@ -331,7 +331,7 @@ private struct BranchRow: View {
                 }
             }
             .padding(.horizontal, 8)
-            .frame(height: 30)
+            .frame(height: Theme.rowHeight(30))
             .contentShape(.rect)
         }
         .buttonStyle(.row(isSelected: isSelected))

@@ -281,7 +281,7 @@ final class HistoryModel {
 
     /// Pushes, asking first when the branch needs a force push.
     func requestPush(_ branch: HistoryBranch) {
-        if branch.needsForcePush {
+        if branch.needsForcePush, AppSettings.isOn(AppSettings.confirmsForcePushKey) {
             forcePushBranch = branch
         } else {
             Task { await push(branch) }

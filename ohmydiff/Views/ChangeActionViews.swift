@@ -214,7 +214,7 @@ private struct CommitSheet: View {
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }
             isDetectingTicket = true
-            let found = await tickets.ticket(forBranch: targetBranch)
+            let found = await tickets.ticket(forBranch: targetBranch, pattern: AppSettings.ticketPattern())
             guard !Task.isCancelled, !isTicketChosen else { return }
             isDetectingTicket = false
             ticket = found

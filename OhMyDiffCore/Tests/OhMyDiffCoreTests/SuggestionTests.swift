@@ -48,6 +48,17 @@ import Testing
         #expect(Suggester.removingEmptyRefs("fix: y\n\nRefs: HAL-1") == "fix: y\n\nRefs: HAL-1")
     }
 
+    @Test func findsTicketsWithABranchPattern() {
+        let pattern = "{type}/{ticket}-{words}"
+        #expect(TicketKey.ticketText(inBranch: "feature/hal-128-diff-modes", pattern: pattern) == "hal-128")
+        #expect(TicketKey.keys(inBranch: "feature/hal-128-diff-modes", pattern: pattern) == [.key("HAL-128")])
+        #expect(TicketKey.keys(inBranch: "fix/42-crash", pattern: pattern) == [.number(42)])
+        #expect(TicketKey.ticketText(inBranch: "fix/encoding", pattern: pattern) == nil)
+        #expect(TicketKey.keys(inBranch: "fix/encoding", pattern: pattern).isEmpty)
+        // No pattern, or one that does not match, falls back to guessing.
+        #expect(TicketKey.keys(inBranch: "hal-128/x", pattern: "") == [.key("HAL-128")])
+    }
+
     @Test func extractsBranchNames() {
         #expect(Suggester.branchName(from: "feat/hal-128-ai-suggestions") == "feat/hal-128-ai-suggestions")
         #expect(Suggester.branchName(from: "`fix/Crash On Launch`") == "fix/crash")

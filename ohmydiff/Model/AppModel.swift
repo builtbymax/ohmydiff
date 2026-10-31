@@ -84,7 +84,8 @@ final class AppModel {
         toolchainTask = Task { try? await Toolchain.discover() }
         Task { await loadToolVersions() }
 
-        let saved = defaults.string(forKey: Self.selectionKey).flatMap(UUID.init(uuidString:))
+        let saved = AppSettings.isOn(AppSettings.reopensLastProjectKey, defaults)
+            ? defaults.string(forKey: Self.selectionKey).flatMap(UUID.init(uuidString:)) : nil
         let restored = projects.first { $0.id == saved }
         let savedWorkspace = defaults.string(forKey: Self.workspaceKey).flatMap(UUID.init(uuidString:))
         selectedWorkspaceID = restored?.workspaceID ?? workspaces.first { $0.id == savedWorkspace }?.id ?? workspaces.first?.id

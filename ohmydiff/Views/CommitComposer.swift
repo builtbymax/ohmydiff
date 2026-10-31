@@ -34,7 +34,7 @@ final class CommitDraft {
                 let commits = isExistingBranch ? await session.commitLog(ofBranch: branch) : ""
                 var ticket = ticket
                 if ticket == nil, !suggestions.tickets.isEmpty {
-                    ticket = await suggestions.tickets.ticket(forBranch: branch)
+                    ticket = await suggestions.tickets.ticket(forBranch: branch, pattern: AppSettings.ticketPattern())
                 }
                 let text = try await suggestions.commitMessage(TemplateContext(diff: diff, commits: commits, branch: branch, ticket: ticket))
                 guard !Task.isCancelled else { return }
@@ -77,6 +77,11 @@ struct CommitComposer: View {
         VStack(alignment: .leading, spacing: 8) {
             target
             editor
+            if let warning = formatWarning {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.caption11)
+                    .foregroundStyle(Theme.warnFg)
+            }
             if let error = draft.suggestionError {
                 SuggestionNotice(error: error)
             } else if let error = draft.error {
@@ -92,6 +97,17 @@ struct CommitComposer: View {
         .background(Theme.surface, in: .rect(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.line))
         .shadow(color: .black.opacity(0.08), radius: 1.5, y: 2)
+        .onReceive(NotificationCenter.default.publisher(for: .tryCommitTemplate)) { _ in
+            if !targets.isEmpty { generate() }
+        }
+    }
+
+    /// The title against Settings → Templates → Commit format: its length and style.
+    private var formatWarning: String? {
+        guard draft.hasMessage else { return nil }
+        let limit = AppSettings.titleLimit()
+        if draft.title.count > limit { return "Title is \(draft.title.count) characters, over the \(limit) limit" }
+        return AppSettings.commitStyle().problem(with: draft.title)
     }
 
     // MARK: Parts

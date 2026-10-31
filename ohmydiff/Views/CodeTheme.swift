@@ -7,9 +7,10 @@ import SwiftUI
 /// Themes only color the code: the diff keeps the app's background and addition and deletion tints, so
 /// those stay readable under every theme.
 enum CodeTheme: String, CaseIterable, Identifiable {
-    case xcode, github, one, dracula, solarized, nord, catppuccin, tokyoNight
+    case opus, xcode, github, one, dracula, solarized, nord, catppuccin, tokyoNight
 
-    static let `default` = CodeTheme.xcode
+    /// Muted greys and one warm tone for strings, so the diff colours stay the loudest thing on screen.
+    static let `default` = CodeTheme.opus
 
     var id: Self { self }
 
@@ -21,6 +22,7 @@ enum CodeTheme: String, CaseIterable, Identifiable {
     /// The variant's own name, e.g. One Light or Catppuccin Mocha.
     func name(isDark: Bool) -> String {
         switch self {
+        case .opus: "Opus"
         case .xcode: "Xcode"
         case .github: "GitHub"
         case .one: isDark ? "One Dark" : "One Light"
@@ -36,6 +38,12 @@ enum CodeTheme: String, CaseIterable, Identifiable {
     /// variant for the appearance.
     func palette(isDark: Bool) -> [SyntaxToken: UInt32]? {
         switch (self, isDark) {
+        case (.opus, false):
+            [.keyword: 0x19191A, .string: 0x9A5B2E, .comment: 0x93938F, .number: 0x5E5E5B, .constant: 0x5E5E5B, .type: 0x3A3A38,
+             .function: 0x3A3A38, .attribute: 0x5E5E5B, .tag: 0x19191A, .escape: 0x9A5B2E, .heading: 0x19191A, .link: 0x5E5E5B]
+        case (.opus, true):
+            [.keyword: 0xECECEA, .string: 0xD9A97A, .comment: 0x6B6B69, .number: 0xA3A3A0, .constant: 0xA3A3A0, .type: 0xC8C8C5,
+             .function: 0xC8C8C5, .attribute: 0xA3A3A0, .tag: 0xECECEA, .escape: 0xD9A97A, .heading: 0xECECEA, .link: 0xA3A3A0]
         case (.xcode, false):
             [.keyword: 0x9B2393, .string: 0xC41A16, .comment: 0x5D6C79, .number: 0x1C00CF, .constant: 0x326D74, .type: 0x0B4F79,
              .function: 0x326D74, .property: 0x3900A0, .attribute: 0x815F03, .tag: 0x9B2393, .escape: 0x815F03, .heading: 0x0B4F79,

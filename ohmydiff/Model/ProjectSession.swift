@@ -278,7 +278,7 @@ final class ProjectSession {
             phase = .ready
             lastRefreshed = .now
             resolvePendingReveal(isFinal: true)
-            if isActive, watcher == nil { await startWatching(repository) }
+            if isActive, watcher == nil, AppSettings.isOn(AppSettings.watchesFilesKey) { await startWatching(repository) }
         } catch is CancellationError {
             return
         } catch RepositoryError.notARepository {
@@ -324,8 +324,11 @@ final class ProjectSession {
 
     // MARK: - Upstream
 
-    /// How often the open project fetches in the background.
-    static let fetchInterval: TimeInterval = 10 * 60
+    /// How often the open project fetches in the background, from Settings; `nil` for never.
+    static var fetchInterval: TimeInterval? {
+        let minutes = AppSettings.fetchInterval()
+        return minutes > 0 ? TimeInterval(minutes * 60) : nil
+    }
 
     /// Fetches now, then again whenever the last fetch is older than `fetchInterval`, while the project is open.
     private func startFetchLoop() {
@@ -333,7 +336,7 @@ final class ProjectSession {
         fetchLoop = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                if lastFetched.map({ Date.now.timeIntervalSince($0) >= Self.fetchInterval }) ?? true {
+                if let interval = Self.fetchInterval, lastFetched.map({ Date.now.timeIntervalSince($0) >= interval }) ?? true {
                     await fetch()
                 }
                 try? await Task.sleep(for: .seconds(30))
@@ -420,8 +423,19 @@ final class ProjectSession {
         switch action {
         case .stage, .unstage:
             Task { await perform(action, on: targets) }
+        case .discard where !Self.confirmsDiscard(of: targets):
+            Task { await perform(action, on: targets) }
         case .commit, .discard:
             actionRequest = ActionRequest(action: action, targets: targets)
+        }
+    }
+
+    /// Whether discarding these targets asks first, as set in Settings → General → Safety.
+    static func confirmsDiscard(of targets: [ChangeTarget]) -> Bool {
+        switch AppSettings.discardConfirmation() {
+        case .filesAndHunks: true
+        case .filesOnly: targets.contains { $0.hunk == nil }
+        case .never: false
         }
     }
 
