@@ -9,6 +9,7 @@ struct ProjectCommands: Commands {
     @AppStorage(AppSettings.isListHiddenKey) private var isListHidden = false
     @AppStorage(AppSettings.isSidebarHiddenKey) private var isSidebarHidden = false
     @AppStorage(AppSettings.showsWhitespaceChangesKey) private var showsWhitespaceChanges = true
+    @AppStorage(AppSettings.isInspectorShownKey) private var isInspectorShown = true
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
     @FocusedValue(\.diffFile) private var diffFile
     @FocusedValue(\.diffPopout) private var diffPopout
@@ -69,6 +70,8 @@ struct ProjectCommands: Commands {
                 .keyboardShortcut("\\")
             Toggle("Show Full File", isOn: $showsWholeFile)
                 .keyboardShortcut("f", modifiers: [.command, .option])
+            Toggle("Show Inspector", isOn: $isInspectorShown)
+                .keyboardShortcut("i", modifiers: [.command, .option])
             Toggle("Show Whitespace Changes", isOn: $showsWhitespaceChanges)
                 .keyboardShortcut("w", modifiers: [.command, .option])
             Button(isSidebarHidden && isListHidden ? "Leave Focus" : "Focus Diff") {

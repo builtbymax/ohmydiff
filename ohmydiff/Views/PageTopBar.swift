@@ -21,10 +21,13 @@ struct PageTopBar: View {
             }
             if let session = model.selectedSession {
                 switch mode {
-                case .changes, .branches, .pullRequests:
+                case .changes, .pullRequests:
                     ChangesTopBar(model: model, session: session)
+                case .branches:
+                    PageTitle(title: "Branches")
+                    Spacer(minLength: 8)
                 case .history:
-                    HistoryTopBar(history: session.history)
+                    HistoryTopBar(session: session, log: session.log)
                 }
             } else {
                 dragArea
@@ -244,16 +247,89 @@ struct ChecksChip: View {
     }
 }
 
-/// History: the title and the branch filter.
-private struct HistoryTopBar: View {
-    let history: HistoryModel
+/// A page's name at the start of its bar.
+private struct PageTitle: View {
+    let title: String
 
     var body: some View {
-        Text("History")
+        Text(title)
             .font(.row.weight(.semibold))
             .foregroundStyle(Theme.textPrimary)
             .padding(.leading, 6)
             .padding(.trailing, 10)
+    }
+}
+
+/// History: the branch filter, the search, display options and the inspector.
+private struct HistoryTopBar: View {
+    let session: ProjectSession
+    @Bindable var log: CommitLogModel
+    @AppStorage(AppSettings.isInspectorShownKey) private var isInspectorShown = true
+    @FocusState private var isSearchFocused: Bool
+
+    var body: some View {
+        PageTitle(title: "History")
+        Segmented(selection: $log.filter, options: filters, systemImages: icons)
         Spacer(minLength: 8)
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .frame(width: 13, height: 13)
+            TextField("Message, author or SHA", text: $log.search)
+                .textFieldStyle(.plain)
+                .font(.control)
+                .foregroundStyle(Theme.textPrimary)
+                .focused($isSearchFocused)
+                .onExitCommand {
+                    log.search = ""
+                    isSearchFocused = false
+                }
+            KeyCap("/")
+        }
+        .foregroundStyle(Theme.textTertiary)
+        .padding(.horizontal, 8)
+        .frame(width: 260, height: 28)
+        .background(Theme.hover, in: .rect(cornerRadius: 8))
+        .background {
+            Button("") { isSearchFocused = true }
+                .keyboardShortcut("/", modifiers: [])
+                .hidden()
+        }
+        .padding(.trailing, 8)
+        Menu {
+            Toggle("Show Merge Commits", isOn: $log.showsMerges)
+            Toggle("Only My Commits", isOn: $log.onlyMine)
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 14))
+                .foregroundStyle(log.showsMerges && !log.onlyMine ? Theme.textSecondary : Theme.textPrimary)
+                .frame(width: 28, height: 28)
+                .contentShape(.rect)
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.hover(cornerRadius: 8, isSelected: !log.showsMerges || log.onlyMine))
+        .fixedSize()
+        .padding(.trailing, 8)
+        IconButton(isInspectorShown ? "Hide Inspector  ⌥⌘I" : "Show Inspector  ⌥⌘I", systemImage: "sidebar.right", isSelected: isInspectorShown) {
+            withAnimation(.snappy(duration: 0.2)) { isInspectorShown.toggle() }
+        }
+    }
+
+    /// All branches, the branch being worked on, and the default branch.
+    private var filters: [(value: CommitLogModel.Filter, title: String)] {
+        var result: [(value: CommitLogModel.Filter, title: String)] = [(.all, "All branches")]
+        let current = session.currentBranch ?? session.history.selectedBranch?.name ?? session.branchNames.first
+        if let current, current != log.defaultBranch { result.append((.branch(current), current)) }
+        if let main = log.defaultBranch { result.append((.branch(main), main)) }
+        return result
+    }
+
+    private var icons: [CommitLogModel.Filter: String] {
+        var icons: [CommitLogModel.Filter: String] = [:]
+        for filter in filters {
+            if case .branch(let name) = filter.value, name != log.defaultBranch { icons[filter.value] = "arrow.triangle.branch" }
+        }
+        return icons
     }
 }
