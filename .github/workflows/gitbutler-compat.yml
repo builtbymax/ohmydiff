@@ -75,11 +75,6 @@ jobs:
           path: ${{ runner.temp }}/compat
           retention-days: 7
 
-      - name: Core tests
-        if: github.event_name != 'schedule'
-        working-directory: OhMyDiffCore
-        run: swift test
-
   report:
     needs: contract
     if: failure() && github.event_name != 'pull_request'

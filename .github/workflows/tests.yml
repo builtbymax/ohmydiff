@@ -1,0 +1,30 @@
+name: Tests
+
+# The required check for main. Runs on every pull request, docs included, so the check always reports.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Cache SwiftPM dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            OhMyDiffCore/.build/repositories
+            OhMyDiffCore/.build/checkouts
+          key: spm-${{ runner.os }}-${{ hashFiles('OhMyDiffCore/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Core tests
+        working-directory: OhMyDiffCore
+        run: swift test --only-use-versions-from-resolved-file
