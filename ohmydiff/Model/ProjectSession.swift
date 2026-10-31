@@ -37,6 +37,19 @@ final class ProjectSession {
         var content: Content
         /// Syntax colors for the diff's lines; `nil` while they load or when the language is unknown.
         var highlights: SyntaxHighlights?
+        /// Whitespace-only changes are left out, so the hunks are for reading and cannot be staged or discarded.
+        var ignoresWhitespace = false
+    }
+
+    /// Whether the View menu hides whitespace-only changes.
+    static var ignoresWhitespace: Bool {
+        !(UserDefaults.standard.object(forKey: AppSettings.showsWhitespaceChangesKey) as? Bool ?? true)
+    }
+
+    /// Loads the selected file's diff again, e.g. after a View option changed how it is read.
+    func reloadDiff() {
+        diff = nil
+        loadDiff()
     }
 
     private(set) var project: Project
@@ -54,6 +67,10 @@ final class ProjectSession {
     private(set) var isPerformingAction = false
     var actionError: String?
     let history = HistoryModel()
+    /// The message in the commit composer.
+    let commitDraft = CommitDraft()
+    /// Hunk sizes of listed files, in changed lines, for the file list's hunk bars; filled as diffs load.
+    private(set) var hunkSizes: [ChangedFile.ID: [Int]] = [:]
 
     /// What the last fetch found on the remote; `nil` before the first fetch or without a tracked upstream.
     private(set) var upstream: UpstreamStatus?
@@ -158,6 +175,13 @@ final class ProjectSession {
             selectedFileID = id
             extraSelectedFileIDs = Set(files[min(from, to)...max(from, to)]).subtracting([id])
         }
+    }
+
+    /// Selects the first file of a group, e.g. a branch picked in the sidebar.
+    func select(group id: ChangeGroup.ID) {
+        guard let file = groups.first(where: { $0.id == id })?.files.first else { return }
+        select(file.id)
+        fileReveal = FileReveal(fileID: file.id, line: nil)
     }
 
     /// Keeps only the selected file.
@@ -590,10 +614,11 @@ final class ProjectSession {
         // Before the first refresh opens the repository; that refresh calls back here.
         guard let repository else { return }
 
+        let ignoresWhitespace = Self.ignoresWhitespace
         diffTask = Task {
             let content: DiffState.Content
             do {
-                content = try await repository.diff(for: file).map(DiffState.Content.diff) ?? .noDifference
+                content = try await repository.diff(for: file, ignoringWhitespace: ignoresWhitespace).map(DiffState.Content.diff) ?? .noDifference
             } catch is CancellationError {
                 return
             } catch {
@@ -601,7 +626,11 @@ final class ProjectSession {
             }
             guard !Task.isCancelled, selectedFileID == file.id else { return }
 
-            var state = DiffState(fileID: file.id, content: content)
+            var state = DiffState(fileID: file.id, content: content, ignoresWhitespace: ignoresWhitespace)
+            if case .diff(let fileDiff) = content, !ignoresWhitespace {
+                let sizes = fileDiff.hunks.map(\.size)
+                if hunkSizes[file.id] != sizes { hunkSizes[file.id] = sizes }
+            }
             guard case .diff(let fileDiff) = content, let language = SyntaxLanguage(path: fileDiff.path), !fileDiff.isBinary else {
                 if state != diff { diff = state }
                 return

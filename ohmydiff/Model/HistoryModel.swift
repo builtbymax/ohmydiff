@@ -188,6 +188,11 @@ final class HistoryModel {
         pullRequestStatuses[pullRequest.number] = status
     }
 
+    /// Open pull requests of the listed branches, for the sidebar.
+    var openPullRequestCount: Int {
+        pullRequests.values.compactMap { $0 }.filter { $0.state == .open }.count
+    }
+
     /// The branch's pull request, unless it was closed without merging.
     func pullRequest(of branch: HistoryBranch) -> PullRequest? {
         guard case .some(.some(let pullRequest)) = pullRequests[branch.name], pullRequest.state != .closed else { return nil }

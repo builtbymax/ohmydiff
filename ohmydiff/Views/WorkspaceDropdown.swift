@@ -19,11 +19,11 @@ struct WorkspaceDropdown: View {
         ZStack(alignment: .topLeading) {
             Color.black.opacity(0.001)
                 .onTapGesture(perform: dismiss)
-            // Beside the rail, level with its workspace button.
+            // Where the project switcher it was opened from was.
             panel
-                .padding(.leading, Theme.inset + Theme.railWidth + 8)
-                .padding(.top, Theme.inset + Theme.titleBarHeight + 12)
-                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topLeading)))
+                .padding(.leading, 14)
+                .padding(.top, 96)
+                .popoverTransition(anchor: .topLeading)
         }
         .ignoresSafeArea()
     }
@@ -31,23 +31,22 @@ struct WorkspaceDropdown: View {
     private var panel: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
-                Text("Workspaces")
+                Text("Manage workspaces")
                 Spacer()
                 Text("\(model.workspaces.count)").monospacedDigit()
             }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .font(.sectionLabel)
+            .foregroundStyle(Theme.textTertiary)
             .padding(.horizontal, 10)
-            .padding(.top, 6)
-            .padding(.bottom, 4)
+            .frame(height: 26)
             ForEach(Array(model.workspaces.enumerated()), id: \.element.id) { offset, workspace in
                 if editing == .rename(workspace.id) {
-                    nameField(WorkspaceMonogram(workspace: workspace, size: 26))
+                    nameField(ProjectAvatar(name: workspace.name))
                 } else {
                     Button { select(workspace) } label: {
                         WorkspaceRow(model: model, workspace: workspace, position: offset)
                     }
-                    .buttonStyle(.hover(cornerRadius: 10, isSelected: offset == highlighted))
+                    .buttonStyle(.hover(cornerRadius: 9, isSelected: offset == highlighted))
                     .focusEffectDisabled()
                     .contextMenu {
                         Button("Rename") { startEditing(.rename(workspace.id), name: workspace.name) }
@@ -56,13 +55,13 @@ struct WorkspaceDropdown: View {
                     }
                 }
             }
-            Divider().padding(.vertical, 4).padding(.horizontal, 10)
+            Rectangle().fill(Theme.lineSubtle).frame(height: 1).padding(.vertical, 2)
             if editing == .new {
                 nameField(Image(systemName: "plus")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 26, height: 26)
-                    .background(Theme.glassSelection, in: .circle))
+                    .frame(width: 24, height: 24)
+                    .background(Theme.hover, in: .rect(cornerRadius: 7)))
             } else {
                 action("New Workspace…", systemImage: "plus") { startEditing(.new, name: "") }
             }
@@ -72,9 +71,8 @@ struct WorkspaceDropdown: View {
             }
         }
         .padding(6)
-        .frame(width: 300)
-        .glassEffect(Theme.barGlass, in: .rect(cornerRadius: 18))
-        .shadow(color: Theme.overlayShadow, radius: 24, y: 10)
+        .frame(width: 330)
+        .popoverSurface(in: .rect(cornerRadius: 14))
         .paletteKeys(up: { move(-1) }, down: { move(1) }, choose: choose, dismiss: cancel)
         .onAppear { highlighted = model.workspaces.firstIndex { $0.id == model.selectedWorkspaceID } }
     }
@@ -85,13 +83,13 @@ struct WorkspaceDropdown: View {
             icon
             TextField(editing == .new ? "Workspace Name" : "Name", text: $name)
                 .textFieldStyle(.plain)
-                .fontWeight(.medium)
+                .font(.row)
                 .focused($isNameFocused)
                 .onAppear { isNameFocused = true }
         }
         .padding(.horizontal, 8)
-        .frame(height: 38)
-        .background(Theme.glassSelection, in: .rect(cornerRadius: 10))
+        .frame(height: 40)
+        .background(Theme.selected, in: .rect(cornerRadius: 9))
     }
 
     /// Deleting asks first, and only an empty workspace that is not the last one can be deleted.
@@ -100,7 +98,7 @@ struct WorkspaceDropdown: View {
             ? "Last workspace"
             : model.canDelete(workspace) ? nil : "Not empty"
         return Button(role: .destructive) { confirmDeletion(workspace) } label: {
-            label("Delete \(workspace.name)…", systemImage: "trash", tint: reason == nil ? .red : .secondary) {
+            label("Delete \(workspace.name)…", systemImage: "trash", tint: reason == nil ? Theme.delFg : Theme.textTertiary) {
                 if let reason {
                     Text(reason)
                         .font(.caption)
@@ -108,7 +106,7 @@ struct WorkspaceDropdown: View {
                 }
             }
         }
-        .buttonStyle(.hover(cornerRadius: 10, tint: .red))
+        .buttonStyle(.hover(cornerRadius: 8, tint: Theme.delFg))
         .focusEffectDisabled()
         .disabled(reason != nil)
     }
@@ -117,25 +115,25 @@ struct WorkspaceDropdown: View {
         Button(action: perform) {
             label(title, systemImage: systemImage) { EmptyView() }
         }
-        .buttonStyle(.hover(cornerRadius: 10))
+        .buttonStyle(.hover(cornerRadius: 8))
         .focusEffectDisabled()
     }
 
     private func label(
-        _ title: String, systemImage: String, tint: Color = .primary, @ViewBuilder trailing: () -> some View
+        _ title: String, systemImage: String, tint: Color = Theme.textSecondary, @ViewBuilder trailing: () -> some View
     ) -> some View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .medium))
-                .frame(width: 26)
-                .foregroundStyle(tint == .primary ? AnyShapeStyle(.secondary) : AnyShapeStyle(tint))
+                .font(.system(size: 12))
+                .frame(width: 14, height: 14)
             Text(title)
-                .foregroundStyle(tint)
+                .font(.control)
                 .lineLimit(1)
             Spacer()
             trailing()
         }
-        .padding(.horizontal, 8)
+        .foregroundStyle(tint)
+        .padding(.horizontal, 10)
         .frame(height: 32)
         .contentShape(.rect)
     }
@@ -206,21 +204,22 @@ private struct WorkspaceRow: View {
         let isCurrent = workspace.id == model.selectedWorkspaceID
         let count = model.projects(in: workspace.id).count
         HStack(spacing: 10) {
-            WorkspaceMonogram(workspace: workspace, size: 26)
+            ProjectAvatar(name: workspace.name, isCurrent: isCurrent)
             Text(workspace.name)
-                .fontWeight(isCurrent ? .semibold : .medium)
+                .font(.row.weight(isCurrent ? .medium : .regular))
+                .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
             Spacer(minLength: 8)
             Text(count == 1 ? "1 project" : "\(count) projects")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.caption11)
+                .foregroundStyle(Theme.textTertiary)
                 .fixedSize()
             if position < 9 {
                 KeyCap("⌃⌘\(position + 1)")
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .frame(height: 40)
         .contentShape(.rect)
     }
 }

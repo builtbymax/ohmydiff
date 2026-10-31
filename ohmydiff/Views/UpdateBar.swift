@@ -27,7 +27,7 @@ private struct UpdateBar: View {
         .padding(.leading, 14)
         .padding(.trailing, 6)
         .frame(height: 44)
-        .glassEffect(Theme.barGlass, in: .capsule)
+        .popoverSurface(in: .capsule)
         .shadow(color: Theme.overlayShadow, radius: 12, y: 4)
         .animation(.snappy(duration: 0.2), value: updater.phase)
     }
@@ -53,7 +53,7 @@ struct UpdateStatus: View {
     @ViewBuilder private var icon: some View {
         switch updater.phase {
         case .available, .ready:
-            Image(systemName: "arrow.down.circle.fill").foregroundStyle(Theme.logoText)
+            Image(systemName: "arrow.down.circle.fill").foregroundStyle(Theme.textPrimary)
         case .checking, .installing:
             ProgressView().controlSize(.small)
         case .downloading, .extracting:

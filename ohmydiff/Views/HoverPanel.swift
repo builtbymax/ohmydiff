@@ -38,8 +38,8 @@ extension View {
     /// The background of tooltips and hover cards. They float in their own window, where glass has
     /// nothing to refract and turns gray, so they get a solid surface with a hairline edge instead.
     func floatingSurface<S: InsettableShape>(in shape: S) -> some View {
-        background(Theme.floating, in: shape)
-            .overlay(shape.strokeBorder(Theme.floatingEdge))
+        background(Theme.raised, in: shape)
+            .overlay(shape.strokeBorder(Theme.lineStrong))
     }
 }
 

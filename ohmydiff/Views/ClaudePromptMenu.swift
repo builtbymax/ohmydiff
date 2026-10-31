@@ -85,7 +85,7 @@ private struct ClaudePromptPanel: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.black)
                 .frame(width: 28, height: 28)
-                .background(Theme.logo, in: .rect(cornerRadius: 8))
+                .background(Theme.inverse, in: .rect(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 1) {
                 Text(AppSettings.askTitle())
                     .fontWeight(.semibold)

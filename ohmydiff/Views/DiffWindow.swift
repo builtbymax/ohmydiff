@@ -46,7 +46,7 @@ struct DiffWindow: View {
     let model: AppModel
     let popoutID: UUID?
 
-    @AppStorage(DiffSettings.layoutKey) private var layout: DiffLayoutMode = .unified
+    @AppStorage(DiffSettings.layoutKey) private var layout: DiffLayoutMode = .split
     @AppStorage(Self.sidebarHiddenKey) private var isSidebarHidden = false
 
     var body: some View {
@@ -60,11 +60,11 @@ struct DiffWindow: View {
                 EmptyState("Diff Unavailable", systemImage: "macwindow", description: "Open the diff again from the main window.")
             }
         }
-        .background(Theme.panel, in: .rect(cornerRadius: 16))
-        .clipShape(.rect(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.hairline))
+        .background(Theme.canvas, in: .rect(cornerRadius: 12))
+        .clipShape(.rect(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.lineSubtle))
         .padding(Theme.inset)
-        .background { WindowTranslucency().ignoresSafeArea() }
+        .background(Theme.sidebar)
         .frame(minWidth: 520, minHeight: 360)
         .toolbar {
             ToolbarItem(placement: .navigation) {
@@ -100,7 +100,7 @@ private struct SidebarLayout<Sidebar: View, Detail: View>: View {
             if !isSidebarHidden {
                 sidebar
                     .frame(width: width.clamped(to: 200...420))
-                    .background(Theme.column)
+                    .background(Theme.canvas)
                     .overlay(alignment: .trailing) { ColumnResizer(width: $width, range: 200...420) }
                     .transition(.move(edge: .leading).combined(with: .opacity))
                     .zIndex(1)

@@ -30,7 +30,7 @@ struct PullRequestSheet: View {
                 PullRequestGlyph(size: 15)
                     .foregroundStyle(.black)
                     .frame(width: 34, height: 34)
-                    .background(Theme.logo, in: .rect(cornerRadius: 10))
+                    .background(Theme.inverse, in: .rect(cornerRadius: 10))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Pull Request for \(branch.name)")
                         .font(.headline)
@@ -85,7 +85,7 @@ struct PullRequestSheet: View {
             if let createError {
                 Label(createError, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(Theme.deletion)
+                    .foregroundStyle(Theme.delFg)
                     .textSelection(.enabled)
                     .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
