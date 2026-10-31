@@ -79,7 +79,9 @@ struct SidebarView: View {
         switch page {
         case .changes: return session.changeCount
         case .branches: return session.history.groups.flatMap(\.branches).count
-        case .pullRequests: return session.history.openPullRequestCount
+        case .pullRequests:
+            // What needs the user once the inbox loaded, else the branches' open pull requests.
+            return session.pullRequests.phase == .ready ? session.pullRequests.count(.reviewRequested) : session.history.openPullRequestCount
         case .history: return nil
         }
     }

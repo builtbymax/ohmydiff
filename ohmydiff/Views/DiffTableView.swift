@@ -172,13 +172,20 @@ struct DiffTableView: NSViewRepresentable {
                 NotificationCenter.default.addObserver(
                     forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main
                 ) { [weak self] _ in MainActor.assumeIsolated { self?.sizeColumns() } },
+                // Jumps go to the diff of the window in front, not to every open diff.
                 NotificationCenter.default.addObserver(forName: .jumpToHunk, object: nil, queue: .main) { [weak self] note in
                     let direction = note.object as? Int ?? 1
-                    MainActor.assumeIsolated { self?.jumpToHunk(direction) }
+                    MainActor.assumeIsolated {
+                        guard let self, self.tableView?.window?.isKeyWindow == true else { return }
+                        self.jumpToHunk(direction)
+                    }
                 },
                 NotificationCenter.default.addObserver(forName: .jumpToHunkIndex, object: nil, queue: .main) { [weak self] note in
                     let index = note.object as? Int ?? 0
-                    MainActor.assumeIsolated { self?.jumpToHunk(at: index) }
+                    MainActor.assumeIsolated {
+                        guard let self, self.tableView?.window?.isKeyWindow == true else { return }
+                        self.jumpToHunk(at: index)
+                    }
                 },
             ]
         }

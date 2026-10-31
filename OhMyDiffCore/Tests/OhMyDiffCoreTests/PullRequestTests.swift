@@ -215,3 +215,44 @@ private struct StubbedGH {
         #expect(detail.checks.isEmpty)
     }
 }
+
+@Suite struct InboxTests {
+    @Test func decodesInboxPullRequests() throws {
+        let json = """
+        [{"number":151,"title":"Stream large diffs","url":"https://github.com/o/r/pull/151","state":"OPEN","isDraft":false,
+          "baseRefName":"main","headRefName":"perf/stream","author":{"login":"lena-k"},
+          "reviewRequests":[{"__typename":"User","login":"builtbymax"},{"__typename":"Team","name":"core"}],
+          "reviewDecision":"REVIEW_REQUIRED","comments":[{"author":{"login":"jonas"},"body":"hm"}],
+          "reviews":[{"author":{"login":"jonas"},"body":"","state":"COMMENTED"},{"author":{"login":"mia"},"body":"ok","state":"APPROVED"}],
+          "updatedAt":"2026-10-31T10:00:00Z","mergedAt":null,"additions":412,"deletions":96,"changedFiles":6,
+          "statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]},
+         {"number":139,"title":"Release","url":"https://github.com/o/r/pull/139","state":"MERGED","isDraft":false,
+          "baseRefName":"main","headRefName":"chore/release","author":{"login":"builtbymax"},"reviewRequests":[],
+          "reviewDecision":"","comments":[],"reviews":[],"mergedAt":"2026-10-30T10:00:00Z","statusCheckRollup":[]},
+         {"number":2,"title":"Closed","url":"https://github.com/o/r/pull/2","state":"CLOSED","author":{"login":"x"},"statusCheckRollup":[]}]
+        """
+        let inbox = try InboxPullRequest.decode(Data(json.utf8))
+        #expect(inbox.count == 3)
+        let first = inbox[0]
+        #expect(first.author == "lena-k")
+        #expect(first.reviewRequests == ["builtbymax", "core"])
+        #expect(first.review == .required)
+        #expect(first.commentCount == 2)
+        #expect(first.participants == ["jonas", "mia"])
+        #expect(first.checks == .passed(total: 1))
+        #expect(first.additions == 412 && first.changedFiles == 6)
+        #expect(inbox[1].state == .merged && inbox[1].mergedAt != nil && inbox[1].review == nil)
+    }
+
+    @Test func decodesFilesWithViewedState() throws {
+        let json = """
+        {"data":{"repository":{"pullRequest":{"id":"PR_1","files":{"nodes":[
+          {"path":"a.swift","additions":3,"deletions":1,"changeType":"MODIFIED","viewerViewedState":"VIEWED"},
+          {"path":"b.swift","additions":9,"deletions":0,"changeType":"ADDED","viewerViewedState":"UNVIEWED"}]}}}}}
+        """
+        let files = try PullRequestFiles.decode(Data(json.utf8))
+        #expect(files.nodeID == "PR_1")
+        #expect(files.files.map(\.isViewed) == [true, false])
+        #expect(files.files.map(\.kind) == [.modified, .added])
+    }
+}

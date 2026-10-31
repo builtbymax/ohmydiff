@@ -72,6 +72,8 @@ final class ProjectSession {
     let log = CommitLogModel()
     /// The message in the commit composer.
     let commitDraft = CommitDraft()
+    /// The Pull requests page.
+    let pullRequests = PullRequestsModel()
     /// Hunk sizes of listed files, in changed lines, for the file list's hunk bars; filled as diffs load.
     private(set) var hunkSizes: [ChangedFile.ID: [Int]] = [:]
 
@@ -233,6 +235,12 @@ final class ProjectSession {
     }
 
     /// Loads the History page's log, e.g. when the page opens.
+    /// Loads the Pull requests page's inbox; at most once a minute unless forced.
+    func refreshPullRequests(force: Bool = false) async {
+        guard let repository = await openedRepository() else { return }
+        await pullRequests.refresh(repository, force: force)
+    }
+
     func refreshLog() async {
         guard let repository = await openedRepository() else { return }
         await log.refresh(repository)
