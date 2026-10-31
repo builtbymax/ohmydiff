@@ -294,7 +294,12 @@ final class HistoryModel {
         guard let repository, !drafting.contains(branch.name) else { return }
         drafting.insert(branch.name)
         draftErrors[branch.name] = nil
-        defer { drafting.remove(branch.name) }
+        let provider = AppSettings.suggestionProvider()?.displayName ?? "AI"
+        let entry = ActivityLog.shared.begin("Drafting PR description", detail: "\(provider) · \(branch.name)", isAI: true)
+        defer {
+            drafting.remove(branch.name)
+            ActivityLog.shared.finish(entry)
+        }
         do {
             guard let suggestions else { throw SuggestionUnavailable.noToolchain }
             let diffs: [FileDiff]
@@ -462,11 +467,14 @@ final class HistoryModel {
         guard let repository, branchActivity == nil else { return false }
         branchActivity = activity
         defer { branchActivity = nil }
+        let entry = ActivityLog.shared.begin(activity, detail: branch ?? "")
         var succeeded = true
         do {
             try await action(repository)
+            ActivityLog.shared.finish(entry)
         } catch {
             branchActionError = String(describing: error)
+            ActivityLog.shared.finish(entry, failure: String(describing: error).prefix { $0 != "\n" }.description)
             succeeded = false
         }
         await refresh(repository)

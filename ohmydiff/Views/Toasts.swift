@@ -48,6 +48,7 @@ final class Toasts {
 
     func show(_ message: String, systemImage: String, tint: Color = Theme.textSecondary, action: Toast.Action? = nil) {
         let toast = Toast(systemImage: systemImage, tint: tint, message: message, action: action)
+        ActivityLog.shared.record(message)
         items.insert(toast, at: 0)
         if items.count > 3 { items.removeLast(items.count - 3) }
         Task { [id = toast.id] in

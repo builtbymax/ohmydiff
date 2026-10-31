@@ -20,8 +20,12 @@ struct SidebarView: View {
                 NavRow(page: page, count: count(for: page), isSelected: model.mode == page) { model.mode = page }
             }
             ScrollView {
-                if let session = model.selectedSession, session.phase == .ready {
-                    SidebarBranches(model: model, session: session)
+                VStack(alignment: .leading, spacing: 0) {
+                    if let session = model.selectedSession, session.phase == .ready {
+                        SidebarBranches(model: model, session: session)
+                            .padding(.top, 10)
+                    }
+                    SidebarActivity(session: model.selectedSession)
                         .padding(.top, 10)
                 }
             }
@@ -201,7 +205,7 @@ private struct SidebarBranches: View {
         let history = session.history
         if session.project.kind == .gitButler {
             VStack(alignment: .leading, spacing: 2) {
-                SidebarSection(title: "Applied branches")
+                SidebarSection(title: "Applied branches", actionImage: "plus", actionTitle: "New Branch  ⌘B") { newBranch() }
                 ForEach(history.groups.filter { $0.kind == .stack }.flatMap(\.branches)) { branch in
                     BranchRow(
                         name: branch.name, systemImage: "arrow.triangle.branch", pullRequest: history.pullRequest(of: branch),
@@ -220,7 +224,7 @@ private struct SidebarBranches: View {
             let current = branches.first(where: \.isCurrent)
             VStack(alignment: .leading, spacing: 2) {
                 if let current {
-                    SidebarSection(title: "Current branch")
+                    SidebarSection(title: "Current branch", actionImage: "plus", actionTitle: "New Branch  ⌘B") { newBranch() }
                     BranchRow(
                         name: current.name, systemImage: "checkmark", trailing: aheadBehind(current), pullRequest: history.pullRequest(of: current),
                         isSelected: true, isCurrent: true
@@ -239,6 +243,11 @@ private struct SidebarBranches: View {
                 }
             }
         }
+    }
+
+    private func newBranch() {
+        model.mode = .branches
+        model.isNewBranchPresented = true
     }
 
     private func isSelected(_ branch: String) -> Bool {
@@ -425,6 +434,91 @@ enum RelativeAge {
         case ..<86_400: return "\(seconds / 3600)h"
         case ..<(86_400 * 30): return "\(seconds / 86_400)d"
         default: return date.formatted(.dateTime.month(.abbreviated).day())
+        }
+    }
+}
+
+
+/// What runs and what ran: checks of open pull requests, pushes, AI drafts and finished actions.
+private struct SidebarActivity: View {
+    let session: ProjectSession?
+    @AppStorage(AppSettings.isActivityHiddenKey) private var isHidden = false
+
+    var body: some View {
+        let items = self.items
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                SidebarSection(title: "Activity", actionImage: isHidden ? "eye" : "eye.slash", actionTitle: isHidden ? "Show Activity" : "Hide Activity") {
+                    withAnimation(Theme.popoverAnimation) { isHidden.toggle() }
+                }
+                if !isHidden {
+                    ForEach(items) { item in
+                        ActivityRow(item: item)
+                    }
+                }
+            }
+        }
+    }
+
+    private var items: [ActivityItem] {
+        var items: [ActivityItem] = []
+        if let history = session?.history {
+            for (number, status) in history.pullRequestStatuses.sorted(by: { $0.key > $1.key }) {
+                if case .pending(let done, let total) = status.checks {
+                    items.append(ActivityItem(id: "checks-\(number)", title: "Checks on #\(number)", detail: "\(done) of \(total) passed", kind: .running, date: .now))
+                }
+            }
+        }
+        items += ActivityLog.shared.entries.map {
+            ActivityItem(id: $0.id.uuidString, title: $0.title, detail: $0.detail, kind: $0.kind, date: $0.date)
+        }
+        return Array(items.prefix(5))
+    }
+}
+
+private struct ActivityItem: Identifiable {
+    let id: String
+    let title: String
+    let detail: String
+    let kind: ActivityLog.Entry.Kind
+    let date: Date
+}
+
+private struct ActivityRow: View {
+    let item: ActivityItem
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            icon
+                .frame(width: 15, height: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.title)
+                    .font(.control)
+                    .foregroundStyle(Theme.textSecondary)
+                if !item.detail.isEmpty {
+                    Text(item.detail)
+                        .font(.caption11)
+                        .foregroundStyle(Theme.textTertiary)
+                }
+            }
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                Text(item.kind == .running || item.kind == .ai ? "now" : RelativeAge.short(item.date, now: context.date))
+                    .font(.caption11)
+                    .foregroundStyle(Theme.textTertiary)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+    }
+
+    @ViewBuilder private var icon: some View {
+        switch item.kind {
+        case .running: ProgressView().controlSize(.mini).tint(Theme.warnFg)
+        case .ai: Image(systemName: "sparkles").font(.system(size: 11)).foregroundStyle(Theme.infoFg)
+        case .done: Image(systemName: "checkmark").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.okFg)
+        case .failed: Image(systemName: "xmark").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.delFg)
         }
     }
 }
