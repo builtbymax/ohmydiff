@@ -41,6 +41,7 @@ struct OhMyDiffApp: App {
             ContentView(model: model)
                 .environment(\.claudeCode, model.claudeCodeActions)
                 .environment(\.openEditor, model.openInEditor)
+                .environment(\.askAI, model.askAI)
                 .onOpenURL { model.handle($0) }
         }
         // The sidebar and the page bars replace the title bar; the window controls sit on the sidebar.
@@ -54,6 +55,7 @@ struct OhMyDiffApp: App {
             DiffWindow(model: model, popoutID: popoutID)
                 .environment(\.claudeCode, model.claudeCodeActions)
                 .environment(\.openEditor, model.openInEditor)
+                .environment(\.askAI, model.askAI)
         }
         .defaultSize(width: 1100, height: 760)
         .commandsRemoved()
