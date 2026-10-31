@@ -98,5 +98,10 @@ import Testing
     @Test func terminalsOpenTheScript() {
         #expect(TerminalApp.terminal.openArguments(script: "/s.command") == ["-b", "com.apple.Terminal", "/s.command"])
         #expect(TerminalApp.ghostty.openArguments(script: "/s.command").suffix(3) == ["-e", "/bin/sh", "/s.command"])
+        if TerminalApp.rexExecutable() != nil {
+            let rex = TerminalApp.rex.launch(script: "/s.command")
+            #expect(rex.executable.path == "/bin/sh")
+            #expect(rex.arguments.last == "/s.command")
+        }
     }
 }

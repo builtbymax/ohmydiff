@@ -52,6 +52,7 @@ public enum TerminalApp: String, Sendable, Hashable, CaseIterable, Identifiable 
     case terminal
     case iterm
     case ghostty
+    case rex
 
     public var id: Self { self }
 
@@ -60,6 +61,7 @@ public enum TerminalApp: String, Sendable, Hashable, CaseIterable, Identifiable 
         case .terminal: "Terminal"
         case .iterm: "iTerm"
         case .ghostty: "Ghostty"
+        case .rex: "Rex"
         }
     }
 
@@ -68,6 +70,7 @@ public enum TerminalApp: String, Sendable, Hashable, CaseIterable, Identifiable 
         case .terminal: "com.apple.Terminal"
         case .iterm: "com.googlecode.iterm2"
         case .ghostty: "com.mitchellh.ghostty"
+        case .rex: "com.superlogical.rex"
         }
     }
 
@@ -75,10 +78,35 @@ public enum TerminalApp: String, Sendable, Hashable, CaseIterable, Identifiable 
     func openArguments(script: String) -> [String] {
         switch self {
         // Both run an executable file they are asked to open.
-        case .terminal, .iterm: ["-b", bundleIdentifier, script]
+        case .terminal, .iterm, .rex: ["-b", bundleIdentifier, script]
         // A new instance, since `--args` only reaches a launching app; `-e` runs the rest as the command.
         case .ghostty: ["-na", "Ghostty", "--args", "-e", "/bin/sh", script]
         }
+    }
+
+    /// The program and arguments that run `script` in a new window: `open` for most, the `rex` CLI for Rex.
+    func launch(script: String) -> (executable: URL, arguments: [String]) {
+        guard self == .rex, let rex = Self.rexExecutable() else {
+            return (URL(fileURLWithPath: "/usr/bin/open"), openArguments(script: script))
+        }
+        // A new session runs the script; selecting it needs Remote Control, so the app is brought forward
+        // either way.
+        let command = #"""
+            out=$("$0" new ohmydiff --shell=none --json -- /bin/sh "$1") || exit 1
+            id=$(printf '%s' "$out" | sed -n 's/.*"session_id": *"\([^"]*\)".*/\1/p' | head -n 1)
+            [ -n "$id" ] && "$0" do session.select "session_id=$id" >/dev/null 2>&1
+            /usr/bin/open -b com.superlogical.rex
+            """#
+        return (URL(fileURLWithPath: "/bin/sh"), ["-c", command, rex.path, script])
+    }
+
+    /// The `rex` CLI inside the app, wherever Rex or Rex Beta is installed.
+    static func rexExecutable() -> URL? {
+        let folders = ["/Applications", "\(NSHomeDirectory())/Applications"]
+        return folders.lazy
+            .flatMap { folder in ["Rex.app", "Rex Beta.app"].map { URL(fileURLWithPath: folder).appending(path: $0) } }
+            .map { $0.appending(path: "Contents/Helpers/Rex Server.rex/Contents/MacOS/rex") }
+            .first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
 }
 
@@ -120,8 +148,9 @@ public enum ClaudeCodeLauncher {
         try Data(self.script(root: root.path, promptFile: promptFile.path, provider: provider, executable: executable.path).utf8).write(to: script)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
 
+        let launch = terminal.launch(script: script.path)
         let output = try await toolchain.runner.run(
-            URL(fileURLWithPath: "/usr/bin/open"), arguments: terminal.openArguments(script: script.path),
+            launch.executable, arguments: launch.arguments,
             environment: sessionFree(toolchain.environment), timeout: .seconds(15))
         guard output.exitCode == 0 else {
             try? FileManager.default.removeItem(at: promptFile)
