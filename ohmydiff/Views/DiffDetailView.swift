@@ -9,6 +9,14 @@ struct DiffDetailView: View {
 
     var body: some View {
         diffBody
+            .overlay(alignment: .bottom) {
+                if let request = session.actionRequest, request.action == .discard {
+                    DiscardConfirmCard(session: session, request: request)
+                        .padding(.bottom, 20 + 44 + 10)
+                        .popoverTransition(anchor: .bottom)
+                }
+            }
+            .animation(Theme.popoverAnimation, value: session.actionRequest?.id)
             .onChange(of: showsWhitespaceChanges) { session.reloadDiff() }
     }
 
@@ -90,6 +98,7 @@ struct FileDiffView: View {
     @AppStorage(AppSettings.showsLineNumbersKey) private var showsLineNumbers = true
     @AppStorage(AppSettings.wrapsLinesKey) private var wrapsLines = false
     @AppStorage(AppSettings.showsSyntaxColorsKey) private var showsSyntaxColors = true
+    @AppStorage(AppSettings.collapsesGeneratedFilesKey) private var collapsesGeneratedFiles = true
     @AppStorage(AppSettings.lineHeightKey) private var lineHeight = LineHeight.standard
     @State private var isViewMenuShown = false
     @AppStorage(AppSettings.fontSizeKey) private var fontSize = Double(DiffMetrics.defaultFontSize)
@@ -116,8 +125,8 @@ struct FileDiffView: View {
                 showsWholeFile: DiffSettings.canShowWholeFile(diff) ? $prefersWholeFile : nil,
                 isViewMenuShown: $isViewMenuShown)
             Rectangle().fill(Theme.lineSubtle).frame(height: 1)
-            if showsTable, !isHunkStripHidden, !diff.hunks.isEmpty {
-                HunkStrip(hunks: diff.hunks, current: visibleHunk ?? 0)
+            if showsTable, !isHunkStripHidden, !shown.hunks.isEmpty {
+                HunkStrip(hunks: shown.hunks, current: visibleHunk ?? 0)
                 Rectangle().fill(Theme.lineSubtle).frame(height: 1)
             }
             content
@@ -125,9 +134,9 @@ struct FileDiffView: View {
                 .background(Theme.canvas)
         }
         .overlay(alignment: .bottom) {
-            if showsTable, !diff.hunks.isEmpty {
+            if showsTable, !shown.hunks.isEmpty {
                 HunkBar(
-                    hunks: diff.hunks, current: visibleHunk ?? 0, actions: hunkActions,
+                    hunks: shown.hunks, current: visibleHunk ?? 0, actions: actions,
                     onExplain: promptTarget == nil ? nil : { explain(visibleHunk ?? 0) },
                     onHoverAction: { hoveredAction = $0 }
                 ) { action in
@@ -167,18 +176,18 @@ struct FileDiffView: View {
     }
 
     private var hunkContext: DiffHunkContext? {
-        guard showsTable, !diff.hunks.isEmpty else { return nil }
-        let index = min(visibleHunk ?? 0, diff.hunks.count - 1)
+        guard showsTable, !shown.hunks.isEmpty else { return nil }
+        let index = min(visibleHunk ?? 0, shown.hunks.count - 1)
         return DiffHunkContext(
-            path: diff.path, index: index, hunk: diff.hunks[index], count: diff.hunks.count, actions: hunkActions,
+            path: diff.path, index: index, hunk: shown.hunks[index], count: shown.hunks.count, actions: actions,
             perform: { action in onHunkAction(action, index) },
             explain: promptTarget == nil ? nil : { explain(index) })
     }
 
     /// Asks the AI provider to explain a hunk in Claude Code.
     private func explain(_ hunk: Int) {
-        guard let promptContext, diff.hunks.indices.contains(hunk) else { return }
-        let positions = diff.hunks[hunk].lines.indices.map { DiffPosition(hunk: hunk, line: $0) }
+        guard let promptContext, shown.hunks.indices.contains(hunk) else { return }
+        let positions = shown.hunks[hunk].lines.indices.map { DiffPosition(hunk: hunk, line: $0) }
         askClaude(ClaudeRequest(kind: .open, question: .explain, positions: positions))
         _ = promptContext
     }
@@ -192,7 +201,7 @@ struct FileDiffView: View {
     /// Asks Claude Code about the selected lines, else about the hunk at the top of the diff.
     private var promptTarget: DiffPromptTarget? {
         guard let promptContext, showsTable else { return nil }
-        let shown = shownWholeFile?.diff ?? diff
+        let shown = shownWholeFile?.diff ?? self.shown
         return DiffPromptTarget(
             root: root, context: promptContext, diff: shown, selection: selectedLines,
             hunk: min(visibleHunk ?? 0, shown.hunks.count - 1))
@@ -205,7 +214,7 @@ struct FileDiffView: View {
     private func askClaude(_ request: ClaudeRequest) {
         guard let promptContext else { return }
         let prompt = ClaudePrompt.make(
-            question: request.question, context: promptContext, diff: shownWholeFile?.diff ?? diff, positions: request.positions)
+            question: request.question, context: promptContext, diff: shownWholeFile?.diff ?? shown, positions: request.positions)
         switch request.kind {
         case .open: claudeCode.open(prompt, root)
         case .copy: claudeCode.copy(prompt)
@@ -220,7 +229,27 @@ struct FileDiffView: View {
 
     /// Whether the diff rows are shown, rather than a placeholder.
     private var showsTable: Bool {
-        !diff.isBinary && !diff.hunks.isEmpty && (!DiffSettings.isLarge(diff) || revealedFiles.contains(fileID))
+        !diff.isBinary && !diff.hunks.isEmpty && !isCollapsedGenerated
+    }
+
+    /// A lockfile or other generated file, collapsed to a card until the user asks for its diff.
+    private var isCollapsedGenerated: Bool {
+        collapsesGeneratedFiles && DiffSettings.isGenerated(diff.path) && !revealedFiles.contains(fileID)
+    }
+
+    /// A huge diff shows its first lines until the user loads all of it.
+    private var isTruncated: Bool {
+        DiffSettings.isLarge(diff) && !revealedFiles.contains(fileID)
+    }
+
+    /// The diff as shown: the first lines of a huge one.
+    private var shown: FileDiff {
+        isTruncated ? DiffSettings.preview(diff) : diff
+    }
+
+    /// Hunk actions, none on a cut-off preview whose last hunk is incomplete.
+    private var actions: [ChangeAction] {
+        isTruncated ? [] : hunkActions
     }
 
     @ViewBuilder
@@ -233,18 +262,15 @@ struct FileDiffView: View {
             EmptyState(
                 diff.isModeChange ? "Mode changed" : "Empty file", systemImage: "doc",
                 description: diff.isModeChange ? "\(diff.oldMode ?? "") → \(diff.newMode ?? "")" : "The file has no content.")
-        } else if DiffSettings.isLarge(diff), !revealedFiles.contains(fileID) {
-            EmptyState("Large Diff", systemImage: "doc.text.magnifyingglass", description: "\(diff.additions + diff.deletions) changed lines are hidden to keep things fast.") {
-                Button("Show Diff") { revealedFiles.insert(fileID) }
-                    .buttonStyle(.pill(.prominent))
-            }
+        } else if isCollapsedGenerated {
+            GeneratedFileCard(diff: diff, collapses: $collapsesGeneratedFiles) { revealedFiles.insert(fileID) }
         } else {
             GeometryReader { proxy in
                 // Side by side needs room for two readable columns.
                 let mode: DiffLayoutMode = preferredLayout == .split && proxy.size.width >= DiffSettings.minimumSplitWidth ? .split : .unified
                 let wholeFile = shownWholeFile
                 DiffTableView(
-                    fileID: fileID, diff: wholeFile?.diff ?? diff,
+                    fileID: fileID, diff: wholeFile?.diff ?? shown,
                     highlights: showsSyntaxColors ? wholeFile.map(\.highlights) ?? highlights : nil, mode: mode,
                     fontSize: CGFloat(fontSize.clamped(to: AppSettings.fontSizes)),
                     lineSpacing: lineHeight.spacing,
@@ -259,7 +285,7 @@ struct FileDiffView: View {
                     onVisibleHunk: { hunk in
                         if hunk != visibleHunk { visibleHunk = hunk }
                     },
-                    hunkActions: hunkActions, onHunkAction: onHunkAction,
+                    hunkActions: actions, onHunkAction: onHunkAction,
                     targetedHunk: targetedHunk,
                     onSelectLines: { lines in
                         if lines != selectedLines { selectedLines = lines }
@@ -270,6 +296,13 @@ struct FileDiffView: View {
                     onExplainHunk: promptContext == nil || wholeFile != nil ? nil : { explain($0) },
                     onExpand: DiffSettings.canShowWholeFile(diff) ? { prefersWholeFile = true } : nil)
             }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if isTruncated {
+                    LargeFileNotice(diff: diff) { revealedFiles.insert(fileID) }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                }
+            }
         }
     }
 }
@@ -279,11 +312,42 @@ enum DiffSettings {
     static let wholeFileKey = "diffWholeFile"
     /// Split cells wrap long lines, so two columns stay readable down to about this width.
     static let minimumSplitWidth: CGFloat = 480
-    /// Diffs with more changed lines than this start collapsed.
-    static let largeDiffLineCount = 25_000
+    /// Diffs with more lines than this show only their first `previewLineCount` lines at first.
+    static let largeDiffLineCount = 10_000
+    static let previewLineCount = 2_000
+
+    static func lineCount(_ diff: FileDiff) -> Int {
+        diff.hunks.reduce(0) { $0 + $1.lines.count }
+    }
 
     static func isLarge(_ diff: FileDiff) -> Bool {
-        diff.hunks.reduce(0) { $0 + $1.lines.count } > largeDiffLineCount
+        lineCount(diff) > largeDiffLineCount
+    }
+
+    /// The first `previewLineCount` lines of a diff, cutting the last hunk short.
+    static func preview(_ diff: FileDiff) -> FileDiff {
+        var preview = diff
+        var remaining = previewLineCount
+        preview.hunks = []
+        for var hunk in diff.hunks where remaining > 0 {
+            if hunk.lines.count > remaining { hunk.lines = Array(hunk.lines.prefix(remaining)) }
+            remaining -= hunk.lines.count
+            preview.hunks.append(hunk)
+        }
+        return preview
+    }
+
+    /// Lockfiles, Xcode projects and build output: what the diff and file list collapse.
+    static func isGenerated(_ path: String) -> Bool {
+        let name = (path as NSString).lastPathComponent
+        let lockfiles: Set = [
+            "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock", "Package.resolved", "Cargo.lock",
+            "Gemfile.lock", "poetry.lock", "uv.lock", "composer.lock", "go.sum", "Podfile.lock", "flake.lock", "mix.lock",
+        ]
+        if lockfiles.contains(name) { return true }
+        if name.hasSuffix(".pbxproj") || name.hasSuffix(".min.js") || name.hasSuffix(".min.css") || name.hasSuffix(".map") { return true }
+        let components = path.split(separator: "/")
+        return components.dropLast().contains { ["dist", "node_modules", ".build", "DerivedData"].contains($0) }
     }
 
     /// Whether the diff leaves out unchanged lines that the whole-file view would add; added and

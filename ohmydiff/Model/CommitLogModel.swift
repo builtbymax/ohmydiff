@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import OhMyDiffCore
+import SwiftUI
 
 /// The History page: every commit of the project's branches in date order, drawn as a graph, and the
 /// selected commit's files.
@@ -198,14 +199,30 @@ final class CommitLogModel {
         }
     }
 
+    /// `but undo` after an uncommit.
+    private func undoLastOperation() {
+        guard let repository else { return }
+        Task {
+            do { try await repository.undoLastOperation() } catch { actionError = String(describing: error) }
+            await load()
+        }
+    }
+
     func perform(_ action: UndoAction, on commit: LogCommit) async {
         guard let repository, !isPerforming else { return }
         isPerforming = true
         defer { isPerforming = false }
         do {
+            let subject = commit.commit.message.prefix { $0 != "\n" }
             switch action {
-            case .revert: try await repository.revert(commit.id)
-            case .uncommit: try await repository.uncommit(commit.id)
+            case .revert:
+                try await repository.revert(commit.id)
+                Toasts.shared.show("Reverted “\(subject)”", systemImage: "arrow.uturn.backward", tint: Theme.textSecondary)
+            case .uncommit:
+                try await repository.uncommit(commit.id)
+                Toasts.shared.show(
+                    "Uncommitted “\(subject)”", systemImage: "arrow.uturn.backward", tint: Theme.textSecondary,
+                    action: repository.kind == .gitButler ? Toasts.undo { [weak self] in self?.undoLastOperation() } : nil)
             }
             await load()
         } catch {

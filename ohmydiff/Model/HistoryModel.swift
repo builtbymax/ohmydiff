@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import OhMyDiffCore
+import SwiftUI
 
 /// History mode state of one project: its branches, the selected branch or commit, and that selection's files.
 @Observable
@@ -303,8 +304,18 @@ final class HistoryModel {
     }
 
     func push(_ branch: HistoryBranch) async {
-        await perform("Pushing…", branch: branch.name) { repository in
+        let count = branch.commits.count
+        let pushed = await perform("Pushing…", branch: branch.name) { repository in
             try await repository.push(branch: branch.name, force: branch.needsForcePush)
+        }
+        guard pushed else { return }
+        let commits = count == 1 ? "1 commit" : "\(count) commits"
+        if case .some(.some(let pullRequest)) = pullRequests[branch.name], pullRequest.state == .open {
+            Toasts.shared.show(
+                "Pushed \(commits) · checks started", systemImage: "arrow.up", tint: Theme.okFg,
+                action: .init(title: "Open #\(pullRequest.number)") { NSWorkspace.shared.open(pullRequest.url) })
+        } else {
+            Toasts.shared.show("Pushed \(branch.name)", systemImage: "arrow.up", tint: Theme.okFg)
         }
     }
 
@@ -315,6 +326,11 @@ final class HistoryModel {
         defer { branchActivity = nil }
         let created = try await repository.createPullRequest(branch: branch, text: text, isDraft: isDraft)
         pullRequests[branch] = .some(created)
+        if let created {
+            Toasts.shared.show(
+                "Opened #\(created.number) for \(branch)", systemImage: "arrow.triangle.pull", tint: Theme.okFg,
+                action: .init(title: "Open #\(created.number)") { NSWorkspace.shared.open(created.url) })
+        }
         await refresh(repository)
     }
 
@@ -325,23 +341,29 @@ final class HistoryModel {
     }
 
     func merge(_ pullRequest: PullRequest, method: MergeMethod, branch: String) async {
-        await perform("Merging…", branch: branch) { repository in
+        let merged = await perform("Merging…", branch: branch) { repository in
             try await repository.merge(pullRequest, method: method)
         }
+        if merged { Toasts.shared.show("Merged #\(pullRequest.number)", systemImage: "arrow.triangle.merge", tint: Theme.mergedFg) }
     }
 
     /// Runs a branch action, then reloads the branches and the branch's pull request.
-    private func perform(_ activity: String, branch: String?, _ action: (Repository) async throws -> Void) async {
-        guard let repository, branchActivity == nil else { return }
+    /// Returns whether the action succeeded.
+    @discardableResult
+    private func perform(_ activity: String, branch: String?, _ action: (Repository) async throws -> Void) async -> Bool {
+        guard let repository, branchActivity == nil else { return false }
         branchActivity = activity
         defer { branchActivity = nil }
+        var succeeded = true
         do {
             try await action(repository)
         } catch {
             branchActionError = String(describing: error)
+            succeeded = false
         }
         await refresh(repository)
         if let branch { await loadPullRequest(for: branch, force: true) }
+        return succeeded
     }
 
     /// Selects a branch or commit, now when it is listed, else after the next refresh.

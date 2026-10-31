@@ -35,76 +35,75 @@ private struct CompatibilityBannerInset: ViewModifier {
     }
 }
 
+/// GitButler's output no longer matches what ohmydiff reads, so the workspace shows as plain git.
 private struct CompatibilityBanner: View {
     let incompatibility: ButIncompatibility
 
     var body: some View {
-        BannerLabel(text: incompatibility.description)
-            .hoverCard(edge: .bottom) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Unexpected `but --json status` output")
-                        .font(.caption.weight(.semibold))
-                    ForEach(incompatibility.violations, id: \.self) { violation in
-                        Text(violation)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+        Notice(
+            title: "GitButler \(incompatibility.version?.description ?? "") isn’t supported yet",
+            message: "ohmydiff shows this workspace as plain git until it supports this release. Your branches and lanes are untouched."
+        ) {
+            Chip("git (fallback)", systemImage: "circle.and.line.horizontal")
+        }
+        .hoverCard(edge: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Unexpected `but --json status` output")
+                    .font(.caption.weight(.semibold))
+                ForEach(incompatibility.violations, id: \.self) { violation in
+                    Text(violation)
+                        .font(.code(11))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+        }
     }
 }
 
+/// A GitButler release ohmydiff was not tested against; everything still runs through `but`.
 private struct MismatchBanner: View {
     let mismatch: ButVersionMismatch
     let dismiss: () -> Void
 
     var body: some View {
-        BannerLabel(text: mismatch.description) {
-            Button(action: dismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16, height: 16)
-                    .contentShape(.circle)
-            }
-            .buttonStyle(.plain)
-            .glassTooltip("Dismiss", edge: .top)
-        }
-        .hoverCard(edge: .bottom) {
-            Text("ohmydiff was tested with GitButler \(mismatch.tested). Commands or output may have changed since.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        Notice(
+            title: "GitButler \(mismatch.installed?.description ?? "") isn’t tested yet",
+            message: "ohmydiff was tested with \(mismatch.tested). Branches and lanes keep working; some commands may have changed."
+        ) {
+            IconButton("Dismiss", systemImage: "xmark", size: 24, action: dismiss)
         }
     }
 }
 
-private struct BannerLabel<Accessory: View>: View {
-    let text: String
+/// The inline warning strip: an icon, a title and a line of explanation, and its actions.
+private struct Notice<Accessory: View>: View {
+    let title: String
+    let message: String
     @ViewBuilder var accessory: Accessory
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Label {
-                Text(text)
-            } icon: {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.yellow)
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "square.3.layers.3d")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.warnFg)
+                .frame(width: 15, height: 15)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.row.weight(.medium))
+                    .foregroundStyle(Theme.textPrimary)
+                Text(message)
+                    .font(.detail)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             accessory
         }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(Color.yellow.opacity(0.12), in: .rect(cornerRadius: 10))
-    }
-}
-
-extension BannerLabel where Accessory == EmptyView {
-    init(text: String) {
-        self.init(text: text) { EmptyView() }
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .padding(.vertical, 10)
+        .background(Theme.warnBg, in: .rect(cornerRadius: 10))
     }
 }
