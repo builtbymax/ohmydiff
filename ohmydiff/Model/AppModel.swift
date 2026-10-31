@@ -43,6 +43,8 @@ final class AppModel {
     }
     /// The View menu below the diff header's ⋯ button.
     var isViewMenuPresented = false
+    /// The New branch popover on the Branches page, ⌘B.
+    var isNewBranchPresented = false
     /// The installed `but` and `git` releases, for the sidebar footer; `nil` until read or when missing.
     private(set) var butVersion: ButVersion?
     private(set) var gitVersion: String?

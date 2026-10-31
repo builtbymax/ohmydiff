@@ -266,11 +266,12 @@ struct Segmented<Value: Hashable>: View {
     @Binding var selection: Value
     let options: [(value: Value, title: String)]
     var systemImages: [Value: String] = [:]
+    var counts: [Value: String] = [:]
     var disabled: Set<Value> = []
 
     var body: some View {
         MagneticSegments(
-            selection: $selection, options: options, systemImages: systemImages, disabled: disabled,
+            selection: $selection, options: options, systemImages: systemImages, counts: counts, disabled: disabled,
             font: .detail, horizontalPadding: 8, height: 24
         ) {
             RoundedRectangle(cornerRadius: 7)

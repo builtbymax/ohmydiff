@@ -182,3 +182,36 @@ private struct StubbedGH {
         #expect(try await repository.pullRequest(forBranch: "main") == nil)
     }
 }
+
+@Suite struct PullRequestDetailTests {
+    @Test func decodesChecksBodyAndAutoMerge() throws {
+        let json = """
+        {"body":"What\\n","author":{"login":"builtbymax"},"commits":[{},{},{}],"changedFiles":4,
+         "autoMergeRequest":{"mergeMethod":"SQUASH"},
+         "statusCheckRollup":[
+          {"name":"core-tests","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-10-31T10:00:00Z","completedAt":"2026-10-31T10:01:52Z"},
+          {"name":"lint","status":"COMPLETED","conclusion":"FAILURE"},
+          {"name":"compat","status":"IN_PROGRESS","startedAt":"2026-10-31T10:00:00Z","completedAt":"0001-01-01T00:00:00Z"},
+          {"name":"notarize","status":"QUEUED"},
+          {"context":"ci/legacy","state":"PENDING"}
+         ]}
+        """
+        let detail = try PullRequestDetail.decode(Data(json.utf8))
+        #expect(detail.body == "What\n")
+        #expect(detail.author == "builtbymax")
+        #expect(detail.commitCount == 3)
+        #expect(detail.changedFiles == 4)
+        #expect(detail.autoMerge)
+        #expect(detail.checks.map(\.state) == [.passed, .failed, .running, .queued, .running])
+        #expect(detail.checks.map(\.name).last == "ci/legacy")
+        #expect(detail.checks[0].duration == .seconds(112))
+        #expect(detail.checks[2].completedAt == nil)
+        #expect(detail.runningCheckCount == 3)
+    }
+
+    @Test func decodesMissingAutoMerge() throws {
+        let detail = try PullRequestDetail.decode(Data(#"{"body":"","autoMergeRequest":null,"statusCheckRollup":[]}"#.utf8))
+        #expect(!detail.autoMerge)
+        #expect(detail.checks.isEmpty)
+    }
+}

@@ -108,6 +108,20 @@ extension TestRepo {
         #expect(try await repository.changeGroups().isEmpty)
     }
 
+    @Test func createsAndSwitchesToBranches() async throws {
+        let repo = try await TestRepo()
+        try repo.write("a.txt", "a\n")
+        try await repo.git("add", "-A")
+        try await repo.git("commit", "-q", "-m", "init")
+        try repo.write("a.txt", "changed\n")
+        let repository = try await repo.open()
+
+        try await repository.createBranch(" feature/new ")
+        #expect(try await repository.currentBranch() == "feature/new")
+        #expect(try await repo.paths(in: .unstaged, of: repository) == ["a.txt"])
+        await #expect(throws: ChangeActionError.self) { try await repository.createBranch("bad..name") }
+    }
+
     @Test func offersOnlySafeActions() throws {
         let repository = Repository(root: URL(fileURLWithPath: "/r"), kind: .git, toolchain: Toolchain(git: URL(fileURLWithPath: "/g"), but: nil, environment: [:]))
         let hunk = Hunk(oldStart: 1, oldCount: 1, newStart: 1, newCount: 1)

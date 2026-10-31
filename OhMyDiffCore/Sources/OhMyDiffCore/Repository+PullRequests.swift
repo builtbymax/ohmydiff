@@ -275,7 +275,7 @@ extension Repository {
 
     /// A drafted text as a title and a description: the first non-empty line, without a Markdown heading
     /// marker or a `Title:` label, and everything below it.
-    static func pullRequestParts(_ text: String) -> (title: String, body: String) {
+    public static func pullRequestParts(_ text: String) -> (title: String, body: String) {
         var lines = text.components(separatedBy: "\n")
         while let first = lines.first, first.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeFirst() }
         guard !lines.isEmpty else { return ("", "") }

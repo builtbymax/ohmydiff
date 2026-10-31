@@ -293,7 +293,7 @@ extension Repository {
         try await toolchain.git(["rev-parse", "--verify", "-q", "HEAD"], in: root, allowedExitCodes: [0, 1]).exitCode == 0
     }
 
-    private func isValidBranchName(_ name: String) async throws -> Bool {
+    func isValidBranchName(_ name: String) async throws -> Bool {
         guard !name.isEmpty, !name.hasPrefix("-") else { return false }
         return try await toolchain.git(["check-ref-format", "--branch", name], in: root, allowedExitCodes: [0, 1, 128]).exitCode == 0
     }
