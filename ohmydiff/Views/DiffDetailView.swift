@@ -90,6 +90,7 @@ struct FileDiffView: View {
     @AppStorage(AppSettings.showsLineNumbersKey) private var showsLineNumbers = true
     @AppStorage(AppSettings.wrapsLinesKey) private var wrapsLines = false
     @AppStorage(AppSettings.showsSyntaxColorsKey) private var showsSyntaxColors = true
+    @AppStorage(AppSettings.lineHeightKey) private var lineHeight = LineHeight.standard
     @State private var isViewMenuShown = false
     @AppStorage(AppSettings.fontSizeKey) private var fontSize = Double(DiffMetrics.defaultFontSize)
     @AppStorage(DiffSettings.wholeFileKey) private var prefersWholeFile = false
@@ -246,6 +247,7 @@ struct FileDiffView: View {
                     fileID: fileID, diff: wholeFile?.diff ?? diff,
                     highlights: showsSyntaxColors ? wholeFile.map(\.highlights) ?? highlights : nil, mode: mode,
                     fontSize: CGFloat(fontSize.clamped(to: AppSettings.fontSizes)),
+                    lineSpacing: lineHeight.spacing,
                     theme: SyntaxTheme(light: CodeTheme.resolved(lightTheme, isDark: false), dark: CodeTheme.resolved(darkTheme, isDark: true)),
                     isWholeFile: wholeFile != nil,
                     showsLineNumbers: showsLineNumbers,

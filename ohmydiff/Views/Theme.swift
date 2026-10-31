@@ -81,16 +81,30 @@ enum Theme {
 
     // MARK: Motion
 
+    /// Settings → Appearance → Reduce motion, or the system's: popovers and tabs then appear without movement.
+    static var reducesMotion: Bool {
+        UserDefaults.standard.bool(forKey: AppSettings.reducesMotionKey) || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    private static func motion(_ animation: Animation) -> Animation {
+        reducesMotion ? .linear(duration: 0) : animation
+    }
+
     /// Row and button hover fills.
-    static let hoverAnimation = Animation.easeOut(duration: 0.08)
+    static var hoverAnimation: Animation { motion(.easeOut(duration: 0.08)) }
     /// Menus, the project switcher and popovers: a fade and a scale from 0.98.
-    static let popoverAnimation = Animation.easeOut(duration: 0.14)
+    static var popoverAnimation: Animation { reducesMotion ? .easeOut(duration: 0.1) : .easeOut(duration: 0.14) }
     /// The ⌘K launcher: a fade and a 6 pt rise.
-    static let launcherAnimation = Animation.easeOut(duration: 0.16)
+    static var launcherAnimation: Animation { reducesMotion ? .easeOut(duration: 0.1) : .easeOut(duration: 0.16) }
     /// Scrolling the diff to a hunk.
-    static let hunkJumpAnimation = Animation.easeOut(duration: 0.18)
+    static var hunkJumpAnimation: Animation { motion(.easeOut(duration: 0.18)) }
     /// The selected pill of segmented controls and tabs, sliding under the pointer.
-    static let magneticSpring = Animation.interpolatingSpring(stiffness: 500, damping: 40)
+    static var magneticSpring: Animation { motion(.interpolatingSpring(stiffness: 500, damping: 40)) }
+
+    /// A list row's height, 4 pt less in the compact density.
+    static func rowHeight(_ comfortable: CGFloat) -> CGFloat {
+        UserDefaults.standard.string(forKey: AppSettings.densityKey) == Density.compact.rawValue ? comfortable - 4 : comfortable
+    }
 
     // MARK: Helpers
 
@@ -303,8 +317,38 @@ extension View {
             .shadow(color: Theme.overlayShadow, radius: 7.5, y: 10)
     }
 
-    /// Popover entrance: a fade and a scale from 0.98.
+    /// Popover entrance: a fade and a scale from 0.98; only the fade with reduced motion.
     func popoverTransition(anchor: UnitPoint = .top) -> some View {
-        transition(.opacity.combined(with: .scale(scale: 0.98, anchor: anchor)))
+        transition(Theme.reducesMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98, anchor: anchor)))
     }
+}
+
+/// How far apart diff rows are.
+enum LineHeight: String, CaseIterable, Identifiable {
+    case compact, standard, relaxed
+
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .compact: "Compact"
+        case .standard: "Default"
+        case .relaxed: "Relaxed"
+        }
+    }
+
+    var spacing: CGFloat {
+        switch self {
+        case .compact: 0.9
+        case .standard: 1
+        case .relaxed: 1.2
+        }
+    }
+}
+
+/// How tall list rows are.
+enum Density: String, CaseIterable, Identifiable {
+    case comfortable, compact
+
+    var id: Self { self }
+    var title: String { self == .comfortable ? "Comfortable" : "Compact" }
 }

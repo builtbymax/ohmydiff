@@ -27,7 +27,7 @@ struct ProjectSwitcher: View {
         let (projects, others) = lists
         return VStack(alignment: .leading, spacing: 2) {
             search
-            if query.isEmpty, model.workspaces.count > 0 {
+            if query.isEmpty, model.workspaces.count > 1, AppSettings.isOn(AppSettings.groupsWorkspacesKey) {
                 workspaceTabs
             }
             ForEach(projects) { project in
@@ -147,6 +147,9 @@ struct ProjectSwitcher: View {
 
     /// The shown workspace's projects, and, while searching, matches from the other workspaces.
     private var lists: (projects: [Project], others: [Project]) {
+        guard AppSettings.isOn(AppSettings.groupsWorkspacesKey) else {
+            return (query.isEmpty ? model.projects : FuzzyMatcher.rank(model.projects, query: query) { $0.displayName }.map(\.item), [])
+        }
         let workspaceID = shownWorkspaceID ?? model.selectedWorkspaceID
         if query.isEmpty {
             return (workspaceID.map(model.projects(in:)) ?? model.visibleProjects, [])

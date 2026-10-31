@@ -67,6 +67,36 @@ public enum TicketKey: Sendable, Hashable {
         return keys.filter { seen.insert($0).inserted }
     }
 
+    /// The keys a branch name refers to under a pattern such as `{type}/{ticket}-{words}`, where `{ticket}` marks
+    /// the ticket and the other placeholders match anything; falls back to `keys(inBranch:)` when the pattern is
+    /// empty or does not match.
+    public static func keys(inBranch branch: String, pattern: String) -> [TicketKey] {
+        if let ticket = ticketText(inBranch: branch, pattern: pattern), let key = TicketKey(query: ticket) {
+            return [key]
+        }
+        return keys(inBranch: branch)
+    }
+
+    /// What `{ticket}` matches in the branch name, e.g. `hal-128`; `nil` without a match.
+    public static func ticketText(inBranch branch: String, pattern: String) -> String? {
+        let pattern = pattern.trimmingCharacters(in: .whitespaces)
+        guard pattern.contains("{ticket}") else { return nil }
+        var regex = "^"
+        var rest = Substring(pattern)
+        while let open = rest.firstIndex(of: "{"), let close = rest[open...].firstIndex(of: "}") {
+            regex += NSRegularExpression.escapedPattern(for: String(rest[..<open]))
+            let name = rest[rest.index(after: open)..<close]
+            regex += name == "ticket" ? "(#?[A-Za-z][A-Za-z0-9]{0,9}-\\d{1,7}|#?\\d{1,7})" : "[^/]*?"
+            rest = rest[rest.index(after: close)...]
+        }
+        regex += NSRegularExpression.escapedPattern(for: String(rest)) + "(?:$|[-_/].*$)"
+        guard let expression = try? NSRegularExpression(pattern: regex),
+              let match = expression.firstMatch(in: branch, range: NSRange(branch.startIndex..., in: branch)),
+              let range = Range(match.range(at: 1), in: branch)
+        else { return nil }
+        return String(branch[range])
+    }
+
     /// The key a search query names directly, e.g. `hal-128` or `#42`.
     public init?(query: String) {
         let query = query.trimmingCharacters(in: .whitespaces)
@@ -113,11 +143,32 @@ public let urlSessionTransport: HTTPTransport = { request in try await URLSessio
 public struct LinearTickets: TicketProvider {
     public let source = TicketSource.linear
     let apiKey: String
+    /// A team key, e.g. `HAL`, that searches are limited to; empty for every team.
+    let team: String
     let transport: HTTPTransport
 
-    public init(apiKey: String, transport: @escaping HTTPTransport = urlSessionTransport) {
+    public init(apiKey: String, team: String = "", transport: @escaping HTTPTransport = urlSessionTransport) {
         self.apiKey = apiKey
+        self.team = team
         self.transport = transport
+    }
+
+    /// A Linear team: its key, e.g. `HAL`, and name.
+    public struct Team: Sendable, Hashable, Identifiable {
+        public var key: String
+        public var name: String
+        public var id: String { key }
+    }
+
+    /// The workspace's name and the teams the key can see, for Settings.
+    public func workspace() async throws -> (name: String, teams: [Team]) {
+        let data = try await query("query { organization { name } teams(first: 50) { nodes { key name } } }", variables: [:])
+        let name = data["organization"]?["name"]?.stringValue ?? ""
+        guard case .array(let nodes)? = data["teams"]?["nodes"] else { return (name, []) }
+        return (name, nodes.compactMap { node in
+            guard let key = node["key"]?.stringValue, let name = node["name"]?.stringValue else { return nil }
+            return Team(key: key, name: name)
+        })
     }
 
     static let endpoint = URL(string: "https://api.linear.app/graphql")!
@@ -131,9 +182,13 @@ public struct LinearTickets: TicketProvider {
     }
 
     public func search(_ query: String) async throws -> [Ticket] {
-        let data = try await self.query(
-            "query($term: String!) { searchIssues(term: $term, first: 10) { nodes { \(Self.fields) } } }",
-            variables: ["term": .string(query)])
+        let data = team.isEmpty
+            ? try await self.query(
+                "query($term: String!) { searchIssues(term: $term, first: 10) { nodes { \(Self.fields) } } }",
+                variables: ["term": .string(query)])
+            : try await self.query(
+                "query($term: String!, $team: String!) { searchIssues(term: $term, first: 10, filter: { team: { key: { eq: $team } } }) { nodes { \(Self.fields) } } }",
+                variables: ["term": .string(query), "team": .string(team)])
         guard case .array(let nodes)? = data["searchIssues"]?["nodes"] else { return [] }
         return nodes.compactMap(Self.ticket)
     }
@@ -318,8 +373,8 @@ public struct TicketResolver: Sendable {
 
     /// The ticket a branch name refers to, e.g. `feature/hal-128` → HAL-128; `nil` when none is found.
     /// Lookup failures count as not found, so a tracker being down never blocks a commit.
-    public func ticket(forBranch branch: String) async -> Ticket? {
-        for key in TicketKey.keys(inBranch: branch) {
+    public func ticket(forBranch branch: String, pattern: String = "") async -> Ticket? {
+        for key in TicketKey.keys(inBranch: branch, pattern: pattern) {
             for provider in providers where Self.accepts(provider.source, key) {
                 if let ticket = try? await provider.ticket(key) { return ticket }
             }

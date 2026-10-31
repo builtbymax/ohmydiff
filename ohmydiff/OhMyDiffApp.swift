@@ -12,7 +12,12 @@ enum Entry {
                     toolchain: try? await Toolchain.discover(),
                     workingDirectory: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true),
                     projects: AppVariant.projectStore,
-                    version: version)
+                    version: version,
+                    onConnect: { client in
+                        // Shared with the app, which runs under the same bundle identifier.
+                        UserDefaults.standard.set(Date.now.timeIntervalSinceReferenceDate, forKey: "mcpLastUsed")
+                        UserDefaults.standard.set(client, forKey: "mcpLastClient")
+                    })
                 await server.serve()
                 exit(0)
             }

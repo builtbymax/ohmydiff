@@ -46,10 +46,72 @@ enum AppSettings {
     static let jiraEmailKey = "jiraEmail"
     static let githubTicketsKey = "githubTickets"
     static let gitlabTicketsKey = "gitlabTickets"
+    /// General.
+    static let reopensLastProjectKey = "reopensLastProject"
+    static let groupsWorkspacesKey = "groupsWorkspaces"
+    static let controlSwitchesProjectsKey = "controlSwitchesProjects"
+    static let watchesFilesKey = "watchesFiles"
+    /// Minutes between background fetches; 0 for never.
+    static let fetchIntervalKey = "fetchIntervalMinutes"
+    static let discardConfirmationKey = "discardConfirmation"
+    static let confirmsForcePushKey = "confirmsForcePush"
+    /// Appearance.
+    static let lineHeightKey = "diffLineHeight"
+    static let densityKey = "density"
+    static let reducesMotionKey = "reducesMotion"
+    static let usesOpusSyntaxKey = "usesOpusSyntax"
+    /// AI: what is sent besides the selected diff, and whether Explain hands off to a terminal.
+    static let aiSendsCommitsKey = "aiSendsCommits"
+    static let aiSendsTicketKey = "aiSendsTicket"
+    static let explainsInTerminalKey = "explainsInTerminal"
+    /// Commit format, checked before committing and followed by the AI.
+    static let commitStyleKey = "commitStyle"
+    static let titleLimitKey = "commitTitleLimit"
+    static let addsTicketToTitleKey = "addsTicketToTitle"
+    /// When an agent last connected to `ohmydiff mcp`, and which one.
+    static let mcpLastUsedKey = "mcpLastUsed"
+    static let mcpLastClientKey = "mcpLastClient"
+    /// Tickets.
+    static let linearTeamKey = "linearTeam"
+    static let ticketPatternKey = "ticketPattern"
     /// The Settings pane, so other windows can open Settings at a pane.
     static let settingsPaneKey = "settingsPane"
 
     static let defaultEditor = EditorPreset.cursor
+
+    /// A Bool setting that is on unless turned off.
+    static func isOn(_ key: String, _ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: key) as? Bool ?? true
+    }
+
+    static func fetchInterval(_ defaults: UserDefaults = .standard) -> Int {
+        defaults.object(forKey: fetchIntervalKey) as? Int ?? 10
+    }
+
+    static func discardConfirmation(_ defaults: UserDefaults = .standard) -> DiscardConfirmation {
+        defaults.string(forKey: discardConfirmationKey).flatMap(DiscardConfirmation.init(rawValue:)) ?? .filesAndHunks
+    }
+
+    static func ticketPattern(_ defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: ticketPatternKey) ?? "{type}/{ticket}-{words}"
+    }
+
+    static func titleLimit(_ defaults: UserDefaults = .standard) -> Int {
+        defaults.object(forKey: titleLimitKey) as? Int ?? 72
+    }
+
+    static func commitStyle(_ defaults: UserDefaults = .standard) -> CommitStyle {
+        defaults.string(forKey: commitStyleKey).flatMap(CommitStyle.init(rawValue:)) ?? .conventional
+    }
+
+    /// The model a task runs with; empty for the provider's default. Falls back to the one model of earlier versions.
+    static func model(for task: AITask, _ defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: task.modelKey) ?? defaults.string(forKey: suggestionModelKey) ?? ""
+    }
+
+    static func isEnabled(_ task: AITask, _ defaults: UserDefaults = .standard) -> Bool {
+        isOn(task.enabledKey, defaults)
+    }
     static let fontSizes: ClosedRange<Double> = 9...20
 
     /// The chosen terminal, else the first installed of Ghostty, iTerm and Terminal.
@@ -80,6 +142,12 @@ enum AppSettings {
     }
 
     /// The suggester for the chosen provider; `nil` when suggestions are off.
+    /// The suggester for a task, or `nil` when no provider is chosen or the task is turned off.
+    static func suggester(for task: AITask, toolchain: Toolchain, _ defaults: UserDefaults = .standard) -> Suggester? {
+        guard isEnabled(task, defaults), let provider = suggestionProvider(defaults) else { return nil }
+        return Suggester(provider: provider, model: model(for: task, defaults), toolchain: toolchain)
+    }
+
     static func suggester(toolchain: Toolchain, _ defaults: UserDefaults = .standard) -> Suggester? {
         suggestionProvider(defaults).map {
             Suggester(provider: $0, model: defaults.string(forKey: suggestionModelKey) ?? "", toolchain: toolchain)
@@ -100,7 +168,7 @@ enum AppSettings {
     static func ticketResolver(root: URL, toolchain: Toolchain, _ defaults: UserDefaults = .standard) -> TicketResolver {
         var providers: [any TicketProvider] = []
         if let key = Keychain.read(.linear), !key.isEmpty {
-            providers.append(LinearTickets(apiKey: key))
+            providers.append(LinearTickets(apiKey: key, team: defaults.string(forKey: linearTeamKey) ?? ""))
         }
         if let site = JiraTickets.siteURL(defaults.string(forKey: jiraSiteKey) ?? ""),
            let email = defaults.string(forKey: jiraEmailKey), !email.isEmpty,
@@ -196,6 +264,99 @@ struct DiffPromptTarget: Equatable {
             ? diff.hunks[hunk].lines.indices.map { DiffPosition(hunk: hunk, line: $0) }
             : selection
         return ClaudePrompt.make(question: question, context: context, diff: diff, positions: positions)
+    }
+}
+
+/// When a discard asks first.
+nonisolated enum DiscardConfirmation: String, CaseIterable, Identifiable, Sendable {
+    case filesAndHunks, filesOnly, never
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .filesAndHunks: "Files and hunks"
+        case .filesOnly: "Files only"
+        case .never: "Never"
+        }
+    }
+}
+
+/// How commit messages are written: freely, as Conventional Commits, or with a gitmoji.
+nonisolated enum CommitStyle: String, CaseIterable, Identifiable, Sendable {
+    case free, conventional, gitmoji
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .free: "Free"
+        case .conventional: "Conventional"
+        case .gitmoji: "Gitmoji"
+        }
+    }
+
+    /// What the AI is told about the style.
+    var instruction: String? {
+        switch self {
+        case .free: nil
+        case .conventional: "Write the title as a Conventional Commit: `type(scope): title`."
+        case .gitmoji: "Start the title with the gitmoji that fits the change."
+        }
+    }
+
+    /// An emoji first, also one that is text by default and made an emoji by U+FE0F, e.g. ♻️.
+    private static func startsWithEmoji(_ title: String) -> Bool {
+        let scalars = Array(title.unicodeScalars.prefix(2))
+        guard let first = scalars.first else { return false }
+        return first.properties.isEmojiPresentation || (first.properties.isEmoji && scalars.dropFirst().first == "\u{FE0F}")
+    }
+
+    /// Why a title does not follow the style; `nil` when it does.
+    func problem(with title: String) -> String? {
+        switch self {
+        case .free: nil
+        case .conventional:
+            title.firstMatch(of: /^[a-z]+(\([^)]+\))?!?: \S/) == nil ? "Not a Conventional Commit: type(scope): title" : nil
+        case .gitmoji:
+            Self.startsWithEmoji(title) || title.hasPrefix(":") ? nil : "Starts without a gitmoji"
+        }
+    }
+}
+
+/// The AI's jobs, each with its own model and switch in Settings.
+nonisolated enum AITask: String, CaseIterable, Identifiable, Sendable {
+    case commitMessage, branchName, pullRequest, explain
+
+    var id: Self { self }
+    var modelKey: String { "aiModel.\(rawValue)" }
+    var enabledKey: String { "aiEnabled.\(rawValue)" }
+
+    var title: String {
+        switch self {
+        case .commitMessage: "Commit messages"
+        case .branchName: "Branch names"
+        case .pullRequest: "Pull request drafts"
+        case .explain: "Explain & ask about hunks"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .commitMessage: "From the changes you selected · ✦ in the composer"
+        case .branchName: "Suggested when you commit to a new branch"
+        case .pullRequest: "From commits, diff, linked ticket and your PR template"
+        case .explain: "Answers inline under the hunk; follow-ups stay in that card"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .commitMessage: "circle.and.line.horizontal"
+        case .branchName: "arrow.triangle.branch"
+        case .pullRequest: "arrow.triangle.pull"
+        case .explain: "bubble.left"
+        }
     }
 }
 
