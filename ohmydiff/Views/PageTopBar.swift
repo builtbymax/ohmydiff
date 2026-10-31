@@ -21,8 +21,10 @@ struct PageTopBar: View {
             }
             if let session = model.selectedSession {
                 switch mode {
-                case .changes, .pullRequests:
+                case .changes:
                     ChangesTopBar(model: model, session: session)
+                case .pullRequests:
+                    PullRequestsTopBar(session: session, inbox: session.pullRequests)
                 case .branches:
                     BranchesTopBar(model: model, session: session, history: session.history)
                 case .history:
