@@ -67,6 +67,8 @@ final class ProjectSession {
     private(set) var isPerformingAction = false
     var actionError: String?
     let history = HistoryModel()
+    /// The History page's log of every branch.
+    let log = CommitLogModel()
     /// The message in the commit composer.
     let commitDraft = CommitDraft()
     /// Hunk sizes of listed files, in changed lines, for the file list's hunk bars; filled as diffs load.
@@ -226,6 +228,13 @@ final class ProjectSession {
     func refreshHistory() async {
         guard let repository else { return }
         await history.refresh(repository)
+        if log.isActive { await log.refresh(repository) }
+    }
+
+    /// Loads the History page's log, e.g. when the page opens.
+    func refreshLog() async {
+        guard let repository = await openedRepository() else { return }
+        await log.refresh(repository)
     }
 
     /// Coalesces requests: while a refresh runs, further requests schedule exactly one more.

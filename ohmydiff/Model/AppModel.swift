@@ -360,14 +360,15 @@ final class AppModel {
             session.reveal(path: String(directory.dropFirst(root.count)) + file.lastPathComponent, line: line)
         case .branch(let path, let name):
             guard let session = await focusProject(containing: URL(fileURLWithPath: path, isDirectory: true)) else { return }
-            mode = .history
+            mode = .branches
             session.history.reveal(.branch(name))
             await session.refreshHistory()
         case .commit(let path, let sha):
             guard let session = await focusProject(containing: URL(fileURLWithPath: path, isDirectory: true)) else { return }
             mode = .history
-            session.history.reveal(.commit(sha))
-            await session.refreshHistory()
+            session.log.filter = .all
+            session.log.reveal(sha)
+            await session.refreshLog()
         }
     }
 

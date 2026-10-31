@@ -15,6 +15,17 @@ import Testing
         #expect(commits[1].body.isEmpty)
     }
 
+    @Test func parsesCommitLogWithParentsAndRefs() {
+        let text = "aaa\0bbb ccc\0HEAD -> main, origin/main, tag: v1.3.2\0Ada\0ada@example.com\02026-10-18T10:00:00Z\0Merge #139\n\u{1e}\n"
+            + "bbb\0ddd\0feature/x, gitbutler/workspace\0Bob\0bob@example.com\02026-10-17T09:00:00Z\0Add x\n\nbody\n\u{1e}\n"
+            + "eee\0bbb\0\0Bob\0bob@example.com\02026-10-17T09:00:00Z\0GitButler Workspace Commit\n\nThis is a merge commit of the virtual branches\n\u{1e}\n"
+        let log = Repository.parseCommitLog(text)
+        #expect(log.map(\.id) == ["aaa", "bbb"])
+        #expect(log[0].parents == ["bbb", "ccc"] && log[0].isMerge)
+        #expect(log[0].branches == ["main"] && log[0].tags == ["v1.3.2"])
+        #expect(log[1].branches == ["feature/x"] && log[1].commit.body == "body")
+    }
+
     @Test func parsesTrackingInfo() {
         #expect(HistoryBranch.Status.tracking("[ahead 2, behind 1]", hasUpstream: true) == .tracking(ahead: 2, behind: 1))
         #expect(HistoryBranch.Status.tracking("[behind 3]", hasUpstream: true) == .tracking(ahead: 0, behind: 3))

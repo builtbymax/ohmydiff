@@ -14,7 +14,7 @@ enum WorkspaceMode: String, CaseIterable, Identifiable {
     var title: String { rawValue }
 
     /// The pages built so far, in sidebar order.
-    static let available: [WorkspaceMode] = [.changes, .history]
+    static let available: [WorkspaceMode] = [.changes, .branches, .history]
 
     var systemImage: String {
         switch self {
@@ -147,7 +147,7 @@ struct ContentView: View {
     private var pageBody: some View {
         if let session = model.selectedSession {
             switch model.mode {
-            case .changes, .branches, .pullRequests:
+            case .changes, .pullRequests:
                 HStack(spacing: 0) {
                     if !isListHidden {
                         ChangesListView(model: model, session: session)
@@ -162,6 +162,8 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             case .history:
+                HistoryPageView(model: model, session: session)
+            case .branches:
                 HStack(spacing: 0) {
                     HistoryListView(session: session)
                         .frame(width: listWidth)
