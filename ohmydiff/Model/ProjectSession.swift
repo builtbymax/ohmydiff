@@ -92,7 +92,32 @@ final class ProjectSession {
             guard oldValue != selectedFileID else { return }
             // Moving the selection any other way than `select(_:extending:)` drops the files picked along.
             extraSelectedFileIDs = []
+            if let selectedFileID, !openTabs.contains(selectedFileID) {
+                openTabs.append(selectedFileID)
+                if openTabs.count > Self.tabLimit { openTabs.removeFirst(openTabs.count - Self.tabLimit) }
+            }
             loadDiff()
+        }
+    }
+
+    /// Files opened lately, as editor-style tabs in the top bar, oldest first.
+    private(set) var openTabs: [ChangedFile.ID] = []
+    static let tabLimit = 8
+
+    /// The open tabs whose files are still changed.
+    var tabFiles: [ChangedFile] {
+        let files = Dictionary(groups.flatMap(\.files).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return openTabs.compactMap { files[$0] }
+    }
+
+    /// Closes a tab; closing the selected one selects its neighbour.
+    func closeTab(_ id: ChangedFile.ID) {
+        guard let index = openTabs.firstIndex(of: id) else { return }
+        openTabs.remove(at: index)
+        guard id == selectedFileID else { return }
+        let remaining = tabFiles
+        if let next = remaining.indices.contains(index) ? remaining[index] : remaining.last {
+            selectedFileID = next.id
         }
     }
 
