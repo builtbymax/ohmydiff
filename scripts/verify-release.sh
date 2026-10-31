@@ -5,12 +5,14 @@
 # entitlements, versions, the embedded Sparkle key against the keychain's, and the zip's Sparkle signature in
 # the appcast. Runs at the end of scripts/release.sh; also works on a downloaded zip.
 set -euo pipefail
-cd "${0:A:h}/.."
 
-ZIP="${1:?usage: scripts/verify-release.sh <zip> <version> <build> [appcast.xml]}"
+# Absolute before the `cd`: release.sh runs this copy from the exported source, not the working tree.
+ZIP="${${1:?usage: scripts/verify-release.sh <zip> <version> <build> [appcast.xml]}:A}"
 VERSION="${2:?usage: scripts/verify-release.sh <zip> <version> <build> [appcast.xml]}"
 BUILD="${3:?usage: scripts/verify-release.sh <zip> <version> <build> [appcast.xml]}"
-APPCAST="${4:-${ZIP:h}/appcast.xml}"
+APPCAST="${${4:-${ZIP:h}/appcast.xml}:A}"
+[[ -z "${OHMYDIFF_SPARKLE_BIN:-}" ]] || OHMYDIFF_SPARKLE_BIN="${OHMYDIFF_SPARKLE_BIN:A}"
+cd "${0:A:h}/.."
 SPARKLE_BIN="${OHMYDIFF_SPARKLE_BIN:-build/release/derived/SourcePackages/artifacts/sparkle/Sparkle/bin}"
 
 failures=0
