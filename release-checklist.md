@@ -34,6 +34,8 @@ update themselves with [Sparkle](https://sparkle-project.org) from `appcast.xml`
 - [ ] `make publish VERSION=x.y.z` tags the built commit as `vx.y.z` and creates the GitHub release with the zip
       and `appcast.xml`. It must not be a draft or pre-release, otherwise `releases/latest` still points to the
       old version.
+- [ ] Releases are immutable once published: the tag and assets can't change. Fix a broken release with a new
+      version, never by editing the old one.
 
 ## Check
 
