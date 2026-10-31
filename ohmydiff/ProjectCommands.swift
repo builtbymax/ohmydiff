@@ -92,6 +92,12 @@ struct ProjectCommands: Commands {
             let session = model.selectedSession
             Button("Commit Staged Changes…") { model.commitStaged() }
                 .disabled(model.stagedTargets.isEmpty || session?.actionRequest != nil || model.isUpstreamUpdatePresented)
+            Button("New Branch…") {
+                model.mode = .branches
+                model.isNewBranchPresented = true
+            }
+            .keyboardShortcut("b")
+            .disabled(session == nil)
             Divider()
             Button("Fetch from Remote") { Task { await session?.fetch() } }
                 .keyboardShortcut("f", modifiers: [.command, .shift])

@@ -24,8 +24,7 @@ struct PageTopBar: View {
                 case .changes, .pullRequests:
                     ChangesTopBar(model: model, session: session)
                 case .branches:
-                    PageTitle(title: "Branches")
-                    Spacer(minLength: 8)
+                    BranchesTopBar(model: model, session: session, history: session.history)
                 case .history:
                     HistoryTopBar(session: session, log: session.log)
                 }
@@ -223,7 +222,7 @@ private struct PullRequestButton: View {
                     .font(.control.weight(.medium))
                     .monospacedDigit()
                 if let checks = history.pullRequestStatuses[pullRequest.number]?.checks {
-                    ChecksChip(checks: checks)
+                    ChecksChip(checks: checks, isCompact: true)
                 }
             }
         }
@@ -233,22 +232,8 @@ private struct PullRequestButton: View {
     }
 }
 
-/// `◌ 3/5` while checks run, `✓ Checks` once they passed, `✕ 1 failing` when one failed.
-struct ChecksChip: View {
-    let checks: PullRequestStatus.Checks
-
-    var body: some View {
-        switch checks {
-        case .none: EmptyView()
-        case .pending(let done, let total): Chip("\(done)/\(total)", systemImage: "circle.dotted", tone: .warn)
-        case .passed: Chip("Checks", systemImage: "checkmark.circle", tone: .ok)
-        case .failed(let names, _): Chip(names.count == 1 ? "1 failing" : "\(names.count) failing", systemImage: "xmark", tone: .danger)
-        }
-    }
-}
-
 /// A page's name at the start of its bar.
-private struct PageTitle: View {
+struct PageTitle: View {
     let title: String
 
     var body: some View {

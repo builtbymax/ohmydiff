@@ -56,6 +56,15 @@ final class HistoryModel {
     var pendingMerge: (pullRequest: PullRequest, method: MergeMethod, branch: String)?
     /// Plain-git branches waiting for their deletion to be confirmed.
     var pendingDeletion: [HistoryBranch]?
+    /// The Branches page's filter.
+    var branchFilter = BranchFilter.applied
+    /// Each check, the description and size of pull requests, by number, once the Branches page showed them.
+    private(set) var details: [Int: PullRequestDetail] = [:]
+    /// AI drafted pull request descriptions, by branch, until used or dismissed.
+    var drafts: [String: String] = [:]
+    /// Branches whose description is being drafted.
+    private(set) var drafting: Set<String> = []
+    var draftErrors: [String: String] = [:]
     @ObservationIgnored private var pullRequestsLoaded: Date?
     /// Reloads the open pull requests' statuses while any of their checks run.
     @ObservationIgnored private var statusPollTask: Task<Void, Never>?
@@ -242,6 +251,105 @@ final class HistoryModel {
         await perform(branches.count == 1 ? "Deleting…" : "Deleting \(branches.count) branches…", branch: nil) { repository in
             try await repository.deleteBranches(branches.map(\.name))
         }
+    }
+
+    // MARK: Branches page
+
+    enum BranchFilter: Hashable {
+        /// GitButler's applied stacks, or the checked-out branch in plain git.
+        case applied
+        case all
+        /// Branches whose pull request was merged, or that are in the target already.
+        case merged
+    }
+
+    func isMerged(_ branch: HistoryBranch) -> Bool {
+        branch.status == .integrated || pullRequests[branch.name]??.state == .merged
+    }
+
+    /// The groups the Branches page lists for a filter: whole stacks, or one card per plain git branch.
+    func branchCards(for filter: BranchFilter) -> [[HistoryBranch]] {
+        let stacks = groups.filter { $0.kind == .stack }.map(\.branches)
+        let locals = groups.filter { $0.kind == .localBranches }.flatMap(\.branches).filter { !$0.isDefault }.map { [$0] }
+        switch filter {
+        case .applied:
+            return isGitButler ? stacks : locals.filter { $0[0].isCurrent }
+        case .all:
+            return stacks + locals
+        case .merged:
+            return (stacks + locals).filter { $0.contains(where: isMerged) }
+        }
+    }
+
+    /// Looks up the checks, description and size of a pull request.
+    func loadDetail(of pullRequest: PullRequest) async {
+        guard let repository, repository.canManagePullRequests,
+              let detail = try? await repository.detail(of: pullRequest), detail != details[pullRequest.number]
+        else { return }
+        details[pullRequest.number] = detail
+    }
+
+    /// Drafts a description for the branch's pull request with the AI provider and the template from Settings.
+    func draftDescription(for branch: HistoryBranch, ticket: Ticket?, suggestions: Suggestions?) async {
+        guard let repository, !drafting.contains(branch.name) else { return }
+        drafting.insert(branch.name)
+        draftErrors[branch.name] = nil
+        defer { drafting.remove(branch.name) }
+        do {
+            guard let suggestions else { throw SuggestionUnavailable.noToolchain }
+            let diffs: [FileDiff]
+            if selection == .branch(branch.name), case .loaded(let loaded) = files {
+                diffs = loaded
+            } else if let base = branch.base {
+                diffs = try await repository.diff(from: base, to: branch.tip)
+            } else {
+                diffs = []
+            }
+            let context = TemplateContext(
+                diff: diffs.map(\.patch).joined(separator: "\n"), commits: Suggestions.commitLog(branch.commits),
+                branch: branch.name, ticket: ticket)
+            drafts[branch.name] = try await suggestions.pullRequest(context)
+        } catch {
+            draftErrors[branch.name] = String(describing: error)
+        }
+    }
+
+    /// Puts a drafted description on the pull request; the first line, the title, is left out.
+    func useDraft(for branch: HistoryBranch, on pullRequest: PullRequest) async {
+        guard let draft = drafts[branch.name] else { return }
+        let body = Repository.pullRequestParts(draft).body
+        let done = await perform("Updating description…", branch: branch.name) { repository in
+            try await repository.setDescription(body.isEmpty ? draft : body, of: pullRequest)
+        }
+        guard done else { return }
+        drafts[branch.name] = nil
+        await loadDetail(of: pullRequest)
+        Toasts.shared.show("Updated the description of #\(pullRequest.number)", systemImage: "text.alignleft", tint: Theme.okFg)
+    }
+
+    /// Merge when green, or cancels it.
+    func setAutoMerge(_ isOn: Bool, pullRequest: PullRequest, method: MergeMethod, branch: String) async {
+        let done = await perform(isOn ? "Enabling auto-merge…" : "Cancelling auto-merge…", branch: branch) { repository in
+            try await repository.setAutoMerge(isOn, pullRequest: pullRequest, method: method)
+        }
+        guard done else { return }
+        await loadDetail(of: pullRequest)
+        Toasts.shared.show(
+            isOn ? "#\(pullRequest.number) merges once checks pass" : "Cancelled auto-merge of #\(pullRequest.number)",
+            systemImage: "arrow.triangle.merge", tint: Theme.mergedFg)
+    }
+
+    /// A new, empty branch; selected once listed.
+    func createBranch(_ name: String) async -> Bool {
+        let name = name.trimmingCharacters(in: .whitespaces)
+        let done = await perform("Creating branch…", branch: nil) { repository in
+            try await repository.createBranch(name)
+        }
+        if done {
+            reveal(.branch(name))
+            Toasts.shared.show("Created \(name)", systemImage: "arrow.triangle.branch", tint: Theme.okFg)
+        }
+        return done
     }
 
     // MARK: Stacks

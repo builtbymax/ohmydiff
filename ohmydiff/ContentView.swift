@@ -126,6 +126,7 @@ struct ContentView: View {
             model.refreshSelected()
         }
         .onChange(of: isSidebarHidden) { model.isProjectMenuPresented = false }
+        .onReceive(NotificationCenter.default.publisher(for: .showUpstreamUpdate)) { _ in model.isUpstreamUpdatePresented = true }
     }
 
     /// The content panel: the page's top bar over its body.
@@ -169,14 +170,7 @@ struct ContentView: View {
             case .history:
                 HistoryPageView(model: model, session: session)
             case .branches:
-                HStack(spacing: 0) {
-                    HistoryListView(session: session)
-                        .frame(width: listWidth)
-                        .overlay(alignment: .trailing) { Rectangle().fill(Theme.lineSubtle).frame(width: 1) }
-                        .overlay(alignment: .trailing) { ColumnResizer(width: $listWidth, range: AppSettings.listWidths) }
-                    HistoryDetailView(history: session.history, root: session.rootURL)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+                BranchesPageView(model: model, session: session)
             }
         } else if model.projects.isEmpty {
             FirstRunView(model: model)
