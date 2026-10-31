@@ -59,6 +59,11 @@ import Testing
         #expect(TicketKey.keys(inBranch: "hal-128/x", pattern: "") == [.key("HAL-128")])
     }
 
+    @Test func extractsSeveralBranchNames() {
+        let answer = "1. fix/discard-by-hunk-id\n2. `hal-128-discard-hunk`\n- fix/hunk-discard\n- fix/hunk-discard\n4. feat/extra"
+        #expect(Suggester.branchNames(from: answer) == ["fix/discard-by-hunk-id", "hal-128-discard-hunk", "fix/hunk-discard"])
+    }
+
     @Test func extractsBranchNames() {
         #expect(Suggester.branchName(from: "feat/hal-128-ai-suggestions") == "feat/hal-128-ai-suggestions")
         #expect(Suggester.branchName(from: "`fix/Crash On Launch`") == "fix/crash")

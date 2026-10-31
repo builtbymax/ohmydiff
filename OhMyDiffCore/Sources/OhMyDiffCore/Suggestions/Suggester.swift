@@ -76,6 +76,25 @@ public struct Suggester: Sendable {
         return name
     }
 
+    /// Up to `count` different branch names, best first.
+    public func branchNames(context: TemplateContext, count: Int = 3) async throws -> [String] {
+        let prompt = Self.prompt(PromptTemplate.branchName, context)
+            + "\n\nSuggest \(count) different names instead of one, one per line, best first, nothing else."
+        let names = Self.branchNames(from: try await complete(prompt), count: count)
+        guard !names.isEmpty else { throw SuggestionError.emptyAnswer(provider) }
+        return names
+    }
+
+    /// Valid names from an answer with one per line, without list markers or duplicates.
+    public static func branchNames(from answer: String, count: Int = 3) -> [String] {
+        var names: [String] = []
+        for line in answer.split(whereSeparator: \.isNewline) {
+            let cleaned = line.trimmingCharacters(in: .whitespaces).replacing(/^(\d+[.)]|[-*•])\s*/, with: "")
+            if let name = branchName(from: cleaned), !names.contains(name) { names.append(name) }
+        }
+        return Array(names.prefix(count))
+    }
+
     static func prompt(_ template: String, _ context: TemplateContext) -> String {
         var context = context
         context.diff = PromptTemplate.limitedDiff(context.diff)
