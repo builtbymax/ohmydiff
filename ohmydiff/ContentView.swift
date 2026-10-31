@@ -169,6 +169,21 @@ struct ContentView: View {
                     DiffDetailView(session: session)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .overlay(alignment: .bottomLeading) {
+                    if let request = session.actionRequest, request.action == .commit {
+                        ZStack(alignment: .bottomLeading) {
+                            // Clicking outside the card closes it, like a popover.
+                            Color.black.opacity(0.001)
+                                .onTapGesture { session.actionRequest = nil }
+                            CommitTargetCard(session: session, request: request) { session.actionRequest = nil }
+                                .id(request.id)
+                                .padding(.leading, 12)
+                                .padding(.bottom, 168)
+                                .popoverTransition(anchor: .bottomLeading)
+                        }
+                    }
+                }
+                .animation(Theme.popoverAnimation, value: session.actionRequest?.id)
             case .history:
                 HistoryPageView(model: model, session: session)
             case .branches:

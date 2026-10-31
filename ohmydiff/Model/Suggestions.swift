@@ -56,6 +56,10 @@ struct Suggestions {
         try await suggester(for: .branchName).branchName(context: Self.filtered(context))
     }
 
+    func branchNames(_ context: TemplateContext) async throws -> [String] {
+        try await suggester(for: .branchName).branchNames(context: Self.filtered(context))
+    }
+
     func pullRequest(_ context: TemplateContext) async throws -> String {
         try await suggester(for: .pullRequest).pullRequest(template: AppSettings.pullRequestTemplate(), context: Self.filtered(context))
     }
