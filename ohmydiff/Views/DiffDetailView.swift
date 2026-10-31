@@ -117,6 +117,11 @@ struct FileDiffView: View {
     /// Lines of the selected rows in the shown diff.
     @State private var selectedLines: [DiffPosition] = []
     @Environment(\.claudeCode) private var claudeCode
+    @Environment(\.askAI) private var askAI
+    @Environment(\.openSettings) private var openSettings
+    @AppStorage(AppSettings.explainsInTerminalKey) private var explainsInTerminal = false
+    /// The open inline explanation, under its hunk.
+    @State private var explanation: HunkExplanation?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -164,6 +169,11 @@ struct FileDiffView: View {
         .focusedSceneValue(\.diffPopout, popout)
         .focusedSceneValue(\.diffPrompt, promptTarget)
         .focusedSceneValue(\.diffHunk, hunkContext)
+        .onChange(of: diff) {
+            // Hunk numbers belong to the diff they were asked about.
+            explanation?.cancel()
+            explanation = nil
+        }
         .task(id: prefersWholeFile && DiffSettings.canShowWholeFile(diff) ? diff : nil) {
             guard prefersWholeFile, DiffSettings.canShowWholeFile(diff), wholeFile?.source != diff else { return }
             let old = await contents(.old)
@@ -184,12 +194,28 @@ struct FileDiffView: View {
             explain: promptTarget == nil ? nil : { explain(index) })
     }
 
-    /// Asks the AI provider to explain a hunk in Claude Code.
+    /// Explains a hunk in a card under it, or in Claude Code when Settings → AI says so.
     private func explain(_ hunk: Int) {
         guard let promptContext, shown.hunks.indices.contains(hunk) else { return }
+        if !explainsInTerminal, shownWholeFile == nil {
+            explanation?.cancel()
+            explanation = explanation?.hunk == hunk ? nil : HunkExplanation(hunk: hunk, diff: shown, ask: askAI)
+            return
+        }
         let positions = shown.hunks[hunk].lines.indices.map { DiffPosition(hunk: hunk, line: $0) }
         askClaude(ClaudeRequest(kind: .open, question: .explain, positions: positions))
         _ = promptContext
+    }
+
+    private var explanationCard: DiffCard? {
+        guard let explanation else { return nil }
+        return DiffCard(hunk: explanation.hunk) { onHeight in
+            AnyView(ExplainCard(
+                explanation: explanation,
+                close: { self.explanation?.cancel(); self.explanation = nil },
+                openSettings: { SettingsWindow.open(.ai, with: openSettings) },
+                onHeight: onHeight))
+        }
     }
 
     /// The hunk to highlight: the one a hovered hunk bar action would act on, else an open confirmation's.
@@ -294,7 +320,8 @@ struct FileDiffView: View {
                     reveal: reveal,
                     currentHunk: visibleHunk,
                     onExplainHunk: promptContext == nil || wholeFile != nil ? nil : { explain($0) },
-                    onExpand: DiffSettings.canShowWholeFile(diff) ? { prefersWholeFile = true } : nil)
+                    onExpand: DiffSettings.canShowWholeFile(diff) ? { prefersWholeFile = true } : nil,
+                    card: wholeFile == nil ? explanationCard : nil)
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if isTruncated {

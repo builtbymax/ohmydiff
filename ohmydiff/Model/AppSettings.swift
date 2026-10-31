@@ -390,4 +390,6 @@ extension EnvironmentValues {
     @Entry var claudeCode = ClaudeCodeActions()
     /// Opens a file at its line in the editor chosen in Settings.
     @Entry var openEditor: (DiffFileTarget) -> Void = { _ in }
+    /// Asks the AI provider for a one-off answer for a task, with its model from Settings.
+    @Entry var askAI: (AITask, String) async throws -> String = { _, _ in throw SuggestionUnavailable.noProvider }
 }

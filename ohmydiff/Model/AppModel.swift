@@ -125,6 +125,13 @@ final class AppModel {
         await toolchainTask?.value
     }
 
+    /// A one-off answer from the AI provider for a task, e.g. explaining a hunk inline.
+    func askAI(_ task: AITask, _ prompt: String) async throws -> String {
+        guard let toolchain = await toolchain() else { throw SuggestionUnavailable.noToolchain }
+        let suggestions = Suggestions(root: URL(fileURLWithPath: NSHomeDirectory()), toolchain: toolchain)
+        return try await suggestions.suggester(for: task).complete(prompt)
+    }
+
     private func loadToolVersions() async {
         guard let toolchain = await toolchain() else { return }
         butVersion = await ButCompatibility.version(of: toolchain)

@@ -55,6 +55,8 @@ struct DiffTableView: NSViewRepresentable {
     var onExplainHunk: ((Int) -> Void)?
     /// Shows the unchanged lines between hunks, from a header's `N unchanged lines` row.
     var onExpand: (() -> Void)?
+    /// A card under a hunk's last line, e.g. its inline explanation.
+    var card: DiffCard?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -106,6 +108,7 @@ struct DiffTableView: NSViewRepresentable {
             diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize, lineSpacing: lineSpacing, theme: theme,
             isWholeFile: isWholeFile, showsLineNumbers: showsLineNumbers, wrapsLines: wrapsLines)
         context.coordinator.targetedHunk = targetedHunk
+        context.coordinator.setCard(card)
         if let reveal { context.coordinator.reveal(reveal) }
     }
 
@@ -155,6 +158,11 @@ struct DiffTableView: NSViewRepresentable {
             didSet { if menuHunk != oldValue { updateTargetedRows() } }
         }
         private var observers: [NSObjectProtocol] = []
+        /// The card under a hunk: its hosting view, height and the row it sits below.
+        private var cardHost: NSHostingView<AnyView>?
+        private var cardHunk: Int?
+        private var cardHeight: CGFloat = 0
+        private var cardRow: Int?
 
         private static let oldColumn = NSUserInterfaceItemIdentifier("old")
         private static let newColumn = NSUserInterfaceItemIdentifier("new")
@@ -253,10 +261,12 @@ struct DiffTableView: NSViewRepresentable {
                     unifiedRows = []
                 }
                 hunkRows = jumpRows()
+                cardRow = lastRow(ofHunk: cardHunk)
             }
 
             sizeColumns()
             tableView.reloadData()
+            layoutCard()
             if isNewFile {
                 tableView.deselectAll(nil)
                 tableView.scrollRowToVisible(0)
@@ -284,6 +294,7 @@ struct DiffTableView: NSViewRepresentable {
 
         /// Reports the hunk of the topmost visible row when it changes.
         private func reportVisibleHunk() {
+            layoutCard()
             guard let tableView, let scrollView else { return }
             let top = scrollView.contentView.bounds.minY + scrollView.contentInsets.top
             let row = max(tableView.row(at: NSPoint(x: 0, y: top + 1)), 0)
@@ -291,6 +302,89 @@ struct DiffTableView: NSViewRepresentable {
             guard hunk != visibleHunk else { return }
             visibleHunk = hunk
             onVisibleHunk(hunk)
+        }
+
+        // MARK: Card
+
+        func setCard(_ card: DiffCard?) {
+            guard let tableView else { return }
+            guard let card else {
+                guard cardHunk != nil else { return }
+                let old = cardRow
+                cardHunk = nil
+                cardRow = nil
+                cardHeight = 0
+                cardHost?.removeFromSuperview()
+                cardHost = nil
+                if let old { tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: old)) }
+                return
+            }
+            let view = card.makeView { [weak self] height in self?.cardHeightChanged(height) }
+            if let cardHost {
+                cardHost.rootView = view
+            } else {
+                let host = NSHostingView(rootView: view)
+                host.sizingOptions = []
+                tableView.addSubview(host)
+                cardHost = host
+            }
+            if card.hunk != cardHunk {
+                let old = cardRow
+                cardHunk = card.hunk
+                cardRow = lastRow(ofHunk: card.hunk)
+                let changed = IndexSet([old, cardRow].compactMap(\.self))
+                tableView.noteHeightOfRows(withIndexesChanged: changed)
+                tableView.reloadData(forRowIndexes: changed, columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
+                if let row = cardRow { tableView.scrollRowToVisible(row) }
+            }
+            layoutCard()
+        }
+
+        private func cardHeightChanged(_ height: CGFloat) {
+            guard abs(height - cardHeight) > 0.5, let tableView else { return }
+            cardHeight = height
+            if let cardRow {
+                tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: cardRow))
+                tableView.reloadData(forRowIndexes: IndexSet(integer: cardRow), columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
+            }
+            layoutCard()
+        }
+
+        /// The last row of a hunk's lines, which the card sits below.
+        private func lastRow(ofHunk hunk: Int?) -> Int? {
+            guard let hunk else { return nil }
+            switch mode {
+            case .unified:
+                return unifiedRows.lastIndex { row in
+                    switch row {
+                    case .line(let h, _), .noNewlineAtEnd(let h, _): h == hunk
+                    case .hunkHeader: false
+                    }
+                }
+            case .split:
+                return splitRows.lastIndex { row in
+                    if case .pair(let h, _, _) = row { return h == hunk }
+                    return false
+                }
+            case nil:
+                return nil
+            }
+        }
+
+        /// Places the card in the space below its row, across the visible width, above the rows.
+        private func layoutCard() {
+            guard let cardHost, let tableView, let scrollView else { return }
+            guard let cardRow, cardRow < rowCount else {
+                cardHost.isHidden = true
+                return
+            }
+            cardHost.isHidden = false
+            let rect = tableView.rect(ofRow: cardRow)
+            let visible = scrollView.contentView.bounds
+            cardHost.frame = NSRect(x: visible.minX, y: rect.maxY - cardHeight, width: visible.width, height: max(cardHeight, 1))
+            if tableView.subviews.last !== cardHost {
+                tableView.addSubview(cardHost, positioned: .above, relativeTo: nil)
+            }
         }
 
         // MARK: Hunk actions
@@ -466,6 +560,7 @@ struct DiffTableView: NSViewRepresentable {
 
         /// Columns are as wide as their longest line; split columns also fill at least half the pane each.
         private func sizeColumns() {
+            defer { layoutCard() }
             guard let tableView, let scrollView else { return }
             let visible = scrollView.contentView.bounds.width
             switch mode {
@@ -644,6 +739,11 @@ struct DiffTableView: NSViewRepresentable {
         private var rowCount: Int { mode == .split ? splitRows.count : unifiedRows.count }
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+            baseHeight(ofRow: row) + (row == cardRow ? cardHeight : 0)
+        }
+
+        /// A row's height without the card below it.
+        private func baseHeight(ofRow row: Int) -> CGFloat {
             if let hunk = hunkIndex(ofHeaderRow: row) {
                 return HunkHeaderRow.height + (gap(before: hunk) > 0 ? HunkHeaderRow.gapHeight : 0)
             }
@@ -677,6 +777,7 @@ struct DiffTableView: NSViewRepresentable {
             cell.drawsTrailingSeparator = false
             cell.wraps = false
             cell.truncates = false
+            cell.contentHeight = row == cardRow ? baseHeight(ofRow: row) : nil
 
             switch mode {
             case .unified:
@@ -1255,14 +1356,27 @@ private final class DiffCellView: NSTableCellView {
             label.maximumNumberOfLines = wraps ? 0 : 1
             label.lineBreakMode = wraps ? .byCharWrapping : truncates ? .byTruncatingTail : .byClipping
             trailingConstraint.isActive = wraps || truncates
-            centerConstraint.isActive = !wraps
+            centerConstraint.isActive = !wraps && contentHeight == nil
+            topCenterConstraint.isActive = !wraps && contentHeight != nil
             topConstraint.isActive = wraps
+        }
+    }
+
+    /// The height the line takes when the row is taller, e.g. with a card below it; the line keeps to the top.
+    var contentHeight: CGFloat? {
+        didSet {
+            guard contentHeight != oldValue else { return }
+            if let contentHeight { topCenterConstraint.constant = contentHeight / 2 }
+            centerConstraint.isActive = !wraps && contentHeight == nil
+            topCenterConstraint.isActive = !wraps && contentHeight != nil
+            needsDisplay = true
         }
     }
 
     private var trailingConstraint: NSLayoutConstraint!
     private var centerConstraint: NSLayoutConstraint!
     private var topConstraint: NSLayoutConstraint!
+    private var topCenterConstraint: NSLayoutConstraint!
 
     init() {
         super.init(frame: .zero)
@@ -1275,6 +1389,7 @@ private final class DiffCellView: NSTableCellView {
         trailingConstraint = label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -DiffRowFormatter.horizontalPadding)
         centerConstraint = label.centerYAnchor.constraint(equalTo: centerYAnchor)
         topConstraint = label.topAnchor.constraint(equalTo: topAnchor, constant: 1.5)
+        topCenterConstraint = label.centerYAnchor.constraint(equalTo: topAnchor)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DiffRowFormatter.horizontalPadding),
             label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
@@ -1494,4 +1609,11 @@ extension ChangeAction {
         case .discard: "arrow.uturn.backward"
         }
     }
+}
+
+
+/// A view shown under a hunk's last line; it reports its height so the row makes room for it.
+struct DiffCard {
+    var hunk: Int
+    var makeView: (_ onHeight: @escaping (CGFloat) -> Void) -> AnyView
 }
