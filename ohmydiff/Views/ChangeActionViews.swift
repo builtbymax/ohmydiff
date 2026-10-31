@@ -38,16 +38,6 @@ private struct ChangeActionPresentation: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .confirmationDialog(
-                discardTitle, isPresented: isPresented(.discard), titleVisibility: .visible, presenting: session.actionRequest
-            ) { request in
-                Button("Discard", role: .destructive) {
-                    Task { await session.perform(.discard, on: request.targets) }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: { request in
-                Text(discardMessage(request))
-            }
             .sheet(isPresented: isPresented(.commit)) {
                 if let request = session.actionRequest {
                     CommitSheet(session: session, request: request)
@@ -68,21 +58,77 @@ private struct ChangeActionPresentation: ViewModifier {
             get: { session.actionRequest?.action == action },
             set: { if !$0, session.actionRequest?.action == action { session.actionRequest = nil } })
     }
+}
 
-    private var discardTitle: String {
-        "Discard changes to \(session.actionRequest?.subject ?? "")?"
+/// The discard confirmation: a small card over the diff, never a modal. It names what goes and how to get
+/// it back.
+struct DiscardConfirmCard: View {
+    let session: ProjectSession
+    let request: ProjectSession.ActionRequest
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Discard \(session.toastSubject(request.targets))?")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Theme.textPrimary)
+            Text(message)
+                .font(.control)
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
+                Button {
+                    session.actionRequest = nil
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Cancel")
+                        KeyCap("esc")
+                    }
+                }
+                .buttonStyle(.pill(.ghost))
+                .keyboardShortcut(.cancelAction)
+                Button {
+                    session.actionRequest = nil
+                    Task { await session.perform(.discard, on: request.targets) }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.uturn.backward").font(.system(size: 11, weight: .medium))
+                        Text("Discard")
+                        KeyCap("↩")
+                    }
+                }
+                .buttonStyle(.pill(.destructive))
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(width: 340, alignment: .leading)
+        .popoverSurface(in: .rect(cornerRadius: 14))
     }
 
-    private func discardMessage(_ request: ProjectSession.ActionRequest) -> String {
+    /// "Removes 1 line in DiffDetailView.swift. GitButler keeps it in the oplog, so but undo brings it back."
+    private var message: String {
+        let removes: String
+        if request.targets.count == 1, let target = request.targets.first {
+            let name = (target.file.path as NSString).lastPathComponent
+            if let hunk = target.hunk {
+                removes = "Removes \(hunk.size == 1 ? "1 line" : "\(hunk.size) lines") in \(name)."
+            } else if target.file.source == .untracked {
+                removes = "Removes \(name)."
+            } else {
+                removes = "Removes all changes to \(name)."
+            }
+        } else {
+            removes = "Removes the changes to \(request.targets.count) files."
+        }
         if session.project.kind == .gitButler {
-            let branches = Set(request.targets.compactMap { session.assignedBranch(of: $0.file.path) }).sorted()
-            let assigned = branches.isEmpty ? "" : "Assigned to \(branches.joined(separator: ", ")). "
-            return assigned + "You can bring them back with `but undo`."
+            return removes + " GitButler keeps it in the oplog, so but undo brings it back."
         }
         if request.targets.allSatisfy({ $0.file.source == .untracked }) {
-            return "The file is moved to the Trash."
+            return removes + " Untracked files go to the Trash."
         }
-        return "This cannot be undone."
+        return removes + " Plain git can’t bring it back."
     }
 }
 

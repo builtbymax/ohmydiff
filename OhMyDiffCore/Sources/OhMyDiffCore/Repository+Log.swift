@@ -122,6 +122,12 @@ extension Repository {
 
     // MARK: Undoing commits
 
+    /// GitButler: reverts the last operation in the oplog, e.g. a commit or discard, with `but undo`.
+    public func undoLastOperation() async throws {
+        guard kind == .gitButler else { throw UncommitError.notLastCommit }
+        _ = try await toolchain.but(["undo"], in: root, timeout: .seconds(60))
+    }
+
     /// Plain git: a new commit that undoes `sha`, on the checked-out branch.
     public func revert(_ sha: String) async throws {
         _ = try await toolchain.git(["revert", "--no-edit", sha], in: root, timeout: .seconds(60))

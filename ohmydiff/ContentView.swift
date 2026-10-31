@@ -136,6 +136,11 @@ struct ContentView: View {
             pageBody
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .overlay(alignment: .topTrailing) {
+            ToastStack(toasts: .shared)
+                .padding(.top, 44 + 20)
+                .padding(.trailing, 20)
+        }
         .updateBar(Updater.shared)
         .background(Theme.canvas)
         .clipShape(.rect(cornerRadius: 12))
@@ -173,6 +178,8 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+        } else if model.projects.isEmpty {
+            FirstRunView(model: model)
         } else {
             let title = model.projects.isEmpty ? "No projects yet" : "No projects in \(model.selectedWorkspace?.name ?? "this workspace")"
             EmptyState(title, systemImage: "folder", description: "Add a git repository, or drop a folder on the sidebar.") {

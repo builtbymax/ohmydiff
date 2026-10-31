@@ -1,17 +1,15 @@
 import SwiftUI
 
 extension View {
-    /// The update bar at the bottom of the panel, while an update is found, downloads or waits for a restart.
+    /// The quiet strip at the bottom of the panel, while an update is found, downloads or waits for a restart.
     func updateBar(_ updater: Updater) -> some View {
         safeAreaBar(edge: .bottom) {
             if updater.phase != .idle {
                 UpdateBar(updater: updater)
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 10)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.snappy(duration: 0.25), value: updater.phase == .idle)
+        .animation(Theme.popoverAnimation, value: updater.phase == .idle)
     }
 }
 
@@ -20,30 +18,32 @@ private struct UpdateBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            UpdateStatus(updater: updater)
+            UpdateStatus(updater: updater, isCompact: true)
             Spacer(minLength: 8)
-            UpdateActions(updater: updater)
+            UpdateActions(updater: updater, height: 26)
         }
         .padding(.leading, 14)
-        .padding(.trailing, 6)
+        .padding(.trailing, 8)
         .frame(height: 44)
-        .popoverSurface(in: .capsule)
-        .shadow(color: Theme.overlayShadow, radius: 12, y: 4)
-        .animation(.snappy(duration: 0.2), value: updater.phase)
+        .background(Theme.surface)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.lineSubtle).frame(height: 1) }
+        .animation(Theme.popoverAnimation, value: updater.phase)
     }
 }
 
 /// The update phase as an icon and a line of text, in the update bar and in Settings.
 struct UpdateStatus: View {
     let updater: Updater
+    /// The bar's single line: the version, then the notes' first line in tertiary text.
+    var isCompact = false
 
     var body: some View {
         HStack(spacing: 10) {
             icon
-                .font(.system(size: 15, weight: .semibold))
-                .frame(width: 20)
+                .font(.system(size: isCompact ? 12 : 15, weight: .medium))
+                .frame(width: isCompact ? 14 : 20)
             message
-                .font(.callout)
+                .font(.control)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
@@ -53,15 +53,15 @@ struct UpdateStatus: View {
     @ViewBuilder private var icon: some View {
         switch updater.phase {
         case .available, .ready:
-            Image(systemName: "arrow.down.circle.fill").foregroundStyle(Theme.textPrimary)
+            Image(systemName: "arrow.trianglehead.2.clockwise").foregroundStyle(Theme.infoFg)
         case .checking, .installing:
-            ProgressView().controlSize(.small)
+            ProgressView().controlSize(.mini)
         case .downloading, .extracting:
-            Image(systemName: "arrow.down.circle").foregroundStyle(.secondary)
+            Image(systemName: "arrow.down.circle").foregroundStyle(Theme.textTertiary)
         case .upToDate:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            Image(systemName: "checkmark.circle").foregroundStyle(Theme.okFg)
         case .failed:
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.warnFg)
         case .idle:
             EmptyView()
         }
@@ -70,43 +70,72 @@ struct UpdateStatus: View {
     @ViewBuilder private var message: some View {
         switch updater.phase {
         case .checking:
-            Text("Checking for updates…")
+            Text("Checking for updates…").foregroundStyle(Theme.textSecondary)
         case .available(let update):
-            HStack(spacing: 6) {
-                Text("ohmydiff \(update.version) is available").fontWeight(.medium)
-                Text("You have \(Updater.currentVersion)").foregroundStyle(.secondary)
-            }
+            headline("ohmydiff \(update.version) is available", update: update, fallback: "You have \(Updater.currentVersion)")
         case .downloading(let update, let progress):
             HStack(spacing: 10) {
-                Text("Downloading ohmydiff \(update.version)…")
-                ProgressView(value: progress ?? 0)
-                    .progressViewStyle(.linear)
-                    .frame(width: 120)
+                Text("Downloading ohmydiff \(update.version)…").foregroundStyle(Theme.textSecondary)
+                ProgressBar(value: progress ?? 0)
                     .opacity(progress == nil ? 0.4 : 1)
             }
         case .extracting(let update, let progress):
             HStack(spacing: 10) {
-                Text("Preparing ohmydiff \(update.version)…")
-                ProgressView(value: progress).progressViewStyle(.linear).frame(width: 120)
+                Text("Preparing ohmydiff \(update.version)…").foregroundStyle(Theme.textSecondary)
+                ProgressBar(value: progress)
             }
         case .ready(let update):
-            Text("ohmydiff \(update.version) is ready to install").fontWeight(.medium)
+            headline("ohmydiff \(update.version) is ready", update: update, fallback: nil)
         case .installing(let update):
-            Text("Installing ohmydiff \(update.version). It restarts in a moment.")
+            Text("Installing ohmydiff \(update.version). It restarts in a moment.").foregroundStyle(Theme.textSecondary)
         case .upToDate:
-            Text("ohmydiff \(Updater.currentVersion) is the latest version.")
+            Text("ohmydiff \(Updater.currentVersion) is the latest version.").foregroundStyle(Theme.textSecondary)
         case .failed(let error):
-            Text("Update failed: \(error)").help(error)
+            Text("Update failed: \(error)").foregroundStyle(Theme.textSecondary).help(error)
         case .idle:
             EmptyView()
         }
     }
 
+    /// "ohmydiff 1.4.0 is ready · layout per project, faster large diffs".
+    private func headline(_ title: String, update: Updater.Update, fallback: String?) -> some View {
+        HStack(spacing: 10) {
+            Text(title).fontWeight(.medium).foregroundStyle(Theme.textPrimary)
+            if let summary = Self.summary(of: update) ?? fallback {
+                Text("· \(summary)")
+                    .font(.detail)
+                    .foregroundStyle(Theme.textTertiary)
+            }
+        }
+    }
+
+    /// The first line of the release notes, without list markers.
+    static func summary(of update: Updater.Update) -> String? {
+        guard let notes = update.notes else { return nil }
+        let line = String(notes.characters).split(separator: "\n").lazy
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "-*• ").union(.whitespaces)) }
+            .first { !$0.isEmpty }
+        return line.map { $0.prefix(1).lowercased() + $0.dropFirst() }
+    }
+}
+
+/// A thin 4pt progress track, as in the large-file state.
+private struct ProgressBar: View {
+    let value: Double
+
+    var body: some View {
+        Capsule().fill(Theme.hover)
+            .frame(width: 120, height: 4)
+            .overlay(alignment: .leading) {
+                Capsule().fill(Theme.textSecondary).frame(width: 120 * min(max(value, 0), 1), height: 4)
+            }
+    }
 }
 
 /// What can be done in the current update phase: install, restart, skip, cancel. In the update bar and in Settings.
 struct UpdateActions: View {
     let updater: Updater
+    var height: CGFloat = 32
 
     var body: some View {
         HStack(spacing: 6) {
@@ -115,25 +144,25 @@ struct UpdateActions: View {
                 notesButton(update)
                 if !update.isInformational {
                     Button("Skip This Version") { updater.skip() }
-                        .buttonStyle(.pill(height: 32))
+                        .buttonStyle(.pill(height: height))
                 }
                 Button("Later") { updater.dismiss() }
-                    .buttonStyle(.pill(height: 32))
+                    .buttonStyle(.pill(.ghost, height: height))
                 Button(update.isInformational ? "Learn More" : "Install and Restart") { updater.install() }
-                    .buttonStyle(.pill(.prominent, height: 32))
+                    .buttonStyle(.pill(.prominent, height: height))
             case .ready(let update):
                 notesButton(update)
                 Button("Later") { updater.dismiss() }
-                    .buttonStyle(.pill(height: 32))
+                    .buttonStyle(.pill(.ghost, height: height))
                     .glassTooltip("Installs when you quit ohmydiff", edge: .top)
-                Button("Restart to Update") { updater.install() }
-                    .buttonStyle(.pill(.prominent, height: 32))
+                Button("Restart") { updater.install() }
+                    .buttonStyle(.pill(.prominent, height: height))
             case .checking, .downloading:
                 Button("Cancel") { updater.dismiss() }
-                    .buttonStyle(.pill(height: 32))
+                    .buttonStyle(.pill(height: height))
             case .failed:
                 Button("Try Again") { updater.checkForUpdates() }
-                    .buttonStyle(.pill(height: 32))
+                    .buttonStyle(.pill(height: height))
                 closeButton
             case .upToDate:
                 closeButton
@@ -147,7 +176,7 @@ struct UpdateActions: View {
     @ViewBuilder private func notesButton(_ update: Updater.Update) -> some View {
         if let url = update.notesURL {
             Button("What’s New") { NSWorkspace.shared.open(url) }
-                .buttonStyle(.pill(height: 32))
+                .buttonStyle(.pill(height: height))
                 .modifier(NotesCard(notes: update.notes, version: update.version))
         }
     }
@@ -157,7 +186,7 @@ struct UpdateActions: View {
             Image(systemName: "xmark")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 32, height: 32)
+                .frame(width: height, height: height)
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)

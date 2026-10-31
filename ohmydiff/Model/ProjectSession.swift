@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftUI
 import OhMyDiffCore
 
 /// A file selected from outside the list, e.g. by `ohmydiff show`: the list scrolls to it and its diff
@@ -459,10 +460,49 @@ final class ProjectSession {
         switch action {
         case .stage: try await repository.stage(targets)
         case .unstage: try await repository.unstage(targets)
-        case .discard: try await repository.discard(targets)
+        case .discard:
+            try await repository.discard(targets)
+            Toasts.shared.show(
+                "Discarded \(toastSubject(targets))", systemImage: "arrow.uturn.backward", tint: Theme.delFg,
+                action: repository.kind == .gitButler ? Toasts.undo { [weak self] in self?.undoLastOperation() } : nil)
         case .commit:
             try await repository.commit(targets, toBranch: branch, stackedOn: anchor, message: message)
             lastCommitBranch = branch
+            let head = repository.kind == .git ? await repository.headSHA() : nil
+            Toasts.shared.show(
+                "Committed \(toastSubject(targets)) to \(branch)", systemImage: "circle.and.line.horizontal", tint: Theme.okFg,
+                action: Toasts.undo { [weak self] in self?.undoCommit(head: head) })
+        }
+    }
+
+    /// e.g. `hunk 2 of notes.txt`, `notes.txt` or `3 files`, for toasts.
+    func toastSubject(_ targets: [ChangeTarget]) -> String {
+        guard targets.count == 1, let target = targets.first else { return "\(targets.count) files" }
+        let name = (target.file.path as NSString).lastPathComponent
+        guard let hunk = target.hunk else { return name }
+        if case .diff(let diff)? = diff?.content, diff.path == target.file.path, let index = diff.hunks.firstIndex(of: hunk) {
+            return "hunk \(index + 1) of \(name)"
+        }
+        return "a hunk of \(name)"
+    }
+
+    /// Takes the last commit back: `but undo` in GitButler, a soft reset of `head` in plain git.
+    private func undoCommit(head: String?) {
+        guard let repository else { return }
+        if repository.kind == .gitButler { return undoLastOperation() }
+        guard let head else { return }
+        Task {
+            do { try await repository.uncommit(head) } catch { actionError = String(describing: error) }
+            refresh()
+        }
+    }
+
+    /// `but undo`: reverts GitButler's last operation.
+    func undoLastOperation() {
+        guard let repository else { return }
+        Task {
+            do { try await repository.undoLastOperation() } catch { actionError = String(describing: error) }
+            refresh()
         }
     }
 

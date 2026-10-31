@@ -371,7 +371,7 @@ struct GitButlerActionTests {
         #expect(try await repo.paths(in: .unassigned, of: repository).isEmpty)
 
         // Discards go through `but`, so they can be undone.
-        try await repo.but("undo")
+        try await repository.undoLastOperation()
         #expect(try await repo.paths(in: .unassigned, of: repository) == ["b.txt"])
 
         await #expect(throws: ChangeActionError.self) {
