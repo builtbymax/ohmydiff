@@ -10,6 +10,7 @@ struct ProjectCommands: Commands {
     @AppStorage(AppSettings.isSidebarHiddenKey) private var isSidebarHidden = false
     @AppStorage(AppSettings.showsWhitespaceChangesKey) private var showsWhitespaceChanges = true
     @AppStorage(AppSettings.isInspectorShownKey) private var isInspectorShown = true
+    @AppStorage(AppSettings.isActivityHiddenKey) private var isActivityHidden = false
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
     @FocusedValue(\.diffFile) private var diffFile
     @FocusedValue(\.diffPopout) private var diffPopout
@@ -70,6 +71,7 @@ struct ProjectCommands: Commands {
                 .keyboardShortcut("\\")
             Toggle("Show Full File", isOn: $showsWholeFile)
                 .keyboardShortcut("f", modifiers: [.command, .option])
+            Toggle("Show Activity", isOn: Binding(get: { !isActivityHidden }, set: { isActivityHidden = !$0 }))
             Toggle("Show Inspector", isOn: $isInspectorShown)
                 .keyboardShortcut("i", modifiers: [.command, .option])
             Toggle("Show Whitespace Changes", isOn: $showsWhitespaceChanges)

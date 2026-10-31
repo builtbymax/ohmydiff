@@ -653,6 +653,7 @@ struct ViewMenu: View {
     @AppStorage(AppSettings.isSidebarHiddenKey) private var isSidebarHidden = false
     @AppStorage(AppSettings.isListHiddenKey) private var isListHidden = false
     @AppStorage(AppSettings.isHunkStripHiddenKey) private var isHunkStripHidden = false
+    @AppStorage(AppSettings.isActivityHiddenKey) private var isActivityHidden = false
     @AppStorage(AppSettings.showsLineNumbersKey) private var showsLineNumbers = true
     @AppStorage(AppSettings.showsWhitespaceChangesKey) private var showsWhitespaceChanges = true
     @AppStorage(AppSettings.wrapsLinesKey) private var wrapsLines = false
@@ -664,6 +665,7 @@ struct ViewMenu: View {
             toggle("Sidebar", isOn: Binding(get: { !isSidebarHidden }, set: { isSidebarHidden = !$0 }), key: "⌃⌘S")
             toggle("File list", isOn: Binding(get: { !isListHidden }, set: { isListHidden = !$0 }), key: "⌘0")
             toggle("Hunk strip", isOn: Binding(get: { !isHunkStripHidden }, set: { isHunkStripHidden = !$0 }))
+            toggle("Activity", isOn: Binding(get: { !isActivityHidden }, set: { isActivityHidden = !$0 }))
             divider
             section("Diff")
             toggle("Line numbers", isOn: $showsLineNumbers)
