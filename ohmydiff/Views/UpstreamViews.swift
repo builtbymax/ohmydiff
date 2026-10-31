@@ -33,7 +33,7 @@ struct UpstreamControls: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.black)
-                .background(Theme.logo, in: .capsule)
+                .background(Theme.inverse, in: .capsule)
                 .shadow(color: Theme.overlayShadow, radius: 6, y: 2)
                 .focusEffectDisabled()
                 .glassTooltip("Review and Update…")
@@ -75,7 +75,7 @@ struct UpstreamControls: View {
             .contentShape(.capsule)
         }
         .buttonStyle(.plain)
-        .background(Theme.glassSelection.opacity(isPillHovered ? 1 : 0), in: .capsule)
+        .background(Theme.selected.opacity(isPillHovered ? 1 : 0), in: .capsule)
         .onHover { isPillHovered = $0 }
         .animation(.easeOut(duration: 0.15), value: isPillHovered)
         .glassEffect(.regular.interactive(), in: .capsule)
@@ -136,7 +136,7 @@ struct UpstreamUpdateSheet: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.black)
                 .frame(width: 34, height: 34)
-                .background(Theme.logo, in: .rect(cornerRadius: 10))
+                .background(Theme.inverse, in: .rect(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 2) {
                 Text(result == nil ? "Update from \(upstream.target)" : "Workspace Updated")
                     .font(.headline)
@@ -188,7 +188,7 @@ struct UpstreamUpdateSheet: View {
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(Theme.deletion)
+                    .foregroundStyle(Theme.delFg)
                     .textSelection(.enabled)
                     .lineLimit(3)
             } else if isGitButler, result == nil {
@@ -320,7 +320,7 @@ private struct BranchUpdateRow: View {
                     .foregroundStyle(badge.color)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
-                    .background(badge.color.opacity(Theme.kindTintOpacity), in: .capsule)
+                    .background(badge.color.opacity(0.12), in: .capsule)
                     .fixedSize()
             }
             Spacer(minLength: 8)
@@ -360,7 +360,7 @@ private struct ResultSummary: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            line("Updated", result.updated, systemImage: "checkmark.circle.fill", color: Theme.changeAdded)
+            line("Updated", result.updated, systemImage: "checkmark.circle.fill", color: Theme.addFg)
             line("Integrated and removed", result.integrated, systemImage: "checkmark.seal.fill", color: .purple)
             line("Conflicted", result.conflicted, systemImage: "exclamationmark.triangle.fill", color: .red)
             if !result.conflicted.isEmpty {

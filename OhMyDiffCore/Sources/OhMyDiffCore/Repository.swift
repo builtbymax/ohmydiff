@@ -300,27 +300,30 @@ public struct Repository: Sendable {
     static let diffOptions = ["--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-M", "-U3", "--inter-hunk-context=0"]
 
     /// The parsed diff of one uncommitted file, or `nil` if it no longer differs.
-    public func diff(for file: ChangedFile) async throws -> FileDiff? {
+    /// `ignoringWhitespace` leaves out changes that only touch whitespace (`git diff -w`); such a diff is for
+    /// reading only, its hunks do not apply to the file.
+    public func diff(for file: ChangedFile, ignoringWhitespace: Bool = false) async throws -> FileDiff? {
+        let options = Self.diffOptions + (ignoringWhitespace ? ["-w"] : [])
         let paths = [file.path] + (file.previousPath.map { [$0] } ?? [])
         let arguments: [String]
         switch file.source {
         case .staged:
-            arguments = ["diff", "--cached"] + Self.diffOptions + ["--"] + paths
+            arguments = ["diff", "--cached"] + options + ["--"] + paths
         case .unstaged, .conflicted:
-            arguments = ["diff"] + Self.diffOptions + ["--"] + paths
+            arguments = ["diff"] + options + ["--"] + paths
         case .untracked:
             return try await untrackedDiff(file.path)
         case .workspace:
             // HEAD is the GitButler workspace commit, or since 0.23 the tip of the only applied branch,
             // so this covers every applied branch.
-            arguments = ["diff", "HEAD"] + Self.diffOptions + ["--"] + paths
+            arguments = ["diff", "HEAD"] + options + ["--"] + paths
         }
 
         // A move GitButler left unstaged: the new path is untracked, so plain `git diff HEAD` only sees the deletion.
         var isUnstagedMove = false
         if file.source == .workspace, file.previousPath != nil { isUnstagedMove = try await isUntracked(file.path) }
         let output = isUnstagedMove
-            ? try await worktreeDiff(Self.diffOptions, paths: paths)
+            ? try await worktreeDiff(options, paths: paths)
             : try await toolchain.git(arguments, in: root).stdout
         if let parsed = UnifiedDiffParser.parse(output).first(where: { $0.newPath == file.path || $0.oldPath == file.path }) {
             return parsed

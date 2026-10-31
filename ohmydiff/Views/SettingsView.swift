@@ -2,40 +2,201 @@ import AppKit
 import OhMyDiffCore
 import SwiftUI
 
-enum SettingsPane: String, Hashable {
-    case general, appearance, ai, templates, tickets, commandLine
+enum SettingsPane: String, Hashable, CaseIterable, Identifiable {
+    case general, appearance, ai, templates, tickets, commandLine, shortcuts, updates
+
+    var id: Self { self }
+
+    /// The panes built so far, in sidebar order.
+    static let available: [SettingsPane] = [.general, .appearance, .ai, .templates, .tickets, .commandLine, .updates]
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .appearance: "Appearance"
+        case .ai: "AI"
+        case .templates: "Templates"
+        case .tickets: "Tickets"
+        case .commandLine: "Command line"
+        case .shortcuts: "Shortcuts"
+        case .updates: "Updates"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .general: "Where files open, how projects behave, and what ohmydiff asks before it changes anything."
+        case .appearance: "Two themes, one switch. Diff colours stay the same meaning in both."
+        case .ai: "ohmydiff uses an AI command line tool you already have. Nothing is sent until you press a ✦ action, and you always see what it sends."
+        case .templates: "The prompts behind ✦ actions and the shape your commits take. Placeholders fill in from what you selected."
+        case .tickets: "Link commits and pull requests to the ticket they belong to."
+        case .commandLine: "Open ohmydiff from a terminal, and let coding agents read your changes or point you at a line."
+        case .shortcuts: "Everything has a key. Click a shortcut to record a new one; single letters only work while the diff has focus."
+        case .updates: "New releases install when you quit, or right away from the update bar."
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .general: "slider.horizontal.3"
+        case .appearance: "paintpalette"
+        case .ai: "sparkles"
+        case .templates: "doc.text"
+        case .tickets: "ticket"
+        case .commandLine: "apple.terminal"
+        case .shortcuts: "keyboard"
+        case .updates: "arrow.clockwise"
+        }
+    }
 }
 
 struct SettingsView: View {
     @AppStorage(AppSettings.settingsPaneKey) private var pane = SettingsPane.general
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
+    @State private var search = ""
 
     var body: some View {
-        VStack(spacing: 18) {
-            GlassSegmented(selection: $pane, options: [
-                (.general, "General"), (.appearance, "Appearance"), (.ai, "AI"), (.templates, "Templates"), (.tickets, "Tickets"),
-                (.commandLine, "Command Line"),
-            ])
-            Group {
-                switch pane {
-                case .general: GeneralSettings()
-                case .appearance: AppearanceSettings()
-                case .ai: AISettings()
-                case .templates: TemplateSettings()
-                case .tickets: TicketSettings()
-                case .commandLine: CommandLineSettings()
+        HStack(spacing: 0) {
+            SettingsNav(pane: $pane, search: $search)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(pane.title)
+                            .font(.settingsTitle)
+                            .foregroundStyle(Theme.textPrimary)
+                        Text(pane.subtitle)
+                            .font(.row)
+                            .foregroundStyle(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Group {
+                        switch pane {
+                        case .general: GeneralSettings()
+                        case .appearance: AppearanceSettings()
+                        case .ai: AISettings()
+                        case .templates: TemplateSettings()
+                        case .tickets: TicketSettings()
+                        case .commandLine: CommandLineSettings()
+                        case .shortcuts, .updates: UpdateSettings(updater: .shared)
+                        }
+                    }
                 }
+                .padding(.horizontal, 40)
+                .padding(.vertical, 28)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: .infinity, alignment: .top)
+            .scrollIndicators(.automatic)
+            .background(Theme.canvas)
+            .clipShape(.rect(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.lineSubtle))
+            .padding([.vertical, .trailing], 8)
         }
-        .padding([.horizontal, .bottom], 20)
-        .frame(width: 640, height: 520)
-        .background { WindowTranslucency().ignoresSafeArea() }
+        .frame(width: 900, height: 640)
+        .background(Theme.sidebar.ignoresSafeArea())
         .background { TitlelessWindow() }
         .toolbar(removing: .title)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        .ignoresSafeArea()
         // Also here, so the theme switches at once even while the main window is closed.
         .onChange(of: appearance) { appearance.apply() }
+    }
+}
+
+/// The settings sidebar: search, the panes and the versions in use.
+private struct SettingsNav: View {
+    @Binding var pane: SettingsPane
+    @Binding var search: String
+    @FocusState private var isSearchFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Color.clear.frame(height: 40)
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12))
+                    .frame(width: 14, height: 14)
+                TextField("Search settings", text: $search)
+                    .textFieldStyle(.plain)
+                    .font(.control)
+                    .foregroundStyle(Theme.textPrimary)
+                    .focused($isSearchFocused)
+                    .onSubmit { matches.first.map { pane = $0 } }
+                KeyCap("⌘F")
+            }
+            .foregroundStyle(Theme.textTertiary)
+            .padding(.horizontal, 8)
+            .frame(height: 30)
+            .background(Theme.hover, in: .rect(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.lineSubtle))
+            .padding(.top, 6)
+            .padding(.bottom, 10)
+            .background {
+                Button("") { isSearchFocused = true }
+                    .keyboardShortcut("f")
+                    .hidden()
+            }
+            ForEach(matches) { item in
+                Button { pane = item } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: item.systemImage)
+                            .font(.system(size: 13))
+                            .foregroundStyle(item == pane ? Theme.textPrimary : Theme.textSecondary)
+                            .frame(width: 15, height: 15)
+                        Text(item.title)
+                            .font(.row.weight(item == pane ? .medium : .regular))
+                            .foregroundStyle(item == pane ? Theme.textPrimary : Theme.textSecondary)
+                        Spacer(minLength: 4)
+                        trailing(item)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 30)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.row(isSelected: item == pane))
+                .focusEffectDisabled()
+            }
+            Spacer(minLength: 8)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("ohmydiff \(Updater.currentVersion)")
+            }
+            .font(.caption11)
+            .foregroundStyle(Theme.textTertiary)
+            .padding(.horizontal, 8)
+        }
+        .padding(.horizontal, 10)
+        .padding(.bottom, 10)
+        .frame(width: 232)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Panes whose title or text matches the search.
+    private var matches: [SettingsPane] {
+        let query = search.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return SettingsPane.available }
+        return SettingsPane.available.filter {
+            $0.title.localizedCaseInsensitiveContains(query) || $0.subtitle.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    @ViewBuilder
+    private func trailing(_ item: SettingsPane) -> some View {
+        switch item {
+        case .updates:
+            if let version = Updater.shared.pendingVersion {
+                Text(version)
+                    .font(.caption11)
+                    .foregroundStyle(Theme.infoFg)
+            }
+        case .tickets:
+            let count = AppSettings.connectedTicketTrackers()
+            if count > 0 {
+                Text("\(count)")
+                    .font(.caption11)
+                    .foregroundStyle(Theme.textTertiary)
+            }
+        default:
+            EmptyView()
+        }
     }
 }
 
@@ -112,26 +273,26 @@ private enum SettingsLookups {
     static var forgeTools: Set<String>?
 }
 
-/// A titled settings card with its rows.
+/// A titled section: its title above, its rows in a bordered table.
 private struct SettingsCard<Content: View>: View {
     let title: String
-    /// A status shown at the end of the header, e.g. Connected.
+    /// A status or control at the end of the title, e.g. Connected.
     var badge: Badge?
     @ViewBuilder var content: Content
 
     var body: some View {
-        Card {
-            HStack {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
                 Text(title)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.row.weight(.semibold))
+                    .foregroundStyle(Theme.textPrimary)
                 Spacer(minLength: 8)
                 badge
             }
-        } content: {
             VStack(alignment: .leading, spacing: 12) { content }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.line))
         }
     }
 }
@@ -220,7 +381,6 @@ private struct GeneralSettings: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            UpdateSettings(updater: .shared)
         }
     }
 }
@@ -320,7 +480,7 @@ private struct UpdateSettings: View {
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
-                .tint(Theme.logoText)
+                .tint(Theme.textPrimary)
         }
     }
 }
@@ -363,7 +523,7 @@ private struct AISettings: View {
                                 .foregroundStyle(.secondary)
                                 .frame(width: 40, height: 40)
                                 .background(Color.primary.opacity(0.06), in: .rect(cornerRadius: 10))
-                                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.hairline))
+                                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.line))
                                 .frame(width: 44, height: 44)
                                 .padding(4)
                         }
@@ -652,7 +812,7 @@ private struct TemplateSettings: View {
                 HStack(spacing: 8) {
                     SoftSegmented(selection: $kind, options: [(.commit, "Commit Message"), (.pullRequest, "Pull Request")])
                     if isEdited {
-                        Badge("Edited", systemImage: "pencil", color: Theme.logoText)
+                        Badge("Edited", systemImage: "pencil", color: Theme.textPrimary)
                     }
                     Spacer()
                     Button { text.wrappedValue = defaultText } label: {
@@ -812,7 +972,7 @@ private struct TicketSettings: View {
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
-                .tint(Theme.logoText)
+                .tint(Theme.textPrimary)
         }
     }
 
@@ -945,12 +1105,12 @@ private struct SaveButton: View {
         Button(action: action) {
             Image(systemName: isSaved ? "checkmark.circle.fill" : "checkmark")
                 .font(.system(size: isSaved ? 13 : 11, weight: .bold))
-                .foregroundStyle(isSaved ? (isEmpty ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.green)) : AnyShapeStyle(Theme.logoText))
+                .foregroundStyle(isSaved ? (isEmpty ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.green)) : AnyShapeStyle(Theme.textPrimary))
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 22, height: 22)
                 .contentShape(.rect)
         }
-        .buttonStyle(.hover(cornerRadius: 6, tint: isSaved ? .primary : Theme.logoText))
+        .buttonStyle(.hover(cornerRadius: 6, tint: isSaved ? .primary : Theme.textPrimary))
         .allowsHitTesting(!isSaved)
         .animation(.snappy(duration: 0.2), value: isSaved)
         .help(isSaved ? (isEmpty ? "Nothing saved" : "Saved") : "Save (↩)")
@@ -1165,8 +1325,8 @@ private struct LayoutPreview: View {
         }
         .padding(7)
         .frame(height: 74)
-        .background(Theme.cardRow, in: .rect(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.hairline))
+        .background(Theme.surface, in: .rect(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.line))
     }
 
     private enum Row { case context, addition, deletion, empty }
@@ -1186,8 +1346,8 @@ private struct LayoutPreview: View {
     private func color(_ row: Row) -> Color {
         switch row {
         case .context: Color.primary.opacity(0.12)
-        case .addition: Theme.addition.opacity(0.45)
-        case .deletion: Theme.deletion.opacity(0.4)
+        case .addition: Theme.addFg.opacity(0.45)
+        case .deletion: Theme.delFg.opacity(0.4)
         case .empty: Color.primary.opacity(0.04)
         }
     }
@@ -1196,7 +1356,7 @@ private struct LayoutPreview: View {
 private struct AppearanceSettings: View {
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
     @AppStorage(AppSettings.fontSizeKey) private var fontSize = Double(DiffMetrics.defaultFontSize)
-    @AppStorage(DiffSettings.layoutKey) private var layout: DiffLayoutMode = .unified
+    @AppStorage(DiffSettings.layoutKey) private var layout: DiffLayoutMode = .split
     @AppStorage(AppSettings.lightCodeThemeKey) private var lightTheme = CodeTheme.default.rawValue
     @AppStorage(AppSettings.darkCodeThemeKey) private var darkTheme = CodeTheme.default.rawValue
     /// Which appearance's theme the tiles pick; starts at the current one.
@@ -1261,7 +1421,7 @@ private struct AppearanceSettings: View {
                     // A sample line at the chosen size.
                     HStack(spacing: 0) {
                         Text("+")
-                            .foregroundStyle(Theme.addition)
+                            .foregroundStyle(Theme.addFg)
                             .frame(width: 22)
                         Text("let greeting = \"Hello, diff\"")
                     }
@@ -1269,7 +1429,7 @@ private struct AppearanceSettings: View {
                     .lineLimit(1)
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.addition.opacity(0.1), in: .rect(cornerRadius: 6))
+                    .background(Theme.addFg.opacity(0.1), in: .rect(cornerRadius: 6))
                 }
             }
         }
@@ -1313,15 +1473,15 @@ private struct CodeThemePreview: View {
         }
         .padding(.vertical, 7)
         .frame(height: 74, alignment: .top)
-        .background(Theme.panel)
+        .background(Theme.canvas)
         .clipShape(.rect(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.hairline))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.line))
         .environment(\.colorScheme, isDark ? .dark : .light)
     }
 
     private func text(_ kind: DiffLine.Kind, _ parts: [Part], palette: [SyntaxToken: UInt32]) -> AttributedString {
         var marker = AttributedString(kind == .addition ? "+ " : kind == .deletion ? "− " : "  ")
-        marker.foregroundColor = kind == .addition ? Theme.addition : Theme.deletion
+        marker.foregroundColor = kind == .addition ? Theme.addFg : Theme.delFg
         return parts.reduce(into: marker) { result, part in
             var run = AttributedString(part.text)
             if let value = part.token.flatMap({ palette[$0] }) { run.foregroundColor = Color(nsColor: CodeTheme.rgb(value)) }
@@ -1353,7 +1513,7 @@ private struct CommandLineSettings: View {
                             .font(.system(size: 22, weight: .medium))
                             .foregroundStyle(.black)
                             .frame(width: 48, height: 48)
-                            .background(Theme.logo.gradient, in: .rect(cornerRadius: 12))
+                            .background(Theme.inverse, in: .rect(cornerRadius: 12))
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 8) {
                                 Text("ohmydiff").font(.body.monospaced().weight(.semibold))
@@ -1466,7 +1626,7 @@ private struct TerminalLine: View {
         HStack(spacing: 8) {
             HStack(spacing: 0) {
                 if prompt {
-                    Text("$ ").foregroundStyle(Theme.logoText)
+                    Text("$ ").foregroundStyle(Theme.textPrimary)
                 }
                 Text(command).foregroundStyle(.primary)
                 if let comment {
@@ -1485,7 +1645,7 @@ private struct TerminalLine: View {
             } label: {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(copied ? AnyShapeStyle(Theme.logoText) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(copied ? AnyShapeStyle(Theme.textPrimary) : AnyShapeStyle(.secondary))
                     .frame(width: 24, height: 24)
                     .contentTransition(.symbolEffect(.replace))
             }
@@ -1496,8 +1656,8 @@ private struct TerminalLine: View {
         .padding(.leading, 12)
         .padding(.trailing, 6)
         .padding(.vertical, 6)
-        .background(Theme.terminal, in: .rect(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.hairline))
+        .background(Theme.hover, in: .rect(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.line))
         .task(id: copied) {
             guard copied else { return }
             try? await Task.sleep(for: .seconds(1.5))

@@ -35,9 +35,10 @@ struct OhMyDiffApp: App {
         Window("ohmydiff", id: "main") {
             ContentView(model: model)
                 .environment(\.claudeCode, model.claudeCodeActions)
+                .environment(\.openEditor, model.openInEditor)
                 .onOpenURL { model.handle($0) }
         }
-        // The rail and the glass toolbar replace the title bar; the window controls sit on the rail.
+        // The sidebar and the page bars replace the title bar; the window controls sit on the sidebar.
         .windowStyle(.hiddenTitleBar)
         .windowBackgroundDragBehavior(.enabled)
         .commands {
@@ -47,6 +48,7 @@ struct OhMyDiffApp: App {
         WindowGroup("Diff", id: DiffWindow.id, for: UUID.self) { $popoutID in
             DiffWindow(model: model, popoutID: popoutID)
                 .environment(\.claudeCode, model.claudeCodeActions)
+                .environment(\.openEditor, model.openInEditor)
         }
         .defaultSize(width: 1100, height: 760)
         .commandsRemoved()

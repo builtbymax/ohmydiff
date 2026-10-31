@@ -39,6 +39,16 @@ final class Updater: NSObject {
 
     private(set) var phase = Phase.idle
     private(set) var lastCheck: Date?
+
+    /// The version of a found or downloaded update, for the Updates item in Settings.
+    var pendingVersion: String? {
+        switch phase {
+        case .available(let update), .downloading(let update, _), .extracting(let update, _), .ready(let update), .installing(let update):
+            update.version
+        case .idle, .checking, .upToDate, .failed:
+            nil
+        }
+    }
     /// Off in Debug builds and in builds without a feed.
     var isAvailable: Bool { updater != nil }
 

@@ -11,7 +11,7 @@ struct CommandPalette: View {
     @State private var highlighted = 0
     @FocusState private var isSearchFocused: Bool
 
-    @AppStorage(DiffSettings.layoutKey) private var layout: DiffLayoutMode = .unified
+    @AppStorage(DiffSettings.layoutKey) private var layout: DiffLayoutMode = .split
     @AppStorage(DiffSettings.wholeFileKey) private var showsWholeFile = false
     @AppStorage(AppSettings.isListHiddenKey) private var isListHidden = false
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
@@ -93,7 +93,7 @@ struct CommandPalette: View {
             footer
         }
         .frame(width: 580)
-        .glassEffect(Theme.barGlass, in: .rect(cornerRadius: 22))
+        .popoverSurface(in: .rect(cornerRadius: 22))
         .shadow(color: Theme.overlayShadow, radius: 30, y: 12)
         .onAppear { isSearchFocused = true }
         .paletteKeys(
@@ -178,12 +178,11 @@ struct CommandPalette: View {
                 .background(tint.opacity(0.12), in: .rect(cornerRadius: 8))
         case .badge(let letter, let color):
             Text(letter)
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .font(.statusLetter)
                 .foregroundStyle(color)
-                .frame(width: 30, height: 30)
-                .badgeTile(color, cornerRadius: 8)
+                .frame(width: 14, height: 14)
         case .project(let project):
-            ProjectMonogram(project: project)
+            ProjectAvatar(name: project.displayName, isCurrent: project.id == model.selectedProjectID)
         }
     }
 

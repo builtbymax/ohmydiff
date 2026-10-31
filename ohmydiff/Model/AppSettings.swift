@@ -14,9 +14,21 @@ enum AppSettings {
     /// Width of the file list column, and whether it is hidden to give the diff the whole panel.
     static let listWidthKey = "listWidth"
     static let isListHiddenKey = "isListHidden"
+    /// The View menu's panels and diff options.
+    static let isSidebarHiddenKey = "isSidebarHidden"
+    static let isHunkStripHiddenKey = "isHunkStripHidden"
+    static let isActivityHiddenKey = "isActivityHidden"
+    static let isInspectorShownKey = "isInspectorShown"
+    static let showsLineNumbersKey = "showsLineNumbers"
+    static let showsWhitespaceChangesKey = "showsWhitespaceChanges"
+    static let wrapsLinesKey = "wrapsLines"
+    static let showsSyntaxColorsKey = "showsSyntaxColors"
+    /// The file list's grouping by branch (or staged/unstaged), and collapsing lockfiles and other generated files.
+    static let groupsChangesKey = "groupsChanges"
+    static let collapsesGeneratedFilesKey = "collapsesGeneratedFiles"
     /// The untested GitButler version whose note was dismissed, as `<installed>/<tested>`.
     static let dismissedButMismatchKey = "dismissedButVersionMismatch"
-    static let listWidths: ClosedRange<Double> = 240...560
+    static let listWidths: ClosedRange<Double> = 240...480
     /// Width of the file list beside a commit's or branch's diff in History mode.
     static let historyFilesWidthKey = "historyFilesWidth"
     static let historyFilesWidths: ClosedRange<Double> = 200...420
@@ -72,6 +84,16 @@ enum AppSettings {
         suggestionProvider(defaults).map {
             Suggester(provider: $0, model: defaults.string(forKey: suggestionModelKey) ?? "", toolchain: toolchain)
         }
+    }
+
+    /// How many ticket trackers are connected, for the Tickets item in Settings.
+    static func connectedTicketTrackers(_ defaults: UserDefaults = .standard) -> Int {
+        var count = 0
+        if Keychain.read(.linear).map({ !$0.isEmpty }) == true { count += 1 }
+        if Keychain.read(.jira).map({ !$0.isEmpty }) == true, defaults.string(forKey: jiraSiteKey)?.isEmpty == false { count += 1 }
+        if defaults.bool(forKey: githubTicketsKey) { count += 1 }
+        if defaults.bool(forKey: gitlabTicketsKey) { count += 1 }
+        return count
     }
 
     /// The connected ticket trackers, Linear and Jira first.
@@ -190,4 +212,6 @@ struct ClaudeCodeActions {
 
 extension EnvironmentValues {
     @Entry var claudeCode = ClaudeCodeActions()
+    /// Opens a file at its line in the editor chosen in Settings.
+    @Entry var openEditor: (DiffFileTarget) -> Void = { _ in }
 }

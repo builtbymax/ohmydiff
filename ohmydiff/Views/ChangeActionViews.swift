@@ -261,7 +261,7 @@ private struct CommitSheet: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.black)
                 .frame(width: 34, height: 34)
-                .background(Theme.logo, in: .rect(cornerRadius: 10))
+                .background(Theme.inverse, in: .rect(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 2) {
                 Text("Commit \(request.subject)")
                     .font(.headline)
@@ -296,7 +296,7 @@ private struct CommitSheet: View {
                             if name == branch {
                                 Image(systemName: "checkmark")
                                     .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(Theme.logoText)
+                                    .foregroundStyle(Theme.textPrimary)
                             }
                         }
                         .padding(.horizontal, 8)
@@ -320,7 +320,7 @@ private struct CommitSheet: View {
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(Theme.deletion)
+                    .foregroundStyle(Theme.delFg)
                     .textSelection(.enabled)
                     .lineLimit(3)
             } else {
@@ -389,12 +389,12 @@ struct SoftSegmented<Value: Hashable>: View {
         let animated = Binding { selection } set: { value in withAnimation(.snappy(duration: 0.18)) { selection = value } }
         MagneticSegments(selection: animated, options: options, disabled: disabled, font: .caption, horizontalPadding: 11, height: 22) {
             Capsule()
-                .fill(Theme.cardRow)
+                .fill(Theme.surface)
                 .shadow(color: .black.opacity(0.08), radius: 1, y: 1)
         }
         .padding(2)
         .background(Color.primary.opacity(0.06), in: .capsule)
-        .overlay(Capsule().strokeBorder(Theme.hairline))
+        .overlay(Capsule().strokeBorder(Theme.line))
         .focusEffectDisabled()
     }
 }
@@ -405,7 +405,7 @@ extension View {
         background(Color.primary.opacity(0.045), in: .rect(cornerRadius: 10))
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(isFocused ? Theme.logoText.opacity(0.7) : Theme.hairline, lineWidth: isFocused ? 1.5 : 1))
+                    .strokeBorder(isFocused ? Theme.textPrimary.opacity(0.7) : Theme.line, lineWidth: isFocused ? 1.5 : 1))
             .animation(.snappy(duration: 0.15), value: isFocused)
     }
 }

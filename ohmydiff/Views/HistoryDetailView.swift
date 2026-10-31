@@ -402,7 +402,7 @@ private struct CommitInfoPanel: View {
         }
         .frame(width: 340)
         .frame(maxHeight: .infinity)
-        .glassEffect(Theme.barGlass, in: .rect(cornerRadius: 22))
+        .popoverSurface(in: .rect(cornerRadius: 22))
         .shadow(color: Theme.overlayShadow, radius: 18, y: 6)
     }
 
@@ -426,7 +426,7 @@ private struct PanelCard<Content: View>: View {
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.primary.opacity(0.045), in: .rect(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.hairline))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.line))
     }
 }
 
@@ -469,7 +469,7 @@ private struct CopyButton: View {
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(copied ? AnyShapeStyle(Theme.addition) : AnyShapeStyle(.secondary))
+                .foregroundStyle(copied ? AnyShapeStyle(Theme.addFg) : AnyShapeStyle(.secondary))
                 .frame(width: 24, height: 24)
                 .contentTransition(.symbolEffect(.replace))
         }

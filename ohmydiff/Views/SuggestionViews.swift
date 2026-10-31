@@ -44,7 +44,7 @@ struct SuggestionNotice: View {
             } else {
                 Label(String(describing: error), systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(Theme.deletion)
+                    .foregroundStyle(Theme.delFg)
                     .textSelection(.enabled)
                     .lineLimit(4)
                 Spacer(minLength: 0)
@@ -131,7 +131,7 @@ private struct TicketSearch: View {
                 if isLoading {
                     ProgressView().controlSize(.small).frame(maxWidth: .infinity)
                 } else if let error {
-                    Text(error).font(.caption).foregroundStyle(Theme.deletion)
+                    Text(error).font(.caption).foregroundStyle(Theme.delFg)
                 } else if results.isEmpty {
                     Text(query.isEmpty ? "Searches \(resolver.providers.map(\.source.displayName).joined(separator: ", "))." : "No tickets found.")
                         .font(.caption)

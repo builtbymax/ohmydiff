@@ -33,14 +33,19 @@ final class AppModel {
             }
         }
     }
-    /// The project dropdown below the breadcrumb.
+    /// The project switcher below the sidebar's project row (⌘P).
     var isProjectMenuPresented = false {
         didSet { if isProjectMenuPresented { isWorkspaceMenuPresented = false } }
     }
-    /// The workspace dropdown beside the rail.
+    /// The panel that adds, renames and deletes workspaces, opened from the project switcher.
     var isWorkspaceMenuPresented = false {
         didSet { if isWorkspaceMenuPresented { isProjectMenuPresented = false } }
     }
+    /// The View menu below the diff header's ⋯ button.
+    var isViewMenuPresented = false
+    /// The installed `but` and `git` releases, for the sidebar footer; `nil` until read or when missing.
+    private(set) var butVersion: ButVersion?
+    private(set) var gitVersion: String?
     /// An empty workspace the user asked to delete, until they confirm.
     var pendingWorkspaceDeletion: Workspace?
     var isImporterPresented = false
@@ -77,6 +82,7 @@ final class AppModel {
         workspaces = list.workspaces
         if loaded, recolored || sorted { save() }
         toolchainTask = Task { try? await Toolchain.discover() }
+        Task { await loadToolVersions() }
 
         let saved = defaults.string(forKey: Self.selectionKey).flatMap(UUID.init(uuidString:))
         let restored = projects.first { $0.id == saved }
@@ -116,6 +122,16 @@ final class AppModel {
         await toolchainTask?.value
     }
 
+    private func loadToolVersions() async {
+        guard let toolchain = await toolchain() else { return }
+        butVersion = await ButCompatibility.version(of: toolchain)
+        if let output = try? await toolchain.runner.run(
+            toolchain.git, arguments: ["--version"], environment: toolchain.environment, timeout: .seconds(10)),
+           output.exitCode == 0 {
+            gitVersion = ButVersion(output.stdoutString).map { Array($0.components.prefix(2)).map(String.init).joined(separator: ".") }
+        }
+    }
+
     /// The session for a project, created on first use.
     func session(for id: Project.ID) -> ProjectSession {
         if let session = sessions[id] { return session }
@@ -129,11 +145,10 @@ final class AppModel {
 
     // MARK: - Selection
 
-    /// Selects a project of the selected workspace by its ⌘ number.
+    /// Selects a project by its ⌃ number, across every workspace in the order they were added.
     func select(position: Int) {
-        let visible = visibleProjects
-        guard visible.indices.contains(position) else { return }
-        selectedProjectID = visible[position].id
+        guard projects.indices.contains(position) else { return }
+        selectedProjectID = projects[position].id
     }
 
     /// Shows a workspace with the project last opened in it, if any.

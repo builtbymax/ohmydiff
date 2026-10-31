@@ -1,13 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// A plain button that shows a soft fill on hover, a stronger one while pressed, and stays filled when selected.
+/// A plain button that shows a soft fill on hover and stays filled when selected.
 struct HoverButtonStyle<S: Shape>: ButtonStyle {
     var shape: S
     var isSelected = false
-    var selectedFill: Color = Theme.glassSelection
-    /// The color of the hover and pressed fills, e.g. red for destructive rows.
-    var tint: Color = .primary
+    var selectedFill: Color = Theme.selected
+    /// The colour of the hover and pressed fills, e.g. red for destructive rows.
+    var tint: Color? = nil
 
     func makeBody(configuration: Configuration) -> some View {
         HoverButtonBody(configuration: configuration, shape: shape, isSelected: isSelected, selectedFill: selectedFill, tint: tint)
@@ -15,16 +15,16 @@ struct HoverButtonStyle<S: Shape>: ButtonStyle {
 }
 
 extension ButtonStyle where Self == HoverButtonStyle<RoundedRectangle> {
-    /// Icon and text buttons on glass.
-    static func hover(cornerRadius: CGFloat = 10, isSelected: Bool = false, tint: Color = .primary) -> Self {
+    /// Icon and text buttons in bars and menus.
+    static func hover(cornerRadius: CGFloat = 8, isSelected: Bool = false, tint: Color? = nil) -> Self {
         HoverButtonStyle(
             shape: RoundedRectangle(cornerRadius: cornerRadius), isSelected: isSelected,
-            selectedFill: tint == .primary ? Theme.glassSelection : tint.opacity(0.12), tint: tint)
+            selectedFill: tint.map { $0.opacity(0.12) } ?? Theme.selected, tint: tint)
     }
 
-    /// List rows on solid surfaces.
+    /// List rows.
     static func row(isSelected: Bool) -> Self {
-        HoverButtonStyle(shape: RoundedRectangle(cornerRadius: 8), isSelected: isSelected, selectedFill: Theme.selectedRow)
+        HoverButtonStyle(shape: RoundedRectangle(cornerRadius: 7), isSelected: isSelected, selectedFill: Theme.selected)
     }
 }
 
@@ -39,7 +39,7 @@ private struct HoverButtonBody<S: Shape>: View {
     let shape: S
     let isSelected: Bool
     let selectedFill: Color
-    let tint: Color
+    let tint: Color?
 
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
@@ -49,16 +49,105 @@ private struct HoverButtonBody<S: Shape>: View {
             .opacity(isEnabled ? 1 : 0.4)
             .background { shape.fill(fill) }
             .contentShape(shape)
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .onHover { isHovered = $0 && isEnabled }
-            .animation(.snappy(duration: 0.16), value: isHovered)
-            .animation(.snappy(duration: 0.12), value: configuration.isPressed)
+            .animation(Theme.hoverAnimation, value: isHovered)
     }
 
     private var fill: Color {
-        if configuration.isPressed { return tint.opacity(0.14) }
+        if configuration.isPressed { return tint.map { $0.opacity(0.16) } ?? Theme.selected }
         if isSelected { return selectedFill }
-        return isHovered ? tint.opacity(tint == .primary ? 0.07 : 0.1) : .clear
+        guard isHovered else { return .clear }
+        return tint.map { $0.opacity(0.1) } ?? Theme.hover
+    }
+}
+
+/// The 28 pt ghost icon button: a 16 pt symbol, `bg/hover` on hover.
+struct IconButton: View {
+    let title: String
+    let systemImage: String
+    var size: CGFloat = 28
+    var isSelected = false
+    var tooltipEdge: Edge = .bottom
+    let action: () -> Void
+
+    init(_ title: String, systemImage: String, size: CGFloat = 28, isSelected: Bool = false, tooltipEdge: Edge = .bottom, action: @escaping () -> Void) {
+        self.title = title
+        self.systemImage = systemImage
+        self.size = size
+        self.isSelected = isSelected
+        self.tooltipEdge = tooltipEdge
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: size >= 28 ? 14 : 13))
+                .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
+                .frame(width: size, height: size)
+        }
+        .buttonStyle(.hover(cornerRadius: 8, isSelected: isSelected))
+        .focusEffectDisabled()
+        .glassTooltip(title, edge: tooltipEdge)
+    }
+}
+
+/// A small pill for a status, the repository mode (git/but), an AI provider or a scope.
+struct Chip: View {
+    enum Tone { case neutral, ok, warn, merged, info, danger }
+
+    let title: String
+    var systemImage: String?
+    var tone = Tone.neutral
+    /// Neutral chips read primary instead of secondary, e.g. a branch picked as a commit target.
+    var isEmphasized = false
+
+    init(_ title: String, systemImage: String? = nil, tone: Tone = .neutral, isEmphasized: Bool = false) {
+        self.title = title
+        self.systemImage = systemImage
+        self.tone = tone
+        self.isEmphasized = isEmphasized
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .frame(width: 12, height: 12)
+            }
+            Text(title)
+                .font(.chip)
+                .lineLimit(1)
+        }
+        .foregroundStyle(foreground)
+        .padding(.leading, systemImage == nil ? 7 : 6)
+        .padding(.trailing, 7)
+        .padding(.vertical, 2)
+        .background(background, in: .capsule)
+        .fixedSize()
+    }
+
+    private var foreground: Color {
+        switch tone {
+        case .neutral: isEmphasized ? Theme.textPrimary : Theme.textSecondary
+        case .ok: Theme.okFg
+        case .warn: Theme.warnFg
+        case .merged: Theme.mergedFg
+        case .info: Theme.infoFg
+        case .danger: Theme.delFg
+        }
+    }
+
+    private var background: Color {
+        switch tone {
+        case .neutral: Theme.hover
+        case .ok: Theme.okBg
+        case .warn: Theme.warnBg
+        case .merged: Theme.mergedBg
+        case .info: Theme.infoBg
+        case .danger: Theme.delBg
+        }
     }
 }
 
@@ -123,7 +212,7 @@ struct ColumnResizer: View {
             .frame(width: 9)
             .overlay {
                 Rectangle()
-                    .fill(Color.primary.opacity(startWidth != nil ? 0.3 : 0.18))
+                    .fill(startWidth != nil ? Theme.lineStrong : Theme.line)
                     .frame(width: 2)
                     .opacity(isHovered || startWidth != nil ? 1 : 0)
             }
@@ -147,13 +236,13 @@ struct ColumnResizer: View {
     }
 }
 
-/// A capsule button in the app's own style: a soft fill that deepens on hover, the lime logo color
-/// for the main action, red for destructive ones.
+/// The Opus button: 28 pt tall, 8 pt corners. `normal` is a soft fill with a hairline, `prominent` the
+/// inverse fill for the one primary action, `ghost` text only, `destructive` red.
 struct PillButtonStyle: ButtonStyle {
-    enum Kind { case normal, prominent, destructive }
+    enum Kind { case normal, prominent, ghost, destructive }
 
     var kind = Kind.normal
-    var height: CGFloat = 30
+    var height: CGFloat = 28
 
     func makeBody(configuration: Configuration) -> some View {
         PillButtonBody(configuration: configuration, kind: kind, height: height)
@@ -161,7 +250,7 @@ struct PillButtonStyle: ButtonStyle {
 }
 
 extension ButtonStyle where Self == PillButtonStyle {
-    static func pill(_ kind: PillButtonStyle.Kind = .normal, height: CGFloat = 30) -> Self {
+    static func pill(_ kind: PillButtonStyle.Kind = .normal, height: CGFloat = 28) -> Self {
         PillButtonStyle(kind: kind, height: height)
     }
 }
@@ -176,71 +265,77 @@ private struct PillButtonBody: View {
 
     var body: some View {
         configuration.label
-            .font(.callout.weight(.medium))
+            .font(.control.weight(.medium))
             .labelStyle(PillLabelStyle())
             .lineLimit(1)
             .foregroundStyle(foreground)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
             .frame(minHeight: height)
-            .background(fill, in: .capsule)
+            .background(fill, in: .rect(cornerRadius: 8))
             .overlay {
-                // A flat lime fill needs no edge; the others get a hairline so they hold their shape on glass.
-                switch kind {
-                case .normal: Capsule().strokeBorder(Theme.hairline)
-                case .destructive: Capsule().strokeBorder(Color.red.opacity(0.3))
-                case .prominent: EmptyView()
+                if kind == .normal {
+                    RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.line)
                 }
             }
-            .contentShape(.capsule)
+            .contentShape(.rect(cornerRadius: 8))
             .opacity(isEnabled ? 1 : 0.45)
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .onHover { isHovered = $0 && isEnabled }
-            .animation(.snappy(duration: 0.15), value: isHovered)
-            .animation(.snappy(duration: 0.12), value: configuration.isPressed)
+            .animation(Theme.hoverAnimation, value: isHovered)
     }
 
     private var foreground: Color {
         switch kind {
-        case .normal: .primary
-        case .prominent: .black
-        case .destructive: .red
+        case .normal: Theme.textPrimary
+        case .prominent: Theme.textInverse
+        case .ghost: isHovered ? Theme.textPrimary : Theme.textSecondary
+        case .destructive: Theme.delFg
         }
     }
 
     private var fill: Color {
         let boost = (isHovered ? 1.0 : 0) + (configuration.isPressed ? 1 : 0)
         switch kind {
-        case .normal: return Color.primary.opacity(0.06 + 0.05 * boost)
-        case .prominent: return Theme.logo.mix(with: .black, by: 0.06 * boost)
-        case .destructive: return Color.red.opacity(0.2 + 0.1 * boost)
+        case .normal: return isHovered || configuration.isPressed ? Theme.selected : Theme.hover
+        case .prominent: return Theme.inverse.opacity(1 - 0.08 * boost)
+        case .ghost: return boost > 0 ? Theme.hover : .clear
+        case .destructive: return Theme.delBg.opacity(1 + 0.6 * boost)
         }
     }
 }
 
-/// Icon and title close together, with the icon a touch smaller.
+/// A 14 pt icon close to the title.
 private struct PillLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 6) {
-            configuration.icon.font(.system(size: 12, weight: .semibold))
+            configuration.icon.font(.system(size: 12))
             configuration.title
         }
     }
 }
 
-/// A keyboard shortcut as a small key cap, e.g. `⌘K`.
+/// A keyboard hint, e.g. `⌘K`, in menus, tooltips, buttons and the launcher.
 struct KeyCap: View {
     let text: String
+    /// On an inverse button the cap has no fill and takes the button's text colour at 60%.
+    var onInverse = false
 
-    init(_ text: String) { self.text = text }
+    init(_ text: String, onInverse: Bool = false) {
+        self.text = text
+        self.onInverse = onInverse
+    }
 
     var body: some View {
         Text(text)
-            .font(.caption2.weight(.medium).monospacedDigit())
-            .foregroundStyle(.secondary)
+            .font(.chip)
+            .foregroundStyle(onInverse ? Theme.textInverse : Theme.textTertiary)
             .padding(.horizontal, 5)
-            .frame(minWidth: 20, minHeight: 18)
-            .background(Color.primary.opacity(0.06), in: .rect(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.hairline))
+            .padding(.vertical, 1)
+            .frame(minWidth: 18)
+            .background(onInverse ? Color.clear : Theme.hover, in: .rect(cornerRadius: 5))
+            .overlay {
+                if !onInverse { RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.line) }
+            }
+            .opacity(onInverse ? 0.6 : 1)
             .fixedSize()
     }
 }
@@ -263,24 +358,25 @@ struct EmptyState<Actions: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             Image(systemName: systemImage)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 44, height: 44)
-                .background(Theme.card, in: .rect(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.hairline))
-                .padding(.bottom, 14)
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 32, height: 32)
+                .background(Theme.hover, in: .circle)
+                .overlay(Circle().strokeBorder(Theme.line))
+                .padding(.bottom, 12)
             Text(title)
-                .font(.body.weight(.semibold))
+                .font(.row.weight(.medium))
+                .foregroundStyle(Theme.textPrimary)
             if let description {
                 Text(description)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 4)
+                    .font(.detail)
+                    .foregroundStyle(Theme.textTertiary)
+                    .padding(.top, 6)
             }
             if Actions.self != EmptyView.self {
                 HStack(spacing: 8) { actions }
                     .buttonStyle(.pill())
-                    .padding(.top, 16)
+                    .padding(.top, 14)
             }
         }
         .multilineTextAlignment(.center)

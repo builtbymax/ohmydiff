@@ -76,7 +76,7 @@ struct BranchActions: View {
                 icon().frame(width: 22, height: 22)
             }
             .buttonStyle(.hoverCapsule())
-            .foregroundStyle(isDestructive ? AnyShapeStyle(Theme.deletion) : AnyShapeStyle(.primary))
+            .foregroundStyle(isDestructive ? AnyShapeStyle(Theme.delFg) : AnyShapeStyle(.primary))
             .focusEffectDisabled()
             .glassTooltip(help)
         case .bar:
@@ -194,7 +194,7 @@ struct PullRequestMenu: View {
             .foregroundStyle(color)
             .padding(.horizontal, isCompact ? 6 : 9)
             .frame(height: isCompact ? 20 : 26)
-            .background(color.opacity(Theme.kindTintOpacity), in: .capsule)
+            .background(color.opacity(0.12), in: .capsule)
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -448,7 +448,7 @@ struct PullRequestSummary {
         case _ where status.mergeState == "BEHIND":
             (title, detail, systemImage, color) = ("Behind \(base)", "\(checks) · Update the branch before merging", "arrow.down.circle.fill", .orange)
         default:
-            (title, detail, systemImage, color) = ("Ready to Merge", status.review == .approved ? "Approved · \(checks)" : checks, "checkmark.circle.fill", Theme.changeAdded)
+            (title, detail, systemImage, color) = ("Ready to Merge", status.review == .approved ? "Approved · \(checks)" : checks, "checkmark.circle.fill", Theme.addFg)
         }
     }
 }
