@@ -51,10 +51,16 @@ struct ContentView: View {
                     .padding(.top, Theme.inset)
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
-            panel
-                .padding(.vertical, Theme.inset)
-                .padding(.trailing, Theme.inset)
-                .padding(.leading, isSidebarHidden ? Theme.inset : 1)
+            VStack(spacing: 0) {
+                if isSidebarHidden {
+                    collapsedTitleBar
+                }
+                panel
+                    .padding(.top, isSidebarHidden ? 0 : Theme.inset)
+                    .padding(.bottom, Theme.inset)
+                    .padding(.trailing, Theme.inset)
+                    .padding(.leading, isSidebarHidden ? Theme.inset : 1)
+            }
         }
         .background(Theme.sidebar)
         .ignoresSafeArea()
@@ -129,10 +135,31 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showUpstreamUpdate)) { _ in model.isUpstreamUpdatePresented = true }
     }
 
+    /// With the sidebar hidden, the window controls and the button that brings the sidebar back share a row
+    /// above the panel, instead of the button sitting lower in the panel's bar. The button lives in the title
+    /// bar itself: views laid out under the hidden title bar do not get its clicks.
+    private var collapsedTitleBar: some View {
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: Self.titleBarHeight)
+            .contentShape(.rect)
+            .gesture(WindowDragGesture())
+            .background {
+                WindowControlsAccessory {
+                    IconButton("Show Sidebar  ⌃⌘S", systemImage: "sidebar.left") {
+                        withAnimation(.snappy(duration: 0.2)) { isSidebarHidden = false }
+                    }
+                }
+            }
+    }
+
+    /// The window controls' row: they sit centred in it.
+    private static let titleBarHeight: CGFloat = 30
+
     /// The content panel: the page's top bar over its body.
     private var panel: some View {
         VStack(spacing: 0) {
-            PageTopBar(model: model, mode: model.mode, leadingInset: isSidebarHidden ? 72 : 0, isSidebarHidden: $isSidebarHidden)
+            PageTopBar(model: model, mode: model.mode)
             Rectangle().fill(Theme.lineSubtle).frame(height: 1)
             pageBody
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -203,4 +230,56 @@ struct ContentView: View {
 
 #Preview {
     ContentView(model: AppModel())
+}
+
+/// Shows a view in the window's title bar, right of the window controls, for as long as it is in the hierarchy.
+/// The title bar sits above the content, so this is the only way for a control beside the window controls to
+/// receive clicks.
+private struct WindowControlsAccessory<Content: View>: NSViewRepresentable {
+    @ViewBuilder var content: Content
+
+    func makeNSView(context: Context) -> Anchor { Anchor() }
+
+    func updateNSView(_ anchor: Anchor, context: Context) {
+        anchor.show(AnyView(content))
+    }
+
+    static func dismantleNSView(_ anchor: Anchor, coordinator: ()) {
+        anchor.remove()
+    }
+
+    final class Anchor: NSView {
+        private var hostingView: NSHostingView<AnyView>?
+        private var content: AnyView?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil { remove() } else { install() }
+        }
+
+        func show(_ content: AnyView) {
+            self.content = content
+            install()
+        }
+
+        func remove() {
+            hostingView?.removeFromSuperview()
+            hostingView = nil
+        }
+
+        private func install() {
+            guard let content, let zoom = window?.standardWindowButton(.zoomButton), let titleBar = zoom.superview else { return }
+            let hostingView = hostingView ?? NSHostingView(rootView: content)
+            hostingView.rootView = content
+            if hostingView.superview !== titleBar {
+                titleBar.addSubview(hostingView)
+                self.hostingView = hostingView
+            }
+            let size = hostingView.fittingSize
+            hostingView.frame = NSRect(
+                x: zoom.frame.maxX + 10, y: zoom.frame.midY - size.height / 2, width: size.width, height: size.height)
+            // Stays beside the window controls as the title bar resizes, wherever its origin is.
+            hostingView.autoresizingMask = titleBar.isFlipped ? [.maxXMargin, .maxYMargin] : [.maxXMargin, .minYMargin]
+        }
+    }
 }

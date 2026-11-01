@@ -7,18 +7,9 @@ import SwiftUI
 struct PageTopBar: View {
     let model: AppModel
     let mode: WorkspaceMode
-    /// Room for the window controls while the sidebar is hidden.
-    var leadingInset: CGFloat = 0
-    @Binding var isSidebarHidden: Bool
 
     var body: some View {
         HStack(spacing: 2) {
-            if isSidebarHidden {
-                IconButton("Show Sidebar  ⌃⌘S", systemImage: "sidebar.left") {
-                    withAnimation(.snappy(duration: 0.2)) { isSidebarHidden = false }
-                }
-                .padding(.trailing, 6)
-            }
             if let session = model.selectedSession {
                 switch mode {
                 case .changes:
@@ -34,7 +25,7 @@ struct PageTopBar: View {
                 dragArea
             }
         }
-        .padding(.leading, 8 + leadingInset)
+        .padding(.leading, 8)
         .padding(.trailing, 10)
         .frame(height: 46)
         .background(dragArea)
