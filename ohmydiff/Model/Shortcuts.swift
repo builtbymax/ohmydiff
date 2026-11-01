@@ -214,7 +214,9 @@ enum Shortcuts {
     static let reserved: [Shortcut: String] = [
         Shortcut(",", .command): "Settings",
         Shortcut("q", .command): "Quit",
-        Shortcut("w", .command): "Close window",
+        Shortcut("w", .command): "Close tab",
+        Shortcut("w", [.command, .shift]): "Close window",
+        Shortcut("tab", .control): "Show next tab",
         Shortcut("h", .command): "Hide",
         Shortcut("z", .command): "Undo",
         Shortcut("c", .command): "Copy",

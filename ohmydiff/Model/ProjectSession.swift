@@ -124,6 +124,19 @@ final class ProjectSession {
         }
     }
 
+    /// The selected file's tab, when it has one: what ⌘W closes.
+    var selectedTab: ChangedFile.ID? {
+        selectedFileID.flatMap { id in tabFiles.contains { $0.id == id } ? id : nil }
+    }
+
+    /// Selects the tab `offset` places along, wrapping around, for ⌃Tab and ⌃⇧Tab.
+    func selectAdjacentTab(_ offset: Int) {
+        let ids = tabFiles.map(\.id)
+        guard ids.count > 1 else { return }
+        let index = selectedFileID.flatMap(ids.firstIndex(of:)) ?? (offset > 0 ? -1 : 0)
+        selectedFileID = ids[(index + offset + ids.count) % ids.count]
+    }
+
     /// Files picked along with the selected one with ⌘- or ⇧-click, e.g. to commit several at once.
     private(set) var extraSelectedFileIDs: Set<ChangedFile.ID> = []
     /// Where a ⇧-click range starts: the last file clicked without ⇧.

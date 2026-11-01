@@ -64,6 +64,7 @@ struct ContentView: View {
         }
         .background(Theme.sidebar)
         .ignoresSafeArea()
+        .focusedSceneValue(\.isMainWindow, true)
         .overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
                 if model.isProjectMenuPresented {
