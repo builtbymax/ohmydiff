@@ -82,6 +82,10 @@ struct HistoryPageView: View {
                     }
                     .focusable()
                     .focusEffectDisabled()
+                    // Commits revealed from elsewhere, e.g. a branch in the sidebar, scroll into view.
+                    .onChange(of: log.selectedID) { _, id in
+                        if let id { proxy.scrollTo(id) }
+                    }
                     .onKeyPress(.downArrow) { move(1, in: visible, proxy: proxy) }
                     .onKeyPress(.upArrow) { move(-1, in: visible, proxy: proxy) }
                     .onKeyPress(.return) {
