@@ -434,6 +434,8 @@ final class ProjectSession {
         let id = UUID()
         var action: ChangeAction
         var targets: [ChangeTarget]
+        /// Opened from the composer: the card starts with its message and clears it once committed.
+        var fromComposer = false
 
         /// e.g. `notes.txt`, `a hunk of notes.txt` or `3 files`.
         var subject: String {
