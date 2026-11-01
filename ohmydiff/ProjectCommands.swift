@@ -11,6 +11,8 @@ struct ProjectCommands: Commands {
     @AppStorage(AppSettings.showsWhitespaceChangesKey) private var showsWhitespaceChanges = true
     @AppStorage(AppSettings.isInspectorShownKey) private var isInspectorShown = true
     @AppStorage(AppSettings.isActivityHiddenKey) private var isActivityHidden = false
+    /// Read so the menus pick up keys changed in Settings → Shortcuts.
+    @AppStorage(Shortcuts.key) private var shortcuts = ""
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
     @FocusedValue(\.diffFile) private var diffFile
     @FocusedValue(\.diffPopout) private var diffPopout
@@ -25,31 +27,31 @@ struct ProjectCommands: Commands {
 
         CommandGroup(replacing: .newItem) {
             Button("Add Project…") { model.isImporterPresented = true }
-                .keyboardShortcut("o", modifiers: [.command, .shift])
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.addProject))
             Divider()
             Button("Open in Editor") { diffFile.map(model.openInEditor) }
-                .keyboardShortcut("o")
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.openInEditor))
                 .disabled(diffFile?.exists != true)
             Button("Open Diff in New Window") {
                 diffPopout.map { openWindow(id: DiffWindow.id, value: model.register($0)) }
             }
-            .keyboardShortcut("o", modifiers: [.command, .option])
+            .keyboardShortcut(Shortcuts.keyboardShortcut(.openDiffWindow))
             .disabled(diffPopout == nil)
         }
 
         CommandGroup(after: .pasteboard) {
             Button("Copy File Path") { diffFile.map(model.copyPath) }
-                .keyboardShortcut("c", modifiers: [.command, .shift])
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.copyPath))
                 .disabled(diffFile == nil)
             Button(AppSettings.copyPromptTitle()) { diffPrompt.map { model.copyPrompt($0.prompt(.none)) } }
-                .keyboardShortcut("c", modifiers: [.command, .shift, .option])
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.copyPrompt))
                 .disabled(diffPrompt == nil)
             Menu(AppSettings.openClaudeCodeTitle()) {
                 ForEach(PromptQuestion.asked) { question in
                     Button(question.title(for: diffPrompt?.scope ?? "Selection")) {
                         diffPrompt.map { model.openInClaudeCode(prompt: $0.prompt(question), root: $0.root) }
                     }
-                    .keyboardShortcut(question == .explain ? KeyboardShortcut("e", modifiers: [.command, .option]) : nil)
+                    .keyboardShortcut(question == .explain ? Shortcuts.keyboardShortcut(.explainInClaude) : nil)
                 }
             }
             .disabled(diffPrompt == nil)
@@ -59,23 +61,24 @@ struct ProjectCommands: Commands {
             Button(isSidebarHidden ? "Show Sidebar" : "Hide Sidebar") {
                 withAnimation(.snappy(duration: 0.2)) { isSidebarHidden.toggle() }
             }
-            .keyboardShortcut("s", modifiers: [.command, .control])
+            .keyboardShortcut(Shortcuts.keyboardShortcut(.toggleSidebar))
             Button(isListHidden ? "Show File List" : "Hide File List") {
                 withAnimation(.snappy) { isListHidden.toggle() }
             }
-            .keyboardShortcut("0")
+            .keyboardShortcut(Shortcuts.keyboardShortcut(.toggleFileList))
             Divider()
             Toggle("Split Diff", isOn: Binding(
                 get: { diffLayout == .split },
                 set: { diffLayout = $0 ? .split : .unified }))
-                .keyboardShortcut("\\")
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.splitDiff))
             Toggle("Show Full File", isOn: $showsWholeFile)
-                .keyboardShortcut("f", modifiers: [.command, .option])
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.fullFile))
             Toggle("Show Activity", isOn: Binding(get: { !isActivityHidden }, set: { isActivityHidden = !$0 }))
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.activity))
             Toggle("Show Inspector", isOn: $isInspectorShown)
-                .keyboardShortcut("i", modifiers: [.command, .option])
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.inspector))
             Toggle("Show Whitespace Changes", isOn: $showsWhitespaceChanges)
-                .keyboardShortcut("w", modifiers: [.command, .option])
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.whitespace))
             Button(isSidebarHidden && isListHidden ? "Leave Focus" : "Focus Diff") {
                 let focus = !(isSidebarHidden && isListHidden)
                 withAnimation(.snappy(duration: 0.2)) {
@@ -83,10 +86,10 @@ struct ProjectCommands: Commands {
                     isListHidden = focus
                 }
             }
-            .keyboardShortcut(".")
+            .keyboardShortcut(Shortcuts.keyboardShortcut(.focusDiff))
             Divider()
             Button(isDark ? "Use Paper Theme" : "Use Graphite Theme") { appearance = isDark ? .light : .dark }
-                .keyboardShortcut("t", modifiers: [.command, .option])
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.theme))
             Divider()
         }
 
@@ -98,28 +101,28 @@ struct ProjectCommands: Commands {
                 model.mode = .branches
                 model.isNewBranchPresented = true
             }
-            .keyboardShortcut("b")
+            .keyboardShortcut(Shortcuts.keyboardShortcut(.newBranch))
             .disabled(session == nil)
             Divider()
             Button("Fetch from Remote") { Task { await session?.fetch() } }
-                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.fetch))
                 .disabled(session == nil || session?.isFetching == true)
             Button(session?.project.kind == .gitButler ? "Update Workspace…" : "Update Branches…") { model.isUpstreamUpdatePresented = true }
-                .keyboardShortcut("u", modifiers: [.command, .shift])
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.updateWorkspace))
                 .disabled(session?.upstream?.hasUpdates != true)
         }
 
         CommandMenu("Go") {
             Button("Command Launcher…") { model.isSwitcherPresented = true }
-                .keyboardShortcut("k")
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.launcher))
             Button("Switch Project…") { model.isProjectMenuPresented = true }
-                .keyboardShortcut("p")
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.switchProject))
 
             Divider()
 
             ForEach(WorkspaceMode.available) { page in
                 Button(page.title) { model.mode = page }
-                    .keyboardShortcut(page.shortcut)
+                    .keyboardShortcut(Shortcuts.keyboardShortcut(page.shortcutAction))
             }
 
             Divider()
@@ -148,7 +151,7 @@ struct ProjectCommands: Commands {
             Divider()
 
             Button("Refresh") { model.refreshSelected() }
-                .keyboardShortcut("r")
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.refresh))
                 .disabled(model.selectedProjectID == nil)
         }
     }

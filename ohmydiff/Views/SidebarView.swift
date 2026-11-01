@@ -68,7 +68,7 @@ struct SidebarView: View {
                 appearance = isDark ? .light : .dark
             }
             IconButton("Shortcuts", systemImage: "keyboard", tooltipEdge: .top) {
-                SettingsWindow.open(.general, with: openSettings)
+                SettingsWindow.open(.shortcuts, with: openSettings)
             }
             Spacer(minLength: 4)
             ToolVersionChip(model: model)
@@ -148,7 +148,7 @@ private struct LauncherField: View {
                 Text("Search or run…")
                     .font(.control)
                 Spacer(minLength: 4)
-                KeyCap("⌘K")
+                KeyCap(Shortcuts.label(.launcher))
             }
             .foregroundStyle(Theme.textTertiary)
             .padding(.horizontal, 8)

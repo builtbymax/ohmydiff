@@ -363,7 +363,7 @@ struct CommandPalette: View {
             if let primary = diffHunk.actions.first(where: { $0 == .commit || $0 == .stage }) {
                 let title = primary == .commit ? "Commit hunk" + (branch.map { " to \($0)" } ?? "") : "Stage hunk"
                 items.append(PaletteItem(
-                    id: "hunk:primary", title: title, icon: .symbol(primary.systemImage), shortcut: "S",
+                    id: "hunk:primary", title: title, icon: .symbol(primary.systemImage), shortcut: Shortcuts.label(.stageHunk).uppercased(),
                     preview: .command(
                         title: primary == .commit ? "Commit hunk" : "Stage hunk", branch: primary == .commit ? branch : nil,
                         pullRequest: branch.flatMap { pullRequest(of: $0, in: session) }, lines: diffHunk.hunk.lines,
@@ -377,7 +377,7 @@ struct CommandPalette: View {
             }
             if diffHunk.actions.contains(.discard) {
                 items.append(PaletteItem(
-                    id: "hunk:discard", title: "Discard hunk", icon: .symbol("arrow.uturn.backward"), shortcut: "⌫",
+                    id: "hunk:discard", title: "Discard hunk", icon: .symbol("arrow.uturn.backward"), shortcut: Shortcuts.label(.discardHunk).uppercased(),
                     preview: .command(
                         title: "Discard hunk", branch: nil, pullRequest: nil, lines: diffHunk.hunk.lines, message: nil,
                         runs: isGitButler ? "but discard \(hunkID)" : "git apply -R  # hunk \(diffHunk.index + 1) of \(diffHunk.fileName)",
@@ -387,7 +387,7 @@ struct CommandPalette: View {
             if let explain = diffHunk.explain {
                 let lines = diffHunk.hunk.lines.count
                 items.append(PaletteItem(
-                    id: "hunk:explain", title: "Explain hunk", icon: .symbol("sparkles", Theme.infoFg), shortcut: "E", isAI: true,
+                    id: "hunk:explain", title: "Explain hunk", icon: .symbol("sparkles", Theme.infoFg), shortcut: Shortcuts.label(.explainHunk).uppercased(), isAI: true,
                     preview: .text(
                         title: "Explain hunk \(diffHunk.index + 1)",
                         detail: "Sends \(lines == 1 ? "1 line" : "\(lines) lines") of \(diffHunk.fileName) to \(AppSettings.aiProvider().displayName). Nothing else.")
@@ -571,7 +571,7 @@ struct CommandPalette: View {
         let session = model.selectedSession
 
         for page in WorkspaceMode.available where page != model.mode {
-            add("Go to \(page.title)", page.systemImage, "⌘\(page.shortcut.character)") { model.mode = page }
+            add("Go to \(page.title)", page.systemImage, Shortcuts.label(page.shortcutAction)) { model.mode = page }
         }
         add("Switch project…", "chevron.up.chevron.down", "⌘P") { model.isProjectMenuPresented = true }
         if let session {

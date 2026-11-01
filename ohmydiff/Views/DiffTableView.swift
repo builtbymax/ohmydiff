@@ -1203,15 +1203,14 @@ private final class DiffNSTableView: NSTableView {
     }
 
     override func keyDown(with event: NSEvent) {
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard modifiers.subtracting([.numericPad, .function, .capsLock]).isEmpty else { return super.keyDown(with: event) }
-        switch event.charactersIgnoringModifiers?.lowercased() {
-        case "n": jumpToHunk?(1)
-        case "p": jumpToHunk?(-1)
-        case "s" where hunkKey?(.primary) == true: break
-        case "u" where hunkKey?(.unstage) == true: break
-        case "e" where hunkKey?(.explain) == true: break
-        case _ where (event.keyCode == 51 || event.keyCode == 117) && hunkKey?(.discard) == true: break
+        // The keys come from Settings → Shortcuts; single letters only reach the diff while it has focus.
+        switch Shortcuts.diffAction(for: event) {
+        case .nextHunk?: jumpToHunk?(1)
+        case .previousHunk?: jumpToHunk?(-1)
+        case .stageHunk? where hunkKey?(.primary) == true: break
+        case .unstageHunk? where hunkKey?(.unstage) == true: break
+        case .explainHunk? where hunkKey?(.explain) == true: break
+        case .discardHunk? where hunkKey?(.discard) == true: break
         default: super.keyDown(with: event)
         }
     }

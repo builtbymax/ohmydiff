@@ -226,7 +226,7 @@ private struct NothingToReview: View {
                     .padding(.top, 14)
                 }
                 HStack(spacing: 5) {
-                    KeyCap("⌘K")
+                    KeyCap(Shortcuts.label(.launcher))
                     Text("for anything else")
                         .font(.caption11)
                         .foregroundStyle(Theme.textTertiary)
