@@ -298,8 +298,11 @@ struct GeneralSettings: View {
                 KeyCap("⌘O")
             } content: {
                 HStack(spacing: 8) {
-                    ForEach(EditorPreset.allCases) { preset in
-                        let app = EditorApp(preset: preset)
+                    // Installed editors first, then the missing ones, Custom last.
+                    let apps = EditorPreset.allCases.map(EditorApp.init(preset:))
+                        .sorted { rank($0) < rank($1) }
+                    ForEach(apps, id: \.preset) { app in
+                        let preset = app.preset
                         SettingsTile(isSelected: editor == preset, isDimmed: !app.isInstalled && preset != .custom) {
                             editor = preset
                         } content: {
@@ -366,6 +369,11 @@ struct GeneralSettings: View {
                 }
             }
         }
+    }
+
+    /// Installed editors, then missing ones, then Custom; `sorted` keeps each group in its listed order.
+    private func rank(_ app: EditorApp) -> Int {
+        app.preset == .custom ? 2 : app.isInstalled ? 0 : 1
     }
 
     /// The editor command filled in for an example file.
@@ -532,7 +540,10 @@ struct AISettings: View {
                     .buttonStyle(.pill(.ghost))
             } content: {
                 HStack(spacing: 10) {
-                    ForEach(AIProvider.allCases) { option in
+                    // Installed tools first, once detected.
+                    let sorted = AIProvider.allCases.filter { installed?.contains($0) ?? true }
+                        + AIProvider.allCases.filter { !(installed?.contains($0) ?? true) }
+                    ForEach(sorted) { option in
                         providerTile(option)
                     }
                 }
@@ -553,7 +564,7 @@ struct AISettings: View {
                                 .foregroundStyle(Theme.textTertiary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        SettingsSelect(selection: $terminal, options: TerminalApp.allCases.map { ($0, $0.displayName) }) { AppIcons.icon($0.bundleIDs, size: 16) }
+                        SettingsSelect(selection: $terminal, options: terminals.map { ($0, $0.displayName) }) { AppIcons.icon($0.bundleIDs, size: 16) }
                         SettingsSwitch(isOn: $explainsInTerminal)
                     }
                     .padding(.horizontal, 14)
@@ -641,6 +652,11 @@ struct AISettings: View {
         SettingsLookups.installedProviders = found
         ToolLookups.providerVersions = versions
         installed = found
+    }
+
+    /// Installed terminals first, in their listed order.
+    private var terminals: [TerminalApp] {
+        TerminalApp.allCases.filter { AppIcons.icon($0.bundleIDs) != nil } + TerminalApp.allCases.filter { AppIcons.icon($0.bundleIDs) == nil }
     }
 }
 
