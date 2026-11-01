@@ -72,10 +72,77 @@ struct CommitComposer: View {
     let session: ProjectSession
     @Bindable var draft: CommitDraft
     @FocusState private var isEditing: Bool
+    /// The width the target row needs, e.g. `Commit ✓ 2 staged to ⑂ feat/x`, and the width the card has.
+    @State private var targetWidth: CGFloat = 0
+    @State private var width: CGFloat = 0
+
+    /// Too narrow for the target row: one row that opens the commit card, where the message is written instead.
+    private var isCompact: Bool { width > 0 && width < targetWidth + 20 }
 
     var body: some View {
+        Group {
+            if isCompact { compact } else { full }
+        }
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        // No blue focus rings on the branch menu or the message; the card itself shows where typing goes.
+        .focusEffectDisabled()
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .background(alignment: .leading) {
+            // Measured at its natural size whichever layout shows, so the composer can widen again.
+            target(isMeasuring: true)
+                .fixedSize()
+                .hidden()
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { targetWidth = $0 }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .tryCommitTemplate)) { _ in
+            if !targets.isEmpty { generate() }
+        }
+    }
+
+    /// `⑂ feat/diff-modes   Commit… ⌘↩`, or `✓ 2 staged` in git.
+    private var compact: some View {
+        HStack(spacing: 6) {
+            if isGitButler {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.textSecondary)
+                Text(branch.isEmpty ? "Pick a branch" : branch)
+                    .font(.control)
+                    .foregroundStyle(Theme.textPrimary)
+            } else {
+                Image(systemName: targets.isEmpty ? "circle" : "checkmark")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(targets.isEmpty ? Theme.textTertiary : Theme.okFg)
+                Text(targets.isEmpty ? "Nothing staged" : "\(targets.count) staged")
+                    .font(.control)
+                    .foregroundStyle(targets.isEmpty ? Theme.textTertiary : Theme.textPrimary)
+            }
+            Spacer(minLength: 4)
+            Button(action: openCard) {
+                HStack(spacing: 6) {
+                    Text("Commit…")
+                    KeyCap("⌘↩", onInverse: true)
+                }
+                .fixedSize()
+            }
+            .buttonStyle(.pill(.prominent, height: 28))
+            .keyboardShortcut(.return, modifiers: .command)
+            .disabled(cardTargets.isEmpty || session.actionRequest != nil || session.isPerformingAction)
+            .focusEffectDisabled()
+            .help("Write the message and commit")
+        }
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .frame(height: 44)
+        .background { RoundedRectangle(cornerRadius: 12).fill(Theme.surface).shadow(color: Theme.cardShadow, radius: 1.5, y: 2) }
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.line))
+    }
+
+    private var full: some View {
         VStack(alignment: .leading, spacing: 8) {
-            target
+            target()
             editor
             if let warning = formatWarning {
                 Label(warning, systemImage: "exclamationmark.triangle")
@@ -96,9 +163,6 @@ struct CommitComposer: View {
         .padding(10)
         .background { RoundedRectangle(cornerRadius: 12).fill(Theme.surface).shadow(color: Theme.cardShadow, radius: 1.5, y: 2) }
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.line))
-        .onReceive(NotificationCenter.default.publisher(for: .tryCommitTemplate)) { _ in
-            if !targets.isEmpty { generate() }
-        }
     }
 
     /// The title against Settings → Templates → Commit format: its length and style.
@@ -111,63 +175,72 @@ struct CommitComposer: View {
 
     // MARK: Parts
 
-    /// `Commit to ⑂ feat/diff-modes ⌄` (GitButler) or `Commit ✓ 2 staged` (git).
-    @ViewBuilder
-    private var target: some View {
+    /// `Commit to ⑂ feat/diff-modes ⌄` (GitButler) or `Commit ✓ 2 staged` (git). Measuring, the branch menu is
+    /// only its label: a menu laid out hidden does not report its width.
+    private func target(isMeasuring: Bool = false) -> some View {
         HStack(spacing: 6) {
             if isGitButler {
                 Text("Commit to")
                     .font(.caption11)
                     .foregroundStyle(Theme.textTertiary)
-                Menu {
-                    ForEach(session.branchNames, id: \.self) { name in
-                        Button(name) { draft.branch = name }
-                    }
-                    if session.branchNames.isEmpty {
-                        Text("No applied branches")
-                    }
-                    Divider()
-                    Button("New Branch…") { openCard() }
-                        .disabled(cardTargets.isEmpty)
-                } label: {
-                    HStack(spacing: 4) {
-                        Chip(branch.isEmpty ? "Pick a branch" : branch, systemImage: "arrow.triangle.branch", isEmphasized: true)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(Theme.textTertiary)
-                            .frame(width: 12, height: 12)
-                    }
+                    .fixedSize()
+                if isMeasuring {
+                    branchLabel(branch.isEmpty ? "Pick a branch" : branch)
+                } else {
+                    branchMenu
                 }
-                .menuStyle(.button)
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
-                .fixedSize()
             } else {
                 Text("Commit")
                     .font(.caption11)
                     .foregroundStyle(Theme.textTertiary)
+                    .fixedSize()
                 let count = targets.count
                 Chip(count == 0 ? "nothing staged" : "\(count) staged", systemImage: count == 0 ? nil : "checkmark", tone: count == 0 ? .neutral : .ok)
                 if let branch = session.currentBranch {
                     Text("to")
                         .font(.caption11)
                         .foregroundStyle(Theme.textTertiary)
-                    Button(action: openCard) {
-                        HStack(spacing: 4) {
-                            Chip(branch, systemImage: "arrow.triangle.branch", isEmphasized: true)
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(Theme.textTertiary)
-                                .frame(width: 12, height: 12)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(targets.isEmpty)
-                    .help("Commit to another or a new branch")
+                        .fixedSize()
+                    Button(action: openCard) { branchLabel(branch) }
+                        .buttonStyle(.plain)
+                        .disabled(targets.isEmpty)
+                        .help("Commit to another or a new branch")
                 }
             }
             Spacer(minLength: 0)
         }
+    }
+
+    /// `⑂ feat/diff-modes ⌄`.
+    private func branchLabel(_ name: String) -> some View {
+        HStack(spacing: 4) {
+            Chip(name, systemImage: "arrow.triangle.branch", isEmphasized: true)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(Theme.textTertiary)
+                .frame(width: 12, height: 12)
+        }
+    }
+
+    /// GitButler: the applied branches to commit to, or a new one in the commit card.
+    private var branchMenu: some View {
+        Menu {
+            ForEach(session.branchNames, id: \.self) { name in
+                Button(name) { draft.branch = name }
+            }
+            if session.branchNames.isEmpty {
+                Text("No applied branches")
+            }
+            Divider()
+            Button("New Branch…") { openCard() }
+                .disabled(cardTargets.isEmpty)
+        } label: {
+            branchLabel(branch.isEmpty ? "Pick a branch" : branch)
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .fixedSize()
     }
 
     /// The title in medium, the body below it; editable in place.
@@ -203,7 +276,9 @@ struct CommitComposer: View {
                 .focused($isEditing)
                 .frame(minHeight: 54, maxHeight: 140)
                 .fixedSize(horizontal: false, vertical: true)
-                .opacity(isEditing ? 1 : 0)
+                // Shown while empty too: SwiftUI sends no clicks to a fully transparent view, so a hidden editor
+                // could never be clicked into. The formatted message replaces it only while not editing.
+                .opacity(isEditing || !draft.hasMessage ? 1 : 0)
                 .allowsHitTesting(isEditing || !draft.hasMessage)
                 .padding(.leading, -5)
         }
