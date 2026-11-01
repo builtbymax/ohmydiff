@@ -200,6 +200,7 @@ private struct StackCard: View {
     let branches: [HistoryBranch]
     let isSelected: Bool
 
+    @Environment(\.openWindow) private var openWindow
     private var history: HistoryModel { session.history }
 
     var body: some View {
@@ -216,10 +217,13 @@ private struct StackCard: View {
                     }
                 if !history.isMerged(branch) {
                     ForEach(branch.commits, id: \.sha) { commit in
-                        CommitLine(commit: commit, isLocal: isLocal(commit, in: branch), indent: index > 0 ? 30 : 14) {
-                            model.mode = .history
-                            session.log.reveal(commit.sha)
-                        }
+                        CommitLine(
+                            commit: commit, isLocal: isLocal(commit, in: branch), indent: index > 0 ? 30 : 14,
+                            open: { review(commit, of: branch) },
+                            showInHistory: {
+                                model.mode = .history
+                                session.log.reveal(commit.sha)
+                            })
                     }
                 }
             }
@@ -244,6 +248,33 @@ private struct StackCard: View {
         case .upToDate, .integrated: return false
         default:
             return session.log.commits.first { $0.id == commit.sha }.map { !$0.isPushed } ?? false
+        }
+    }
+
+    /// The commit's diff in a review window, so reviewing stays one click from the branch.
+    private func review(_ commit: CommitInfo, of branch: HistoryBranch) {
+        Task {
+            do {
+                let diffs = try await history.diff(ofCommit: commit.sha)
+                guard let first = diffs.first else {
+                    Toasts.shared.show("\(commit.shortSHA) changes no files", systemImage: "circle.and.line.horizontal")
+                    return
+                }
+                let snapshot = DiffSnapshot(
+                    project: session.project.displayName, context: "\(commit.shortSHA) · \(commit.summary)", root: session.rootURL,
+                    files: diffs.map { diff in
+                        DiffSnapshot.File(diff: diff, sources: (
+                            diff.oldPath.map { RevisionFile(revision: "\(commit.sha)^", path: $0) },
+                            diff.newPath.map { RevisionFile(revision: commit.sha, path: $0) }))
+                    },
+                    selectedID: first.id, highlights: [:],
+                    promptContext: PromptContext(
+                        repositoryPath: session.rootURL.path, isGitButler: history.isGitButler,
+                        source: .commit(sha: commit.sha, message: commit.message)))
+                openWindow(id: DiffWindow.id, value: model.register(.snapshot(snapshot)))
+            } catch {
+                history.branchActionError = String(describing: error)
+            }
         }
     }
 }
@@ -380,6 +411,7 @@ private struct CommitLine: View {
     let isLocal: Bool
     let indent: CGFloat
     let open: () -> Void
+    let showInHistory: () -> Void
 
     @State private var isHovered = false
 
@@ -415,7 +447,16 @@ private struct CommitLine: View {
         .contentShape(.rect)
         .onHover { isHovered = $0 }
         .onTapGesture(perform: open)
-        .help("Show in History")
+        .help("Review Commit")
+        .contextMenu {
+            Button("Review Commit", action: open)
+            Button("Show in History", action: showInHistory)
+            Divider()
+            Button("Copy SHA") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(commit.sha, forType: .string)
+            }
+        }
     }
 }
 
