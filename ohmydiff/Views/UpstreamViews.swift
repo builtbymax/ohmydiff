@@ -33,8 +33,7 @@ struct UpstreamControls: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.black)
-                .background(Theme.inverse, in: .capsule)
-                .shadow(color: Theme.overlayShadow, radius: 6, y: 2)
+                .background { Capsule().fill(Theme.inverse).shadow(color: Theme.overlayShadow, radius: 6, y: 2) }
                 .focusEffectDisabled()
                 .glassTooltip("Review and Update…")
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))

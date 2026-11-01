@@ -227,7 +227,11 @@ private struct StackCard: View {
         .background(Theme.surface, in: .rect(cornerRadius: 12))
         .clipShape(.rect(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(isSelected ? Theme.lineStrong : Theme.line))
-        .shadow(color: .black.opacity(isSelected ? 0.12 : 0), radius: 8, y: 4)
+        .background {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Theme.surface)
+                .shadow(color: isSelected ? Theme.cardShadow : .clear, radius: 4, y: 2)
+        }
         .opacity(isAllMerged ? 0.7 : 1)
     }
 

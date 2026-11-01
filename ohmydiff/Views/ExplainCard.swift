@@ -177,9 +177,8 @@ struct ExplainCard: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(Theme.surface, in: .rect(cornerRadius: 12))
+        .background { RoundedRectangle(cornerRadius: 12).fill(Theme.surface).shadow(color: Theme.cardShadow, radius: 3.5, y: 4) }
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.line))
-        .shadow(color: .black.opacity(0.1), radius: 3.5, y: 4)
         .padding(.leading, 60)
         .padding(.trailing, 14)
         .padding(.vertical, 10)

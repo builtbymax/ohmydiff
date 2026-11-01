@@ -70,6 +70,11 @@ enum Theme {
 
     /// The shadow below popovers and floating bars.
     static let overlayShadow = dynamic(light: 0x000000, dark: 0x000000, lightAlpha: 0.12, darkAlpha: 0.28)
+    /// The tight and the wide shadow below popovers and the launcher; soft on paper, deep on graphite.
+    static let popoverShadowNear = dynamic(light: 0x000000, dark: 0x000000, lightAlpha: 0.08, darkAlpha: 0.18)
+    static let popoverShadowFar = dynamic(light: 0x000000, dark: 0x000000, lightAlpha: 0.1, darkAlpha: 0.32)
+    /// The lift of cards and the commit composer.
+    static let cardShadow = dynamic(light: 0x000000, dark: 0x000000, lightAlpha: 0.05, darkAlpha: 0.12)
 
     // MARK: Metrics
 
@@ -303,19 +308,21 @@ struct LineStatsLabel: View {
 
 extension View {
     /// Menus, the project switcher and other popovers: raised, a strong hairline and a two-step shadow.
+    /// Shadows go on the background shape: `.shadow` on a container also shadows every text and icon in it.
     func popoverSurface<S: InsettableShape>(in shape: S) -> some View {
-        background(Theme.raised, in: shape)
-            .overlay(shape.strokeBorder(Theme.lineStrong))
-            .shadow(color: .black.opacity(0.18), radius: 1.5, y: 2)
-            .shadow(color: .black.opacity(0.32), radius: 12, y: 16)
+        background {
+            shape.fill(Theme.raised)
+                .shadow(color: Theme.popoverShadowNear, radius: 1.5, y: 2)
+                .shadow(color: Theme.popoverShadowFar, radius: 12, y: 10)
+        }
+        .overlay(shape.strokeBorder(Theme.lineStrong))
     }
 
     /// Bars that float over the diff, e.g. the hunk bar: translucent, blurred, with a soft drop shadow.
     func floatingBar<S: InsettableShape>(in shape: S) -> some View {
         background(.ultraThinMaterial, in: shape)
-            .background(Theme.glass, in: shape)
+            .background { shape.fill(Theme.glass).shadow(color: Theme.overlayShadow, radius: 7.5, y: 10) }
             .overlay(shape.strokeBorder(Theme.line))
-            .shadow(color: Theme.overlayShadow, radius: 7.5, y: 10)
     }
 
     /// Popover entrance: a fade and a scale from 0.98; only the fade with reduced motion.

@@ -131,6 +131,7 @@ private final class HoverPanelController {
         panel.appearance = window.effectiveAppearance
         let inset = Self.shadowInset
         hostingView.rootView = AnyView(content
+            .compositingGroup()
             .shadow(color: Theme.overlayShadow, radius: 12, y: 4)
             .padding(inset))
         let fitting = hostingView.fittingSize

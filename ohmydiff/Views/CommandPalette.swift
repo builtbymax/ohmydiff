@@ -95,8 +95,12 @@ struct CommandPalette: View {
         .background(Theme.raised, in: .rect(cornerRadius: 16))
         .clipShape(.rect(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.lineStrong))
-        .shadow(color: .black.opacity(0.18), radius: 3, y: 2)
-        .shadow(color: .black.opacity(0.32), radius: 24, y: 16)
+        .background {
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Theme.raised)
+                .shadow(color: Theme.popoverShadowNear, radius: 3, y: 2)
+                .shadow(color: Theme.popoverShadowFar, radius: 24, y: 16)
+        }
         .onAppear { isSearchFocused = true }
         .paletteKeys(
             up: { move(-1, count: items.count) }, down: { move(1, count: items.count) },
