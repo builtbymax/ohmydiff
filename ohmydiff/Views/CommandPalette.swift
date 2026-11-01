@@ -183,7 +183,7 @@ struct CommandPalette: View {
                                 .foregroundStyle(Theme.infoFg)
                         }
                         Text(item.title)
-                            .font(.control.weight(item == scope ? .medium : .regular))
+                            .font(.control.weight(.medium))
                             .foregroundStyle(item == scope ? Theme.textPrimary : Theme.textSecondary)
                         if let prefix = item.prefix {
                             Text(String(prefix))
@@ -679,8 +679,9 @@ private struct PaletteRow: View {
     var body: some View {
         HStack(spacing: 10) {
             icon
+            // One weight, so the row does not reflow as the highlight follows the pointer.
             Text(highlightedTitle)
-                .font(.row.weight(isHighlighted ? .medium : .regular))
+                .font(.row)
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
             if let subtitle = item.subtitle, !subtitle.isEmpty {
