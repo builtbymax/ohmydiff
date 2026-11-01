@@ -50,9 +50,13 @@ struct BranchPanel: View {
         }
         .task(id: branch.name) {
             history.selection = .branch(branch.name)
+            // A branch looked up before shows its ticket at once; the tracker is only asked once per branch.
+            if let known = history.tickets[branch.name] { ticket = known }
             suggestions = await session.suggestions()
-            if let tickets = suggestions?.tickets, !tickets.isEmpty {
-                ticket = await tickets.ticket(forBranch: branch.name, pattern: AppSettings.ticketPattern())
+            if history.tickets[branch.name] == nil, let tickets = suggestions?.tickets, !tickets.isEmpty {
+                let found = await tickets.ticket(forBranch: branch.name, pattern: AppSettings.ticketPattern())
+                history.tickets[branch.name] = .some(found)
+                ticket = found
             }
         }
         .task(id: pullRequest?.number) {

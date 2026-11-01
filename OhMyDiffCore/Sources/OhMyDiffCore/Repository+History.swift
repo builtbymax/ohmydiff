@@ -6,6 +6,21 @@ extension Repository {
     /// git's empty tree, the base of a branch that starts at a root commit.
     static let emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
+    /// Changes whenever a branch, tag, remote branch or HEAD moves, or GitButler changes its stacks; cheap
+    /// enough to ask after every file change, so History reloads only when this differs.
+    public func refsFingerprint() async -> String? {
+        guard let refs = try? await toolchain.git(["show-ref", "--head"], in: root) else { return nil }
+        var text = refs.stdoutString
+        if kind == .gitButler {
+            let folder = root.appending(path: ".git/gitbutler")
+            for name in ["but.sqlite", "but.sqlite-wal", "virtual_branches.toml"] {
+                let date = try? folder.appending(path: name).resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+                text += "\n\(name) \(date?.timeIntervalSinceReferenceDate ?? 0)"
+            }
+        }
+        return text
+    }
+
     /// Branches with their own commits: GitButler's applied stacks, or the local branches of a plain repository.
     public func history() async throws -> [HistoryGroup] {
         switch kind {

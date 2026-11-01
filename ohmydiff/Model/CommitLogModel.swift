@@ -157,17 +157,57 @@ final class CommitLogModel {
             files = nil
             return
         }
+        // Commits never change, so one seen before shows at once.
+        if let cached = fileCache[sha] {
+            show(cached)
+            prefetchNeighbors(of: sha, repository: repository)
+            return
+        }
         files = .loading
         filesTask = Task {
             do {
                 let diffs = try await repository.diff(commit: sha)
                 guard !Task.isCancelled else { return }
-                files = .loaded(diffs)
-                if !diffs.contains(where: { $0.id == selectedFileID }) { selectedFileID = diffs.first?.id }
+                cache(diffs, for: sha)
+                show(diffs)
+                prefetchNeighbors(of: sha, repository: repository)
             } catch is CancellationError {
                 return
             } catch {
                 files = .failed(String(describing: error))
+            }
+        }
+    }
+
+    private func show(_ diffs: [FileDiff]) {
+        files = .loaded(diffs)
+        if !diffs.contains(where: { $0.id == selectedFileID }) { selectedFileID = diffs.first?.id }
+    }
+
+    // MARK: File cache
+
+    @ObservationIgnored private var fileCache: [String: [FileDiff]] = [:]
+    @ObservationIgnored private var fileCacheOrder: [String] = []
+    @ObservationIgnored private var prefetchTask: Task<Void, Never>?
+
+    private func cache(_ diffs: [FileDiff], for sha: String) {
+        fileCache[sha] = diffs
+        fileCacheOrder.removeAll { $0 == sha }
+        fileCacheOrder.append(sha)
+        while fileCacheOrder.count > 60 { fileCache[fileCacheOrder.removeFirst()] = nil }
+    }
+
+    /// Loads the commits above and below in the list, so arrowing through History is instant.
+    private func prefetchNeighbors(of sha: String, repository: Repository) {
+        prefetchTask?.cancel()
+        let shown = visible.map(\.commit.id)
+        guard let index = shown.firstIndex(of: sha) else { return }
+        let neighbors = [index + 1, index - 1, index + 2].filter(shown.indices.contains).map { shown[$0] }.filter { fileCache[$0] == nil }
+        guard !neighbors.isEmpty else { return }
+        prefetchTask = Task(priority: .utility) { [weak self] in
+            for neighbor in neighbors {
+                guard !Task.isCancelled, let diffs = try? await repository.diff(commit: neighbor), !Task.isCancelled else { return }
+                self?.cache(diffs, for: neighbor)
             }
         }
     }

@@ -31,3 +31,20 @@ enum DiffHighlighting {
         return (expanded, highlights)
     }
 }
+
+
+/// Diffs expanded to the whole file, so Full file shows at once for a file seen lately.
+@MainActor
+enum WholeFileCache {
+    private static var entries: [FileDiff: (diff: FileDiff, highlights: SyntaxHighlights?)] = [:]
+    private static var order: [FileDiff] = []
+
+    static func expansion(of diff: FileDiff) -> (diff: FileDiff, highlights: SyntaxHighlights?)? { entries[diff] }
+
+    static func store(_ expansion: (diff: FileDiff, highlights: SyntaxHighlights?), for diff: FileDiff) {
+        entries[diff] = expansion
+        order.removeAll { $0 == diff }
+        order.append(diff)
+        while order.count > 20 { entries[order.removeFirst()] = nil }
+    }
+}

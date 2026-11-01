@@ -39,8 +39,6 @@ final class HistoryModel {
     private(set) var files: Files?
     /// The web page of the repository's remote, for Open on GitHub.
     private(set) var remoteURL: URL?
-    /// Syntax colors per file of the current selection, filled in as files are shown.
-    private(set) var highlights: [FileDiff.ID: SyntaxHighlights] = [:]
     /// Each looked-up branch's newest pull request; a `nil` value means it has none.
     private(set) var pullRequests: [String: PullRequest?] = [:]
     /// Checks, conflicts and reviews of open pull requests, by number, once looked up.
@@ -62,6 +60,8 @@ final class HistoryModel {
     private(set) var details: [Int: PullRequestDetail] = [:]
     /// AI drafted pull request descriptions, by branch, until used or dismissed.
     var drafts: [String: String] = [:]
+    /// Linked tickets by branch, once looked up; a `nil` value means none was found.
+    var tickets: [String: Ticket?] = [:]
     /// Branches whose description is being drafted.
     private(set) var drafting: Set<String> = []
     var draftErrors: [String: String] = [:]
@@ -79,7 +79,6 @@ final class HistoryModel {
     var selectedFileID: FileDiff.ID? {
         didSet {
             guard oldValue != selectedFileID else { return }
-            loadHighlights()
         }
     }
 
@@ -99,7 +98,6 @@ final class HistoryModel {
     /// The revisions the current `files` were loaded for, to skip reloads when nothing moved.
     @ObservationIgnored private var loadedRevisions: Revisions?
     @ObservationIgnored private var filesTask: Task<Void, Never>?
-    @ObservationIgnored private var highlightTask: Task<Void, Never>?
 
     var isGitButler: Bool { repository?.kind == .gitButler }
     /// Whether `gh` is installed, which reading and changing pull requests needs.
@@ -520,11 +518,12 @@ final class HistoryModel {
 
     func close() {
         filesTask?.cancel()
-        highlightTask?.cancel()
         statusPollTask?.cancel()
     }
 
-    struct Revisions: Equatable {
+    @ObservationIgnored private var branchDiffCache: [Revisions: [FileDiff]] = [:]
+
+    struct Revisions: Hashable {
         /// `nil` for a commit, whose diff comes from `git diff-tree`.
         var base: String?
         var tip: String
@@ -543,7 +542,6 @@ final class HistoryModel {
     /// A reload keeps the current files visible until the new ones arrive, so live refreshes do not flash.
     private func loadFiles(isReload: Bool = false) {
         filesTask?.cancel()
-        highlightTask?.cancel()
         guard let selection, let repository else {
             files = nil
             loadedRevisions = nil
@@ -555,10 +553,14 @@ final class HistoryModel {
             loadedRevisions = nil
             return
         }
-        if !isReload || files == nil {
-            files = .loading
-            highlights = [:]
+        // A branch at the same base and tip has the same diff, so one seen before shows at once.
+        if let cached = branchDiffCache[revisions] {
+            loadedRevisions = revisions
+            if files != .loaded(cached) { files = .loaded(cached) }
+            if !cached.contains(where: { $0.id == selectedFileID }) { selectedFileID = cached.first?.id }
+            return
         }
+        if !isReload || files == nil { files = .loading }
 
         filesTask = Task {
             let result: Files
@@ -568,6 +570,8 @@ final class HistoryModel {
                 } else {
                     try await repository.diff(commit: revisions.tip)
                 }
+                branchDiffCache[revisions] = diffs
+                if branchDiffCache.count > 30, let first = branchDiffCache.keys.first(where: { $0 != revisions }) { branchDiffCache[first] = nil }
                 result = .loaded(diffs)
             } catch is CancellationError {
                 return
@@ -576,35 +580,12 @@ final class HistoryModel {
             }
             guard !Task.isCancelled, self.selection == selection else { return }
             loadedRevisions = revisions
-            if result != files {
-                highlights = [:]
-                files = result
-            }
+            if result != files { files = result }
             // Keep the same file selected when it is still part of the diff.
             if case .loaded(let diffs) = result {
                 let kept = diffs.first { $0.id == selectedFileID } ?? diffs.first { $0.path == selectedFile?.path }
                 selectedFileID = (kept ?? diffs.first)?.id
-                loadHighlights()
             }
-        }
-    }
-
-    private func loadHighlights() {
-        highlightTask?.cancel()
-        guard let repository, let file = selectedFile, highlights[file.id] == nil, !file.isBinary,
-              let language = SyntaxLanguage(path: file.path), let revisions = loadedRevisions
-        else { return }
-        let old = revisions.base ?? "\(revisions.tip)^"
-        let new = revisions.tip
-
-        highlightTask = Task {
-            let result = await DiffHighlighting.highlights(for: file, language: language) { side in
-                let (revision, path) = side == .old ? (old, file.oldPath) : (new, file.newPath)
-                guard let path else { return nil }
-                return try? await repository.contents(at: revision, path: path, limit: SyntaxHighlighter.maximumLength)
-            }
-            guard !Task.isCancelled, loadedRevisions == revisions else { return }
-            highlights[file.id] = result
         }
     }
 

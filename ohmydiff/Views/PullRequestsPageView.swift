@@ -43,7 +43,7 @@ struct PullRequestsPageView: View {
     @ViewBuilder private var list: some View {
         switch inbox.phase {
         case .idle:
-            ProgressView().controlSize(.small)
+            DelayedProgress()
         case .unavailable(let message):
             EmptyState("Pull requests need gh", systemImage: "arrow.triangle.pull", description: message)
         case .failed(let message):

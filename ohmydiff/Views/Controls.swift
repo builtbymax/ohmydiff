@@ -408,3 +408,20 @@ extension EmptyState where Actions == EmptyView {
         self.init(title, systemImage: systemImage, description: description) { EmptyView() }
     }
 }
+
+/// A spinner that only appears when loading takes longer than a moment, so quick loads never flash it.
+struct DelayedProgress: View {
+    var delay: Duration = .milliseconds(160)
+    @State private var isShown = false
+
+    var body: some View {
+        ProgressView()
+            .controlSize(.small)
+            .opacity(isShown ? 1 : 0)
+            .animation(Theme.popoverAnimation, value: isShown)
+            .task {
+                try? await Task.sleep(for: delay)
+                isShown = true
+            }
+    }
+}
