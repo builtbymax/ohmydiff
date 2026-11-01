@@ -217,7 +217,7 @@ struct ProjectRow: View {
             ProjectAvatar(name: project.displayName, isCurrent: isCurrent)
             VStack(alignment: .leading, spacing: 0) {
                 Text(highlightedName)
-                    .font(.row.weight(isCurrent ? .medium : .regular))
+                    .font(.row)
                     .foregroundStyle(Theme.textPrimary)
                 Text(subtitle(session, isOtherWorkspace: isOtherWorkspace && showsWorkspace))
                     .font(.caption11)

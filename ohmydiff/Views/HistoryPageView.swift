@@ -157,7 +157,7 @@ private struct CommitRow: View {
                 GraphCell(row: row, isPushed: commit.isPushed, drawsLines: drawsGraph)
                     .frame(width: 60, height: 40)
                 Text(commit.commit.summary)
-                    .font(.row.weight(isSelected ? .medium : .regular))
+                    .font(.row)
                     .foregroundStyle(Theme.textPrimary)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -185,7 +185,7 @@ private struct CommitRow: View {
                     .frame(width: 34, alignment: .trailing)
             }
             .padding(.trailing, 10)
-            .frame(height: 40)
+            .rowHeight(40)
             .contentShape(.rect)
         }
         .buttonStyle(.hover(cornerRadius: 8, isSelected: isSelected))

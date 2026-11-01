@@ -149,7 +149,7 @@ private struct SettingsNav: View {
                             .foregroundStyle(item == pane ? Theme.textPrimary : Theme.textSecondary)
                             .frame(width: 15, height: 15)
                         Text(item.title)
-                            .font(.row.weight(item == pane ? .medium : .regular))
+                            .font(.row)
                             .foregroundStyle(item == pane ? Theme.textPrimary : Theme.textSecondary)
                         Spacer(minLength: 4)
                         trailing(item)

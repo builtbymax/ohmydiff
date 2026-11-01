@@ -106,10 +106,6 @@ enum Theme {
     /// The selected pill of segmented controls and tabs, sliding under the pointer.
     static var magneticSpring: Animation { motion(.interpolatingSpring(stiffness: 500, damping: 40)) }
 
-    /// A list row's height, 4 pt less in the compact density.
-    static func rowHeight(_ comfortable: CGFloat) -> CGFloat {
-        UserDefaults.standard.string(forKey: AppSettings.densityKey) == Density.compact.rawValue ? comfortable - 4 : comfortable
-    }
 
     // MARK: Helpers
 
@@ -359,4 +355,21 @@ enum Density: String, CaseIterable, Identifiable {
 
     var id: Self { self }
     var title: String { self == .comfortable ? "Comfortable" : "Compact" }
+}
+
+extension View {
+    /// A list row's height: `comfortable`, or 4 pt less in the compact density (8 pt for rows of 40 pt and more).
+    /// Follows Settings → Density as it changes.
+    func rowHeight(_ comfortable: CGFloat) -> some View {
+        modifier(RowHeight(comfortable: comfortable))
+    }
+}
+
+private struct RowHeight: ViewModifier {
+    let comfortable: CGFloat
+    @AppStorage(AppSettings.densityKey) private var density = Density.comfortable
+
+    func body(content: Content) -> some View {
+        content.frame(height: density == .compact ? comfortable - (comfortable >= 40 ? 8 : 4) : comfortable)
+    }
 }

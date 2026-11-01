@@ -330,7 +330,7 @@ private struct BranchHead: View {
         }
         .padding(.leading, below == nil ? 14 : 30)
         .padding(.trailing, 8)
-        .frame(height: 46)
+        .rowHeight(46)
         .background(isSelected ? Theme.hover : isHovered ? Theme.hover.opacity(0.5) : .clear)
         .contentShape(.rect)
         .onHover { isHovered = $0 }
@@ -442,7 +442,7 @@ private struct CommitLine: View {
         }
         .padding(.leading, indent)
         .padding(.trailing, 14)
-        .frame(height: 32)
+        .rowHeight(32)
         .background(isHovered ? Theme.hover : .clear)
         .contentShape(.rect)
         .onHover { isHovered = $0 }

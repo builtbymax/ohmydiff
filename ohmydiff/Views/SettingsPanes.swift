@@ -310,7 +310,7 @@ struct GeneralSettings: View {
                                     app.icon.frame(width: 28, height: 28)
                                 }
                                 Text(preset.displayName)
-                                    .font(.control.weight(editor == preset ? .medium : .regular))
+                                    .font(.control)
                                     .foregroundStyle(Theme.textPrimary)
                                     .lineLimit(1)
                             }
@@ -407,7 +407,7 @@ struct AppearanceSettings: View {
                                         .background(appearance == option ? Theme.inverse : .clear, in: .circle)
                                         .frame(width: 14, height: 14)
                                     Text(Self.title(option))
-                                        .font(.control.weight(appearance == option ? .medium : .regular))
+                                        .font(.control)
                                         .foregroundStyle(Theme.textPrimary)
                                 }
                             }
