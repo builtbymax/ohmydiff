@@ -110,12 +110,16 @@ struct SettingsSwitch: View {
 struct SettingsSelect<Value: Hashable>: View {
     @Binding var selection: Value
     let options: [(value: Value, title: String)]
+    /// An icon per option, e.g. the app's, shown in the menu and next to the choice.
+    var icon: ((Value) -> NSImage?)?
 
     var body: some View {
         Menu {
             ForEach(options, id: \.value) { option in
                 Button { selection = option.value } label: {
-                    if option.value == selection {
+                    if let image = icon?(option.value) {
+                        Label { Text(option.title) } icon: { Image(nsImage: image) }
+                    } else if option.value == selection {
                         Label(option.title, systemImage: "checkmark")
                     } else {
                         Text(option.title)
@@ -123,7 +127,7 @@ struct SettingsSelect<Value: Hashable>: View {
                 }
             }
         } label: {
-            SelectLabel(title: options.first { $0.value == selection }?.title ?? "")
+            SelectLabel(title: options.first { $0.value == selection }?.title ?? "", icon: icon?(selection))
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
@@ -134,9 +138,13 @@ struct SettingsSelect<Value: Hashable>: View {
 
 struct SelectLabel: View {
     let title: String
+    var icon: NSImage? = nil
 
     var body: some View {
         HStack(spacing: 6) {
+            if let icon {
+                Image(nsImage: icon).resizable().interpolation(.high).frame(width: 16, height: 16)
+            }
             Text(title)
                 .font(.control)
                 .foregroundStyle(Theme.textPrimary)
@@ -293,7 +301,11 @@ struct GeneralSettings: View {
                             editor = preset
                         } content: {
                             VStack(alignment: .leading, spacing: 10) {
-                                LetterMark(letter: preset == .custom ? ">_" : String(preset.displayName.prefix(1)), isSelected: editor == preset)
+                                if preset == .custom {
+                                    LetterMark(letter: ">_", isSelected: editor == preset)
+                                } else {
+                                    app.icon.frame(width: 28, height: 28)
+                                }
                                 Text(preset.displayName)
                                     .font(.control.weight(editor == preset ? .medium : .regular))
                                     .foregroundStyle(Theme.textPrimary)
@@ -538,7 +550,7 @@ struct AISettings: View {
                                 .foregroundStyle(Theme.textTertiary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        SettingsSelect(selection: $terminal, options: TerminalApp.allCases.map { ($0, $0.displayName) })
+                        SettingsSelect(selection: $terminal, options: TerminalApp.allCases.map { ($0, $0.displayName) }) { AppIcons.icon($0.bundleIDs, size: 16) }
                         SettingsSwitch(isOn: $explainsInTerminal)
                     }
                     .padding(.horizontal, 14)
@@ -571,7 +583,7 @@ struct AISettings: View {
         } content: {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    LetterMark(letter: option == .codex ? "X" : String(option.displayName.prefix(1)), isSelected: isSelected)
+                    ProviderIcon(provider: option, size: 28)
                     Spacer()
                     Circle()
                         .strokeBorder(isSelected ? Color.clear : Theme.lineStrong, lineWidth: 1.5)
@@ -931,10 +943,10 @@ struct TicketSettings: View {
         }
     }
 
-    private func card(letter: String, title: String, subtitle: String, @ViewBuilder trailing: () -> some View, @ViewBuilder content: () -> some View) -> some View {
+    private func card(letter: String, source: TicketSource? = nil, title: String, subtitle: String, @ViewBuilder trailing: () -> some View, @ViewBuilder content: () -> some View) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                LetterMark(letter: letter, isSelected: true)
+                AppIconView(bundleIDs: source?.bundleIDs ?? [], size: 28) { LetterMark(letter: letter, isSelected: true) }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.row.weight(.medium)).foregroundStyle(Theme.textPrimary)
                     Text(subtitle).font(.caption11).foregroundStyle(Theme.textTertiary)
@@ -953,7 +965,7 @@ struct TicketSettings: View {
 
     private var linearCard: some View {
         card(
-            letter: "L", title: "Linear",
+            letter: "L", source: .linear, title: "Linear",
             subtitle: hasLinearKey ? [linear.map { "Workspace \($0.name)" }, "API key in Keychain"].compactMap(\.self).joined(separator: " · ") : "Not connected"
         ) {
             if hasLinearKey {
@@ -1002,7 +1014,7 @@ struct TicketSettings: View {
 
     private var jiraCard: some View {
         let isConnected = JiraTickets.siteURL(jiraSite) != nil && !jiraEmail.isEmpty && hasJiraToken
-        return card(letter: "J", title: "Jira", subtitle: isConnected ? "\(jiraSite) · token in Keychain" : "Not connected") {
+        return card(letter: "J", source: .jira, title: "Jira", subtitle: isConnected ? "\(jiraSite) · token in Keychain" : "Not connected") {
             if isConnected {
                 Chip("Connected", systemImage: "checkmark", tone: .ok)
                 Button("Disconnect") { if Keychain.write("", for: .jira) { hasJiraToken = false } }
@@ -1042,7 +1054,7 @@ struct TicketSettings: View {
     }
 
     private var forgeCard: some View {
-        card(letter: "G", title: "GitHub & GitLab", subtitle: "Uses the command line tools you already sign in with") {
+        card(letter: "G", source: .github, title: "GitHub & GitLab", subtitle: "Uses the command line tools you already sign in with") {
             EmptyView()
         } content: {
             Rectangle().fill(Theme.lineSubtle).frame(height: 1)
@@ -1201,6 +1213,7 @@ struct CommandLineSettings: View {
                 SettingsTable {
                     ForEach(tools, id: \.name) { tool in
                         HStack(spacing: 12) {
+                            ToolIcon(name: tool.name)
                             Text(tool.name).font(.code(12.5)).foregroundStyle(Theme.textPrimary).frame(width: 52, alignment: .leading)
                             Text(tool.name == "gh" ? [tool.version, ghUser.map { "signed in as \($0)" }].compactMap(\.self).joined(separator: " · ") : "\(tool.version) · \(tool.path)")
                                 .font(.detail)
@@ -1524,5 +1537,32 @@ struct TemplateEditor: NSViewRepresentable {
                 .paragraphStyle: paragraph,
             ]
         }
+    }
+}
+
+
+/// A tool's mark in Settings → Command line: the AI CLIs' logos, GitButler's app icon, symbols for git and gh.
+private struct ToolIcon: View {
+    let name: String
+
+    var body: some View {
+        Group {
+            if let provider = AIProvider.allCases.first(where: { $0.executable == name }) {
+                ProviderIcon(provider: provider, size: 22)
+            } else if name == "but" {
+                AppIconView(bundleIDs: ["com.gitbutler.app", "com.gitbutler.app.nightly"], size: 22) { symbol("square.3.layers.3d") }
+            } else {
+                symbol(name == "gh" ? "arrow.triangle.pull" : "arrow.triangle.branch")
+            }
+        }
+        .frame(width: 22, height: 22)
+    }
+
+    private func symbol(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Theme.textSecondary)
+            .frame(width: 22, height: 22)
+            .background(Theme.hover, in: .rect(cornerRadius: 6))
     }
 }

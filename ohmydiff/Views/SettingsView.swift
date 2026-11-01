@@ -580,25 +580,26 @@ struct Badge: View {
 /// A provider's logo on a tile in its brand colors; a symbol for providers without a bundled logo.
 struct ProviderIcon: View {
     let provider: AIProvider
+    var size: CGFloat = 40
 
     var body: some View {
         mark
-            .frame(width: 40, height: 40)
-            .background(background, in: .rect(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.18)))
+            .frame(width: size, height: size)
+            .background(background, in: .rect(cornerRadius: size / 4))
+            .overlay(RoundedRectangle(cornerRadius: size / 4).strokeBorder(.white.opacity(0.18)))
             .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
     }
 
     @ViewBuilder private var mark: some View {
         switch provider {
         case .claude:
-            Image("ClaudeLogo").resizable().scaledToFit().padding(8)
+            Image("ClaudeLogo").resizable().scaledToFit().padding(size / 5)
         case .codex:
-            Image("CodexLogo").resizable().scaledToFit().foregroundStyle(.white).padding(9)
+            Image("CodexLogo").resizable().scaledToFit().foregroundStyle(.white).padding(size * 0.22)
         case .gemini:
-            Image(systemName: "sparkle").font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
+            Image(systemName: "sparkle").font(.system(size: size / 2, weight: .semibold)).foregroundStyle(.white)
         case .opencode:
-            Image(systemName: "curlybraces").font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
+            Image(systemName: "curlybraces").font(.system(size: size / 2, weight: .semibold)).foregroundStyle(.white)
         }
     }
 
@@ -685,5 +686,71 @@ struct MiniWindow: View {
         }
         .padding(6)
         .background(background)
+    }
+}
+
+/// Installed apps' icons by bundle ID, looked up once.
+@MainActor
+enum AppIcons {
+    private static var cache: [String: NSImage?] = [:]
+
+    /// The first installed app's icon among `bundleIDs`.
+    static func icon(_ bundleIDs: [String]) -> NSImage? {
+        for id in bundleIDs {
+            if let cached = cache[id] {
+                if let cached { return cached }
+                continue
+            }
+            let image = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id).map { NSWorkspace.shared.icon(forFile: $0.path) }
+            cache[id] = image
+            if let image { return image }
+        }
+        return nil
+    }
+
+    /// A copy at `size` points, e.g. for menu items, which show images at their own size.
+    static func icon(_ bundleIDs: [String], size: CGFloat) -> NSImage? {
+        guard let icon = icon(bundleIDs) else { return nil }
+        let resized = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            icon.draw(in: rect)
+            return true
+        }
+        return resized
+    }
+}
+
+/// An app's icon, or `fallback` when it is not installed.
+struct AppIconView<Fallback: View>: View {
+    let bundleIDs: [String]
+    var size: CGFloat = 28
+    @ViewBuilder var fallback: Fallback
+
+    var body: some View {
+        if let image = AppIcons.icon(bundleIDs) {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: size, height: size)
+        } else {
+            fallback
+        }
+    }
+}
+
+extension TerminalApp {
+    var bundleIDs: [String] {
+        self == .rex ? [bundleIdentifier, "com.superlogical.rex.beta"] : [bundleIdentifier]
+    }
+}
+
+extension TicketSource {
+    /// Desktop apps whose icon stands for the tracker, when installed.
+    var bundleIDs: [String] {
+        switch self {
+        case .linear: ["com.linear"]
+        case .jira: ["com.atlassian.jira.mac"]
+        case .github: ["com.github.GitHubClient"]
+        case .gitlab: []
+        }
     }
 }
