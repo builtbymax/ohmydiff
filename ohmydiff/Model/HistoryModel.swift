@@ -589,6 +589,16 @@ final class HistoryModel {
         }
     }
 
+    /// A commit's files, e.g. for a review window opened from its branch card; shares the cache with selections.
+    func diff(ofCommit sha: String) async throws -> [FileDiff] {
+        let revisions = Revisions(base: nil, tip: sha)
+        if let cached = branchDiffCache[revisions] { return cached }
+        guard let repository else { return [] }
+        let diffs = try await repository.diff(commit: sha)
+        branchDiffCache[revisions] = diffs
+        return diffs
+    }
+
     /// One side of a file of the current selection, for image previews and the whole-file view.
     func contents(of file: FileDiff, side: Repository.FileSide) async -> Data? {
         guard let repository, let source = source(of: file, side: side) else { return nil }
