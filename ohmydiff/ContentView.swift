@@ -154,7 +154,7 @@ struct ContentView: View {
     }
 
     /// The window controls' row: they sit centred in it.
-    private static let titleBarHeight: CGFloat = 30
+    static let titleBarHeight: CGFloat = 30
 
     /// The content panel: the page's top bar over its body.
     private var panel: some View {
@@ -232,15 +232,17 @@ struct ContentView: View {
     ContentView(model: AppModel())
 }
 
-/// Shows a view in the window's title bar, right of the window controls, for as long as it is in the hierarchy.
-/// The title bar sits above the content, so this is the only way for a control beside the window controls to
-/// receive clicks.
-private struct WindowControlsAccessory<Content: View>: NSViewRepresentable {
+/// Shows a view in the window's title bar, level with the window controls, for as long as it is in the hierarchy:
+/// right of them, or ending `trailingX` points from the window's left edge. The title bar sits above the content,
+/// so this is the only way for a control beside the window controls to receive clicks.
+struct WindowControlsAccessory<Content: View>: NSViewRepresentable {
+    var trailingX: CGFloat?
     @ViewBuilder var content: Content
 
     func makeNSView(context: Context) -> Anchor { Anchor() }
 
     func updateNSView(_ anchor: Anchor, context: Context) {
+        anchor.trailingX = trailingX
         anchor.show(AnyView(content))
     }
 
@@ -251,6 +253,7 @@ private struct WindowControlsAccessory<Content: View>: NSViewRepresentable {
     final class Anchor: NSView {
         private var hostingView: NSHostingView<AnyView>?
         private var content: AnyView?
+        var trailingX: CGFloat?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -277,7 +280,7 @@ private struct WindowControlsAccessory<Content: View>: NSViewRepresentable {
             }
             let size = hostingView.fittingSize
             hostingView.frame = NSRect(
-                x: zoom.frame.maxX + 10, y: zoom.frame.midY - size.height / 2, width: size.width, height: size.height)
+                x: trailingX.map { $0 - size.width } ?? zoom.frame.maxX + 10, y: zoom.frame.midY - size.height / 2, width: size.width, height: size.height)
             // Stays beside the window controls as the title bar resizes, wherever its origin is.
             hostingView.autoresizingMask = titleBar.isFlipped ? [.maxXMargin, .maxYMargin] : [.maxXMargin, .minYMargin]
         }
