@@ -70,6 +70,8 @@ struct CommitTargetCard: View {
             footer
         }
         .frame(width: 420)
+        // The footer's fill stays inside the rounded corners.
+        .clipShape(.rect(cornerRadius: 14))
         .popoverSurface(in: .rect(cornerRadius: 14))
         .onKeyPress(characters: .decimalDigits) { press in
             // 1–9 pick an applied branch, unless a field is typing.
@@ -86,7 +88,6 @@ struct CommitTargetCard: View {
         .task {
             suggestions = await session.suggestions()
             tickets = suggestions?.tickets
-            if isNewBranch, AppSettings.isEnabled(.branchName), AppSettings.suggestionProvider() != nil { suggest(.branch) }
         }
         // Follows the target branch, e.g. `feature/hal-128` links HAL-128, until the user picks a ticket.
         .task(id: "\(targetBranch)|\(tickets?.providers.count ?? -1)") {
@@ -168,13 +169,18 @@ struct CommitTargetCard: View {
                 } else if isNameSuggested {
                     Chip("✦ suggested", tone: .info)
                 }
+                IconButton(alternatives.isEmpty ? "Suggest a name" : "Suggest again", systemImage: alternatives.isEmpty ? "sparkles" : "arrow.clockwise", size: 24) {
+                    suggest(.branch)
+                }
+                .disabled(generating != nil)
             }
-            .padding(.horizontal, 10)
+            .padding(.leading, 10)
+            .padding(.trailing, 5)
             .frame(height: 34)
             .background(Theme.canvas, in: .rect(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.line))
-            HStack(spacing: 6) {
-                if !alternatives.isEmpty {
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(focus == .branchName ? Theme.lineStrong : Theme.line))
+            if !alternatives.isEmpty {
+                HStack(spacing: 6) {
                     Text("Or")
                         .font(.caption11)
                         .foregroundStyle(Theme.textTertiary)
@@ -187,12 +193,8 @@ struct CommitTargetCard: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    Spacer(minLength: 0)
                 }
-                IconButton(alternatives.isEmpty ? "Suggest a name" : "Suggest again", systemImage: alternatives.isEmpty ? "sparkles" : "arrow.clockwise", size: 24) {
-                    suggest(.branch)
-                }
-                .disabled(generating != nil)
-                Spacer(minLength: 0)
             }
             if let suggestionError, generating == nil {
                 Text(String(describing: suggestionError))
@@ -213,7 +215,7 @@ struct CommitTargetCard: View {
         }
         .padding(10)
         .background(Theme.surface, in: .rect(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(isNewBranch ? Theme.infoFg : Theme.line))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(isNewBranch ? Theme.lineStrong : Theme.line))
         .contentShape(.rect(cornerRadius: 10))
         .onTapGesture { selectNewBranch() }
         .onChange(of: focus) { _, field in if field == .branchName { selectNewBranch() } }
@@ -391,10 +393,10 @@ struct CommitTargetCard: View {
         if focus == .branchName { focus = nil }
     }
 
+    /// Only picks the new branch; names are suggested when ✦ is clicked, never on their own.
     private func selectNewBranch() {
         guard !isNewBranch else { return }
         isNewBranch = true
-        if newBranch.isEmpty, alternatives.isEmpty, AppSettings.isEnabled(.branchName), AppSettings.suggestionProvider() != nil { suggest(.branch) }
     }
 
     /// Asks the AI provider for a commit message or branch names from the selected changes. Never commits.
