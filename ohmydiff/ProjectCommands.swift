@@ -103,6 +103,12 @@ struct ProjectCommands: Commands {
             }
             .keyboardShortcut(Shortcuts.keyboardShortcut(.newBranch))
             .disabled(session == nil)
+            Button("Draft Pull Request Description") { model.draftPullRequestDescription() }
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.draftPullRequest))
+                .disabled(session?.history.selectedBranch == nil)
+            Button("Merge When Green") { model.mergeSelectedWhenGreen() }
+                .keyboardShortcut(Shortcuts.keyboardShortcut(.mergeWhenGreen))
+                .disabled(session?.history.selectedBranch.flatMap { session?.history.pullRequest(of: $0) }?.state != .open)
             Divider()
             Button("Fetch from Remote") { Task { await session?.fetch() } }
                 .keyboardShortcut(Shortcuts.keyboardShortcut(.fetch))

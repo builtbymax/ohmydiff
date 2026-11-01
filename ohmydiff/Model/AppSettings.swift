@@ -18,6 +18,8 @@ enum AppSettings {
     static let isSidebarHiddenKey = "isSidebarHidden"
     static let isHunkStripHiddenKey = "isHunkStripHidden"
     static let isActivityHiddenKey = "isActivityHidden"
+    /// `rebase`, `squash` or `merge`, for pull requests merged from ohmydiff.
+    static let mergeMethodKey = "mergeMethod"
     static let isInspectorShownKey = "isInspectorShown"
     static let showsLineNumbersKey = "showsLineNumbers"
     static let showsWhitespaceChangesKey = "showsWhitespaceChanges"
@@ -392,4 +394,12 @@ extension EnvironmentValues {
     @Entry var openEditor: (DiffFileTarget) -> Void = { _ in }
     /// Asks the AI provider for a one-off answer for a task, with its model from Settings.
     @Entry var askAI: (AITask, String) async throws -> String = { _, _ in throw SuggestionUnavailable.noProvider }
+}
+
+
+extension MergeMethod {
+    /// How pull requests merge from the Branches page and Merge when green: rebase unless changed.
+    static var preferred: MergeMethod {
+        UserDefaults.standard.string(forKey: AppSettings.mergeMethodKey).flatMap(MergeMethod.init(rawValue:)) ?? .rebase
+    }
 }
