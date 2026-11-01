@@ -2,8 +2,9 @@ APP := build/Build/Products/Release/ohmydiff.app
 # `make run` builds ohmydiff Dev: its own name, bundle identifier and data, the blueprint app icon, no ohmydiff://
 # links and no updates, so it runs beside the installed app.
 DEV_APP := build/dev/Build/Products/Release/ohmydiff Dev.app
-# Code signing identity (name or SHA-1 from `security find-identity -v -p codesigning`). Ad-hoc by default.
-SIGN_IDENTITY := $(OHMYDIFF_SIGN_IDENTITY)
+# Code signing identity (name or SHA-1 from `security find-identity -v -p codesigning`). Defaults to the keychain's
+# Developer ID Application identity, ad-hoc without one. A half re-signed app fails to load Sparkle (different Team IDs).
+SIGN_IDENTITY := $(or $(OHMYDIFF_SIGN_IDENTITY),$(shell security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -1))
 # The commit count, like releases, so a local build is never offered the release it was built from.
 BUILD_NUMBER := $(shell git rev-list --count HEAD)
 
