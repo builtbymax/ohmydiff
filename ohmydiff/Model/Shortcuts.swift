@@ -102,7 +102,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     case stageHunk, unstageHunk, discardHunk, explainHunk, splitDiff, fullFile, whitespace, openInEditor, openDiffWindow,
          copyPath, copyPrompt, explainInClaude
     // Branches & PRs
-    case newBranch, fetch, updateWorkspace, addProject
+    case newBranch, draftPullRequest, mergeWhenGreen, fetch, updateWorkspace, addProject
     // Window
     case toggleFileList, focusDiff, toggleSidebar, inspector, activity, theme
 
@@ -120,7 +120,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .launcher, .switchProject, .nextHunk, .previousHunk, .changes, .branches, .pullRequests, .history, .refresh: .moveAround
         case .stageHunk, .unstageHunk, .discardHunk, .explainHunk, .splitDiff, .fullFile, .whitespace, .openInEditor, .openDiffWindow,
              .copyPath, .copyPrompt, .explainInClaude: .review
-        case .newBranch, .fetch, .updateWorkspace, .addProject: .branches
+        case .newBranch, .draftPullRequest, .mergeWhenGreen, .fetch, .updateWorkspace, .addProject: .branches
         case .toggleFileList, .focusDiff, .toggleSidebar, .inspector, .activity, .theme: .window
         }
     }
@@ -149,6 +149,8 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .copyPrompt: "Copy prompt"
         case .explainInClaude: "Explain in Claude Code"
         case .newBranch: "New branch"
+        case .draftPullRequest: "Draft PR description"
+        case .mergeWhenGreen: "Merge when green"
         case .fetch: "Fetch"
         case .updateWorkspace: "Update from remote"
         case .addProject: "Add project"
@@ -190,6 +192,8 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .copyPrompt: Shortcut("c", [.command, .shift, .option])
         case .explainInClaude: Shortcut("e", [.command, .option])
         case .newBranch: Shortcut("b", .command)
+        case .draftPullRequest: Shortcut("d", [.command, .option])
+        case .mergeWhenGreen: nil
         case .fetch: Shortcut("f", [.command, .shift])
         case .updateWorkspace: Shortcut("u", [.command, .shift])
         case .addProject: Shortcut("o", [.command, .shift])

@@ -192,7 +192,7 @@ struct BranchPanel: View {
     @ViewBuilder private var footer: some View {
         HStack(spacing: 8) {
             if let pullRequest, pullRequest.state == .open {
-                Text("\(mergeMethodTitle) · delete branch")
+                Text("\(mergeMethodTitle) into \(pullRequest.baseRefName)")
                     .font(.caption11)
                     .foregroundStyle(Theme.textTertiary)
                     .lineLimit(1)
@@ -233,7 +233,7 @@ struct BranchPanel: View {
         .disabled(!canReview)
     }
 
-    private var mergeMethodTitle: String { "Squash" }
+    private var mergeMethodTitle: String { MergeMethod.preferred.rawValue.capitalized }
 
     private var canReview: Bool {
         guard history.selection == .branch(branch.name), case .loaded(let diffs) = history.files else { return false }
@@ -543,7 +543,7 @@ private struct MergeButton: View {
                     }
                 }
                 if detail?.autoMerge == true {
-                    Button("Cancel Auto-Merge") { Task { await history.setAutoMerge(false, pullRequest: pullRequest, method: .squash, branch: branch) } }
+                    Button("Cancel Auto-Merge") { Task { await history.setAutoMerge(false, pullRequest: pullRequest, method: MergeMethod.preferred, branch: branch) } }
                 }
                 Divider()
                 Button(pullRequest.isDraft ? "Mark Ready for Review" : "Convert to Draft") {
@@ -590,11 +590,11 @@ private struct MergeButton: View {
         if pullRequest.isDraft {
             Task { await history.setDraft(false, pullRequest: pullRequest, branch: branch) }
         } else if detail?.autoMerge == true {
-            Task { await history.setAutoMerge(false, pullRequest: pullRequest, method: .squash, branch: branch) }
+            Task { await history.setAutoMerge(false, pullRequest: pullRequest, method: MergeMethod.preferred, branch: branch) }
         } else if isGreen {
-            history.pendingMerge = (pullRequest, .squash, branch)
+            history.pendingMerge = (pullRequest, MergeMethod.preferred, branch)
         } else {
-            Task { await history.setAutoMerge(true, pullRequest: pullRequest, method: .squash, branch: branch) }
+            Task { await history.setAutoMerge(true, pullRequest: pullRequest, method: MergeMethod.preferred, branch: branch) }
         }
     }
 }

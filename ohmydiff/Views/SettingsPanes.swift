@@ -279,6 +279,7 @@ struct GeneralSettings: View {
     @AppStorage(AppSettings.fetchIntervalKey) private var fetchInterval = 10
     @AppStorage(AppSettings.discardConfirmationKey) private var discardConfirmation = DiscardConfirmation.filesAndHunks
     @AppStorage(AppSettings.confirmsForcePushKey) private var confirmsForcePush = true
+    @AppStorage(AppSettings.mergeMethodKey) private var mergeMethod = MergeMethod.rebase.rawValue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -328,6 +329,15 @@ struct GeneralSettings: View {
                     SettingsRow(title: "Fetch remotes", detail: "Keeps ahead/behind and PR status current") {
                         SettingsSelect(selection: $fetchInterval, options: [
                             (0, "Never"), (1, "Every minute"), (5, "Every 5 minutes"), (10, "Every 10 minutes"), (30, "Every 30 minutes"),
+                        ])
+                    }
+                }
+            }
+            SettingsSection(title: "Pull requests") {
+                SettingsTable {
+                    SettingsRow(title: "Merge with", detail: "Used by Merge, Merge when green and the menu command") {
+                        SettingsSelect(selection: $mergeMethod, options: [
+                            (MergeMethod.rebase.rawValue, "Rebase"), (MergeMethod.squash.rawValue, "Squash"), (MergeMethod.merge.rawValue, "Merge commit"),
                         ])
                     }
                 }

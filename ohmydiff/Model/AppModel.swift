@@ -310,6 +310,25 @@ final class AppModel {
     }
 
     /// Opens the commit sheet for everything staged, in Changes mode where the sheet lives.
+    /// Drafts the selected branch's pull request description on the Branches page.
+    func draftPullRequestDescription() {
+        guard let session = selectedSession, let branch = session.history.selectedBranch else { return }
+        mode = .branches
+        Task {
+            let suggestions = await session.suggestions()
+            let ticket = await suggestions?.tickets.ticket(forBranch: branch.name, pattern: AppSettings.ticketPattern())
+            await session.history.draftDescription(for: branch, ticket: ticket, suggestions: suggestions)
+        }
+    }
+
+    /// Merges the selected branch's open pull request once its checks pass.
+    func mergeSelectedWhenGreen() {
+        guard let session = selectedSession, let branch = session.history.selectedBranch,
+              let pullRequest = session.history.pullRequest(of: branch), pullRequest.state == .open
+        else { return }
+        Task { await session.history.setAutoMerge(true, pullRequest: pullRequest, method: .preferred, branch: branch.name) }
+    }
+
     func commitStaged() {
         guard let session = selectedSession, !stagedTargets.isEmpty else { return }
         mode = .changes
