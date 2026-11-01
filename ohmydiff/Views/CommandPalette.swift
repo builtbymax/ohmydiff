@@ -890,6 +890,8 @@ private struct PalettePreview: View {
             }
         }
         .padding(16)
+        // Short previews start at the top left instead of floating in the middle of the column.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
