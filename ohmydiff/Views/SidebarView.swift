@@ -45,18 +45,20 @@ struct SidebarView: View {
         }
     }
 
-    /// Room for the window controls, and the button that hides the sidebar.
+    /// The rest of the window controls' row, and the button that hides the sidebar, level with the controls.
     private var titleBar: some View {
-        HStack(spacing: 0) {
-            Color.clear
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(.rect)
-                .gesture(WindowDragGesture())
-            IconButton("Hide Sidebar  ⌃⌘S", systemImage: "sidebar.left") {
-                withAnimation(.snappy(duration: 0.2)) { isHidden = true }
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: ContentView.titleBarHeight - Theme.inset)
+            .contentShape(.rect)
+            .gesture(WindowDragGesture())
+            .background {
+                WindowControlsAccessory(trailingX: Theme.sidebarWidth - 10) {
+                    IconButton("Hide Sidebar  ⌃⌘S", systemImage: "sidebar.left") {
+                        withAnimation(.snappy(duration: 0.2)) { isHidden = true }
+                    }
+                }
             }
-        }
-        .frame(height: 40)
     }
 
     private var footer: some View {
