@@ -58,13 +58,16 @@ struct HistoryPageView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(sections(visible), id: \.title) { section in
-                                Text(section.title)
-                                    .font(.sectionLabel)
-                                    .foregroundStyle(Theme.textTertiary)
-                                    .padding(.leading, 12)
-                                    .padding(.top, 10)
-                                    .frame(height: 30, alignment: .leading)
+                            // By the first commit: the graph's order is not by date, so a day can head more than one section.
+                            ForEach(sections(visible), id: \.items.first?.commit.id) { section in
+                                // The day sits next to the graph, whose lanes run on through it.
+                                HStack(spacing: 10) {
+                                    GraphPassage(lanes: log.drawsGraph ? section.items.first?.row.above ?? [] : [])
+                                        .frame(width: 60, height: 32)
+                                    Text(section.title)
+                                        .font(.sectionLabel)
+                                        .foregroundStyle(Theme.textTertiary)
+                                }
                                 ForEach(section.items, id: \.commit.id) { item in
                                     CommitRow(
                                         commit: item.commit, row: item.row, drawsGraph: log.drawsGraph,
@@ -198,7 +201,7 @@ private struct GraphCell: View {
     var body: some View {
         Canvas { context, size in
             let middle = size.height / 2
-            func x(_ lane: Int) -> CGFloat { 14 + CGFloat(min(lane, Self.maxLanes)) * Self.spacing }
+            let x = Self.x
             if drawsLines {
                 for lane in row.above {
                     var path = Path()
@@ -235,10 +238,28 @@ private struct GraphCell: View {
         }
     }
 
+    static func x(_ lane: Int) -> CGFloat { 14 + CGFloat(min(lane, maxLanes)) * spacing }
+
     /// The first lane is the main line; the others take the state colours in turn.
     static func color(_ lane: Int) -> Color {
         let colors = [Theme.textPrimary, Theme.okFg, Theme.mergedFg, Theme.infoFg, Theme.warnFg]
         return colors[lane % colors.count]
+    }
+}
+
+/// The graph's lanes running straight through a day's heading, so the lines are not cut between days.
+private struct GraphPassage: View {
+    let lanes: [Int]
+
+    var body: some View {
+        Canvas { context, size in
+            for lane in lanes {
+                var path = Path()
+                path.move(to: CGPoint(x: GraphCell.x(lane), y: 0))
+                path.addLine(to: CGPoint(x: GraphCell.x(lane), y: size.height))
+                context.stroke(path, with: .color(GraphCell.color(lane)), lineWidth: 1.5)
+            }
+        }
     }
 }
 
