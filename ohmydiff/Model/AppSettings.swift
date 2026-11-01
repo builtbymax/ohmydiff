@@ -34,6 +34,10 @@ enum AppSettings {
     /// Width of the file list beside a commit's or branch's diff in History mode.
     static let historyFilesWidthKey = "historyFilesWidth"
     static let historyFilesWidths: ClosedRange<Double> = 200...420
+    /// The Branches page's layout, cards or columns beside the diff, and the width of its files column.
+    static let branchesLayoutKey = "branchesLayout"
+    static let branchListWidthKey = "branchFilesWidth"
+    static let branchFilesWidths: ClosedRange<Double> = 200...400
     /// The terminal the AI provider is started in, and which provider.
     static let terminalKey = "terminalApp"
     static let aiProviderKey = "aiProvider"

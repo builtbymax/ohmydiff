@@ -3,16 +3,34 @@ import OhMyDiffCore
 import SwiftUI
 
 /// The Branches page: each stack as a card of its branches and their commits, and the selected branch's
-/// pull request in the panel on the right.
+/// pull request in the panel on the right; or, in the review layout, a list of them beside the diff.
 struct BranchesPageView: View {
     let model: AppModel
     let session: ProjectSession
     @AppStorage(AppSettings.isInspectorShownKey) private var isInspectorShown = true
+    @AppStorage(AppSettings.branchesLayoutKey) private var layout = BranchesLayout.overview
 
     private var history: HistoryModel { session.history }
 
     var body: some View {
         let cards = history.branchCards(for: history.branchFilter)
+        Group {
+            if layout == .review {
+                BranchReviewView(model: model, session: session)
+            } else {
+                overview(cards)
+            }
+        }
+        .branchActionPresentation(history) { await session.suggestions() }
+        .onChange(of: cards.map { $0.map(\.name) }, initial: true) { _, names in
+            // Keep a listed branch selected, so the panel always has one to show.
+            let all = names.flatMap(\.self)
+            if let current = history.selection?.branchName, all.contains(current) { return }
+            if let first = all.first { history.selection = .branch(first) }
+        }
+    }
+
+    private func overview(_ cards: [[HistoryBranch]]) -> some View {
         HStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
@@ -56,13 +74,6 @@ struct BranchesPageView: View {
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .branchActionPresentation(history) { await session.suggestions() }
-        .onChange(of: cards.map { $0.map(\.name) }, initial: true) { _, names in
-            // Keep a listed branch selected, so the panel always has one to show.
-            let all = names.flatMap(\.self)
-            if let current = history.selection?.branchName, all.contains(current) { return }
-            if let first = all.first { history.selection = .branch(first) }
-        }
     }
 
     @ViewBuilder private var emptyState: some View {
@@ -88,6 +99,8 @@ struct BranchesTopBar: View {
     let session: ProjectSession
     @Bindable var history: HistoryModel
     @AppStorage(AppSettings.isInspectorShownKey) private var isInspectorShown = true
+    @AppStorage(AppSettings.branchesLayoutKey) private var layout = BranchesLayout.overview
+    @AppStorage(BranchReviewView.isListPinnedKey) private var isListPinned = false
 
     var body: some View {
         PageTitle(title: "Branches")
@@ -96,6 +109,11 @@ struct BranchesTopBar: View {
             options: [(.applied, history.isGitButler ? "Applied" : "Current"), (.all, "All"), (.merged, "Merged")],
             systemImages: [.applied: "square.3.layers.3d", .all: "arrow.triangle.branch", .merged: "arrow.triangle.merge"],
             counts: counts)
+            .padding(.trailing, 6)
+        Segmented(
+            selection: Binding(get: { layout }, set: { value in withAnimation(.snappy(duration: 0.2)) { layout = value } }),
+            options: [(.overview, "Overview"), (.review, "Review")],
+            systemImages: [.overview: "rectangle.grid.1x2", .review: "sidebar.left"])
         Spacer(minLength: 8)
         IconButton("Refresh", systemImage: "arrow.clockwise") {
             session.refresh()
@@ -114,8 +132,14 @@ struct BranchesTopBar: View {
             NewBranchPopover(history: history, isGitButler: history.isGitButler) { model.isNewBranchPresented = false }
         }
         .padding(.trailing, 6)
-        IconButton(isInspectorShown ? "Hide Pull Request  ⌥⌘I" : "Show Pull Request  ⌥⌘I", systemImage: "sidebar.right", isSelected: isInspectorShown) {
-            withAnimation(.snappy(duration: 0.2)) { isInspectorShown.toggle() }
+        if layout == .overview {
+            IconButton(isInspectorShown ? "Hide Pull Request  ⌥⌘I" : "Show Pull Request  ⌥⌘I", systemImage: "sidebar.right", isSelected: isInspectorShown) {
+                withAnimation(.snappy(duration: 0.2)) { isInspectorShown.toggle() }
+            }
+        } else {
+            IconButton(isListPinned ? "Widen Branch List on Hover" : "Keep Branch List Open", systemImage: "sidebar.left", isSelected: isListPinned) {
+                withAnimation(.snappy(duration: 0.2)) { isListPinned.toggle() }
+            }
         }
     }
 
@@ -201,6 +225,7 @@ private struct StackCard: View {
     let isSelected: Bool
 
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(AppSettings.branchesLayoutKey) private var layout = BranchesLayout.overview
     private var history: HistoryModel { session.history }
 
     var body: some View {
@@ -218,8 +243,12 @@ private struct StackCard: View {
                 if !history.isMerged(branch) {
                     ForEach(branch.commits, id: \.sha) { commit in
                         CommitLine(
-                            commit: commit, isLocal: isLocal(commit, in: branch), indent: index > 0 ? 30 : 14,
-                            open: { review(commit, of: branch) },
+                            commit: commit, isLocal: session.isLocal(commit, in: branch), indent: index > 0 ? 30 : 14,
+                            open: {
+                                history.selection = .commit(sha: commit.sha, branch: branch.name)
+                                withAnimation(.snappy(duration: 0.2)) { layout = .review }
+                            },
+                            openInWindow: { openInWindow(commit) },
                             showInHistory: {
                                 model.mode = .history
                                 session.log.reveal(commit.sha)
@@ -239,20 +268,8 @@ private struct StackCard: View {
         .opacity(isAllMerged ? 0.7 : 1)
     }
 
-    /// Commits the remote does not have: all of a never pushed branch, else what the log knows is unpushed.
-    private func isLocal(_ commit: CommitInfo, in branch: HistoryBranch) -> Bool {
-        switch branch.status {
-        case .unpushed: return true
-        case .tracking(let ahead, _):
-            return branch.commits.prefix(ahead).contains { $0.sha == commit.sha }
-        case .upToDate, .integrated: return false
-        default:
-            return session.log.commits.first { $0.id == commit.sha }.map { !$0.isPushed } ?? false
-        }
-    }
-
-    /// The commit's diff in a review window, so reviewing stays one click from the branch.
-    private func review(_ commit: CommitInfo, of branch: HistoryBranch) {
+    /// The commit's diff in a window of its own.
+    private func openInWindow(_ commit: CommitInfo) {
         Task {
             do {
                 let diffs = try await history.diff(ofCommit: commit.sha)
@@ -275,6 +292,20 @@ private struct StackCard: View {
             } catch {
                 history.branchActionError = String(describing: error)
             }
+        }
+    }
+}
+
+extension ProjectSession {
+    /// Commits the remote does not have: all of a never pushed branch, else what the log knows is unpushed.
+    func isLocal(_ commit: CommitInfo, in branch: HistoryBranch) -> Bool {
+        switch branch.status {
+        case .unpushed: return true
+        case .tracking(let ahead, _):
+            return branch.commits.prefix(ahead).contains { $0.sha == commit.sha }
+        case .upToDate, .integrated: return false
+        default:
+            return log.commits.first { $0.id == commit.sha }.map { !$0.isPushed } ?? false
         }
     }
 }
@@ -379,7 +410,7 @@ private struct BranchMoreMenu: View {
 }
 
 /// What can be done with a branch, in its ⋯ menu and context menu.
-private struct BranchMenuItems: View {
+struct BranchMenuItems: View {
     let branch: HistoryBranch
     let history: HistoryModel
 
@@ -411,6 +442,7 @@ private struct CommitLine: View {
     let isLocal: Bool
     let indent: CGFloat
     let open: () -> Void
+    let openInWindow: () -> Void
     let showInHistory: () -> Void
 
     @State private var isHovered = false
@@ -450,6 +482,7 @@ private struct CommitLine: View {
         .help("Review Commit")
         .contextMenu {
             Button("Review Commit", action: open)
+            Button("Open in New Window", action: openInWindow)
             Button("Show in History", action: showInHistory)
             Divider()
             Button("Copy SHA") {
