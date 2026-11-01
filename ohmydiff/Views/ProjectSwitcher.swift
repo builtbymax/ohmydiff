@@ -233,7 +233,6 @@ struct ProjectRow: View {
         .padding(.horizontal, 8)
         .frame(height: 40)
         .contentShape(.rect)
-        .opacity(isClean(session) && !isCurrent ? 0.55 : 1)
     }
 
     /// `3 branches · 12 changes`, `main · 2 behind`, `main · clean`, or `Client · feature/x` from another workspace.
@@ -244,7 +243,11 @@ struct ProjectRow: View {
             return [model.workspace(of: project)?.name, branch].compactMap(\.self).joined(separator: " · ")
         }
         guard session.phase == .ready else { return (project.path as NSString).abbreviatingWithTildeInPath }
-        let changes = session.changeCount == 1 ? "1 change" : "\(session.changeCount) changes"
+        let changes = switch session.changeCount {
+        case 0: "no changes"
+        case 1: "1 change"
+        default: "\(session.changeCount) changes"
+        }
         if project.kind == .gitButler {
             let count = session.branchNames.count
             return "\(count == 1 ? "1 branch" : "\(count) branches") · \(changes)"
@@ -255,10 +258,6 @@ struct ProjectRow: View {
 
     private func isBehind(_ session: ProjectSession) -> Bool {
         project.kind != .gitButler && (session.upstream?.incoming.isEmpty == false)
-    }
-
-    private func isClean(_ session: ProjectSession) -> Bool {
-        session.phase == .ready && session.changeCount == 0 && !isBehind(session)
     }
 
     private var highlightedName: AttributedString {
