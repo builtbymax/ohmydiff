@@ -213,7 +213,10 @@ private struct SidebarBranches: View {
                     ) { select(branch.name) }
                 }
                 if let unassigned = session.groups.first(where: { $0.kind == .unassigned }) {
-                    BranchRow(name: "Unassigned", systemImage: "tray", trailing: unassigned.files.isEmpty ? nil : "\(unassigned.files.count)", isSelected: false) {
+                    BranchRow(
+                        name: "Unassigned", systemImage: "tray", trailing: unassigned.files.isEmpty ? nil : "\(unassigned.files.count)",
+                        isSelected: model.mode == .changes && session.selectedFile.map { file in unassigned.files.contains { $0.id == file.id } } == true
+                    ) {
                         model.mode = .changes
                         session.select(group: unassigned.id)
                     }
@@ -250,24 +253,38 @@ private struct SidebarBranches: View {
         model.isNewBranchPresented = true
     }
 
+    /// Whether the page on screen shows the branch: its card on Branches, its tip in History, its files in Changes.
     private func isSelected(_ branch: String) -> Bool {
         switch model.mode {
-        case .history, .branches: session.history.selectedBranch?.name == branch
-        case .changes, .pullRequests: session.selectedFile.flatMap { session.assignedBranch(of: $0.path) } == branch
+        case .branches: session.history.selectedBranch?.name == branch
+        case .history: session.log.selectedCommit?.branches.contains(branch) == true
+        case .changes: session.selectedFile.flatMap { session.assignedBranch(of: $0.path) } == branch
+        case .pullRequests: false
         }
     }
 
-    /// Changes: the branch's files; elsewhere its commits in History.
+    /// Changes: the branch's files; History: its tip in the log; otherwise, and for a branch without
+    /// uncommitted files, its card on Branches. Every page then still shows what was clicked.
     private func select(_ branch: String) {
-        if model.mode == .changes, let group = session.groups.first(where: {
-            if case .stack(_, let branches) = $0.kind { return branches.contains(branch) }
-            return false
-        }) {
-            session.select(group: group.id)
-        } else {
-            if model.mode != .branches { model.mode = .history }
-            session.history.reveal(.branch(branch))
+        switch model.mode {
+        case .changes:
+            if let group = session.groups.first(where: { group in
+                guard case .stack(_, let branches) = group.kind else { return false }
+                return branches.contains(branch) && !group.files.isEmpty
+            }) {
+                session.select(group: group.id)
+                return
+            }
+        case .history:
+            if let tip = session.history.groups.lazy.flatMap(\.branches).first(where: { $0.name == branch })?.tip {
+                session.log.reveal(tip)
+                return
+            }
+        case .branches, .pullRequests:
+            break
         }
+        model.mode = .branches
+        session.history.reveal(.branch(branch))
     }
 
     private func aheadBehind(_ branch: HistoryBranch) -> String? {
