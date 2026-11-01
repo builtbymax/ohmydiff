@@ -31,7 +31,7 @@ enum SettingsPane: String, Hashable, CaseIterable, Identifiable {
         case .templates: "The prompts behind ✦ actions and the shape your commits take. Placeholders fill in from what you selected."
         case .tickets: "Link branches to tickets so commits and pull requests can use their title and description. Keys stay in your Keychain."
         case .commandLine: "Open ohmydiff from a terminal, and let coding agents read your changes or point you at a line."
-        case .shortcuts: "Everything has a key. Click a shortcut to record a new one; single letters only work while the diff has focus."
+        case .shortcuts: "Click a key to record a new one, or right-click it to remove or reset it. Single letters only work while the diff has focus."
         case .updates: "New releases install when you quit, or right away from the update bar."
         }
     }
