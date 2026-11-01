@@ -79,7 +79,8 @@ struct CommitTargetCard: View {
         }
         .onAppear {
             branch = session.suggestedBranch(for: request.targets)
-            isNewBranch = session.commitBranches.isEmpty
+            isNewBranch = session.commitBranches.isEmpty || request.fromComposer
+            if request.fromComposer { message = session.commitDraft.message }
             focus = isNewBranch ? .branchName : .message
         }
         .task {
@@ -437,6 +438,7 @@ struct CommitTargetCard: View {
         Task {
             do {
                 try await session.run(.commit, on: request.targets, branch: branch, stackedOn: anchor, message: message)
+                if request.fromComposer { session.commitDraft.message = "" }
                 dismiss()
             } catch {
                 if case ChangeActionError.dependsOn(let anchor) = error {

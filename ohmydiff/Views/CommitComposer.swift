@@ -127,6 +127,9 @@ struct CommitComposer: View {
                     if session.branchNames.isEmpty {
                         Text("No applied branches")
                     }
+                    Divider()
+                    Button("New Branch…") { openCard() }
+                        .disabled(cardTargets.isEmpty)
                 } label: {
                     HStack(spacing: 4) {
                         Chip(branch.isEmpty ? "Pick a branch" : branch, systemImage: "arrow.triangle.branch", isEmphasized: true)
@@ -146,6 +149,23 @@ struct CommitComposer: View {
                     .foregroundStyle(Theme.textTertiary)
                 let count = targets.count
                 Chip(count == 0 ? "nothing staged" : "\(count) staged", systemImage: count == 0 ? nil : "checkmark", tone: count == 0 ? .neutral : .ok)
+                if let branch = session.currentBranch {
+                    Text("to")
+                        .font(.caption11)
+                        .foregroundStyle(Theme.textTertiary)
+                    Button(action: openCard) {
+                        HStack(spacing: 4) {
+                            Chip(branch, systemImage: "arrow.triangle.branch", isEmphasized: true)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(Theme.textTertiary)
+                                .frame(width: 12, height: 12)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(targets.isEmpty)
+                    .help("Commit to another or a new branch")
+                }
             }
             Spacer(minLength: 0)
         }
@@ -256,8 +276,22 @@ struct CommitComposer: View {
         return files.map { ChangeTarget(file: $0) }
     }
 
+    /// What the commit card commits: the composer's targets, else the selected files.
+    private var cardTargets: [ChangeTarget] {
+        targets.isEmpty ? session.selectedFiles.map { ChangeTarget(file: $0) } : targets
+    }
+
+    /// The commit card for these changes, starting from the composer's message, e.g. for a new branch.
+    private func openCard() {
+        let targets = cardTargets
+        guard session.supports(.commit, on: targets) else { return }
+        session.actionRequest = ProjectSession.ActionRequest(action: .commit, targets: targets, fromComposer: true)
+    }
+
     private var canCommit: Bool {
-        !branch.isEmpty && draft.hasMessage && !targets.isEmpty && !session.isPerformingAction && session.supports(.commit, on: targets)
+        // Not while the commit card is open: it owns ⌘↩ then.
+        !branch.isEmpty && draft.hasMessage && !targets.isEmpty && !session.isPerformingAction && session.actionRequest == nil
+            && session.supports(.commit, on: targets)
     }
 
     private func generate() {
