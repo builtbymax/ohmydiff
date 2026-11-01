@@ -155,7 +155,8 @@ struct FileTab: View {
                 .font(.statusLetter)
                 .foregroundStyle(Theme.changeColor(file.kind))
             Text((file.path as NSString).lastPathComponent)
-                .font(.control.weight(isSelected ? .medium : .regular))
+                // One weight, so the tabs keep their width as the selection moves.
+                .font(.control.weight(.medium))
                 .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textTertiary)
                 .lineLimit(1)
             if let onClose {
