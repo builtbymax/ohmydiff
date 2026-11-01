@@ -206,7 +206,7 @@ private struct WorkspaceRow: View {
         HStack(spacing: 10) {
             ProjectAvatar(name: workspace.name, isCurrent: isCurrent)
             Text(workspace.name)
-                .font(.row.weight(isCurrent ? .medium : .regular))
+                .font(.row)
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
             Spacer(minLength: 8)

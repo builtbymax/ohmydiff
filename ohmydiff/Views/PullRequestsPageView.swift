@@ -168,7 +168,7 @@ private struct InboxRow: View {
                 .frame(width: 30, alignment: .trailing)
         }
         .padding(.horizontal, 12)
-        .frame(height: 56)
+        .rowHeight(56)
         .background(isSelected ? Theme.selected : isHovered ? Theme.hover : .clear, in: .rect(cornerRadius: 9))
         .contentShape(.rect(cornerRadius: 9))
         .onHover { isHovered = $0 }

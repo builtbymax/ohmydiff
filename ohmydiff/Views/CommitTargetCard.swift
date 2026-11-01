@@ -472,7 +472,7 @@ private struct BranchTargetRow: View {
                     .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
                     .frame(width: 14, height: 14)
                 Text(name)
-                    .font(isSelected ? .row.weight(.medium) : .row)
+                    .font(.row)
                     .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)

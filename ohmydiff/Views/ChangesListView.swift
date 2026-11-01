@@ -366,7 +366,7 @@ private struct ChangeGroupHeader: View {
             .font(.control.weight(.medium))
             .foregroundStyle(Theme.textSecondary)
             .padding(.horizontal, 8)
-            .frame(height: Theme.rowHeight(28))
+            .rowHeight(28)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -420,7 +420,7 @@ struct FileRow: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(height: Theme.rowHeight(28))
+        .rowHeight(28)
         .contentShape(.rect)
         .hoverCard {
             FileHoverCard(path: path, previousPath: previousPath, kind: kind, stats: stats, badge: badge)
