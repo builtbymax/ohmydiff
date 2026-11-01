@@ -92,13 +92,16 @@ struct SettingsView: View {
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.lineSubtle))
             .padding([.vertical, .trailing], 8)
         }
+        // Fills the whole window, title bar included; a fixed height under `ignoresSafeArea` left the title
+        // bar's height as a gap below the panes.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.sidebar)
+        .background { TitlelessWindow() }
+        .ignoresSafeArea()
         .frame(width: 1040, height: 700)
         .containerBackground(Theme.sidebar, for: .window)
-        .background(Theme.sidebar.ignoresSafeArea())
-        .background { TitlelessWindow() }
         .toolbar(removing: .title)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-        .ignoresSafeArea()
         // Also here, so the theme switches at once even while the main window is closed.
         .onChange(of: appearance) { appearance.apply() }
     }
