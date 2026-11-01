@@ -25,13 +25,13 @@ enum WorkspaceMode: String, CaseIterable, Identifiable {
         }
     }
 
-    /// ⌘1–⌘4.
-    var shortcut: KeyEquivalent {
+    /// ⌘1–⌘4 unless changed in Settings → Shortcuts.
+    var shortcutAction: ShortcutAction {
         switch self {
-        case .changes: "1"
-        case .branches: "2"
-        case .pullRequests: "3"
-        case .history: "4"
+        case .changes: .changes
+        case .branches: .branches
+        case .pullRequests: .pullRequests
+        case .history: .history
         }
     }
 }

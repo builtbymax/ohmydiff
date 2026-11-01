@@ -8,7 +8,7 @@ enum SettingsPane: String, Hashable, CaseIterable, Identifiable {
     var id: Self { self }
 
     /// The panes built so far, in sidebar order.
-    static let available: [SettingsPane] = [.general, .appearance, .ai, .templates, .tickets, .commandLine, .updates]
+    static let available: [SettingsPane] = [.general, .appearance, .ai, .templates, .tickets, .commandLine, .shortcuts, .updates]
 
     var title: String {
         switch self {
@@ -78,7 +78,7 @@ struct SettingsView: View {
                         case .tickets: TicketSettings()
                         case .commandLine: CommandLineSettings()
                         case .updates: UpdateSettings(updater: .shared)
-                        case .shortcuts: EmptyView()
+                        case .shortcuts: ShortcutSettings()
                         }
                     }
                 }

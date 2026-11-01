@@ -575,26 +575,26 @@ private struct HunkBar: View {
                 divider
             }
             if let primary = actions.first(where: { $0 == .commit || $0 == .stage }) ?? actions.first(where: { $0 == .unstage }) {
-                action(primary, title: Self.title(for: primary), key: primary == .unstage ? "U" : "S", isPrimary: true)
+                action(primary, title: Self.title(for: primary), key: Shortcuts.label(primary == .unstage ? .unstageHunk : .stageHunk).uppercased(), isPrimary: true)
             }
             if actions.contains(.unstage), actions.contains(where: { $0 == .stage || $0 == .commit }) {
-                action(.unstage, title: "Unstage", key: "U", isPrimary: false)
+                action(.unstage, title: "Unstage", key: Shortcuts.label(.unstageHunk).uppercased(), isPrimary: false)
             }
             if actions.contains(.discard) {
-                action(.discard, title: "Discard", key: "⌫", isPrimary: false)
+                action(.discard, title: "Discard", key: Shortcuts.label(.discardHunk).uppercased(), isPrimary: false)
             }
             if let onExplain {
                 Button(action: onExplain) {
-                    label("Explain", systemImage: "sparkles", key: "E", isPrimary: false)
+                    label("Explain", systemImage: "sparkles", key: Shortcuts.label(.explainHunk).uppercased(), isPrimary: false)
                 }
                 .buttonStyle(.hover(cornerRadius: 8))
                 .focusEffectDisabled()
             }
             divider
-            IconButton("Previous Hunk  P", systemImage: "chevron.up", tooltipEdge: .top) {
+            IconButton("Previous Hunk  \(Shortcuts.label(.previousHunk).uppercased())", systemImage: "chevron.up", tooltipEdge: .top) {
                 NotificationCenter.default.post(name: .jumpToHunk, object: -1)
             }
-            IconButton("Next Hunk  N", systemImage: "chevron.down", tooltipEdge: .top) {
+            IconButton("Next Hunk  \(Shortcuts.label(.nextHunk).uppercased())", systemImage: "chevron.down", tooltipEdge: .top) {
                 NotificationCenter.default.post(name: .jumpToHunk, object: 1)
             }
         }
