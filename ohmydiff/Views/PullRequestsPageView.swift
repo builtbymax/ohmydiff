@@ -68,9 +68,12 @@ struct PullRequestsPageView: View {
                         .padding(.leading, 12)
                         .padding(.top, 8)
                         .frame(height: 32, alignment: .leading)
-                        ForEach(section.items) { item in
-                            InboxRow(item: item, inbox: inbox, isSelected: inbox.selectedNumber == item.number) {
-                                inbox.selectedNumber = item.number
+                        // A small gap, so the hover and selection fills of neighbours do not touch.
+                        VStack(spacing: 2) {
+                            ForEach(section.items) { item in
+                                InboxRow(item: item, inbox: inbox, isSelected: inbox.selectedNumber == item.number) {
+                                    inbox.selectedNumber = item.number
+                                }
                             }
                         }
                     }
