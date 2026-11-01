@@ -29,6 +29,7 @@ enum Entry {
 
 struct OhMyDiffApp: App {
     @State private var model = AppModel()
+    @NSApplicationDelegateAdaptor private var delegate: AppDelegate
 
     init() {
         Updater.shared.start()
@@ -63,5 +64,17 @@ struct OhMyDiffApp: App {
         Settings {
             SettingsView()
         }
+    }
+}
+
+/// Brings the main window back when the Dock icon is clicked with no window open.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Set by the menu commands, which have SwiftUI's `openWindow`.
+    @MainActor static var openMainWindow: (() -> Void)?
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        guard !hasVisibleWindows else { return true }
+        MainActor.assumeIsolated { Self.openMainWindow?() }
+        return false
     }
 }
