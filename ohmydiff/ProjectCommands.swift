@@ -17,6 +17,7 @@ struct ProjectCommands: Commands {
     @FocusedValue(\.diffFile) private var diffFile
     @FocusedValue(\.diffPopout) private var diffPopout
     @FocusedValue(\.diffPrompt) private var diffPrompt
+    @FocusedValue(\.isMainWindow) private var isMainWindow
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
@@ -45,6 +46,27 @@ struct ProjectCommands: Commands {
             }
             .keyboardShortcut(Shortcuts.keyboardShortcut(.openDiffWindow))
             .disabled(diffPopout == nil)
+        }
+
+        // ⌘W closes the open file's tab in the main window, like an editor; the window closes with ⇧⌘W.
+        CommandGroup(replacing: .saveItem) {
+            let session = isMainWindow == true && model.mode == .changes ? model.selectedSession : nil
+            if let session, let tab = session.selectedTab {
+                Button("Close Tab") { session.closeTab(tab) }
+                    .keyboardShortcut("w", modifiers: .command)
+                Button("Close Window") { NSApp.keyWindow?.performClose(nil) }
+                    .keyboardShortcut("w", modifiers: [.command, .shift])
+            } else {
+                Button("Close") { NSApp.keyWindow?.performClose(nil) }
+                    .keyboardShortcut("w", modifiers: .command)
+            }
+            Divider()
+            Button("Show Next Tab") { session?.selectAdjacentTab(1) }
+                .keyboardShortcut(.tab, modifiers: .control)
+                .disabled((session?.tabFiles.count ?? 0) < 2)
+            Button("Show Previous Tab") { session?.selectAdjacentTab(-1) }
+                .keyboardShortcut(.tab, modifiers: [.control, .shift])
+                .disabled((session?.tabFiles.count ?? 0) < 2)
         }
 
         CommandGroup(after: .pasteboard) {
@@ -178,4 +200,9 @@ struct ProjectCommands: Commands {
         case .system: NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         }
     }
+}
+
+extension FocusedValues {
+    /// Set while the main window is key, so ⌘W closes a tab there and the window elsewhere.
+    @Entry var isMainWindow: Bool?
 }

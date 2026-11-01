@@ -75,8 +75,7 @@ private struct ChangesTopBar: View {
     }
 }
 
-/// An open file: its change letter and name.
-/// The files opened lately as tabs, newest kept; the ones that do not fit go in a `+N` menu.
+/// The files opened lately as tabs, newest kept; the ones that do not fit go in an overflow list.
 private struct FileTabs: View {
     let session: ProjectSession
 
@@ -92,7 +91,7 @@ private struct FileTabs: View {
     /// The selected tab always shows; the rest fill up from the newest.
     private func row(_ files: [ChangedFile], shown: Int) -> some View {
         let visible = visibleFiles(files, count: shown)
-        let hidden = files.filter { file in !visible.contains { $0.id == file.id } }
+        let hiddenCount = files.count - visible.count
         return HStack(spacing: 2) {
             ForEach(visible) { file in
                 FileTab(file: file, isSelected: file.id == session.selectedFileID) {
@@ -100,23 +99,9 @@ private struct FileTabs: View {
                 }
                 .onTapGesture { session.selectedFileID = file.id }
             }
-            if !hidden.isEmpty {
-                Menu {
-                    ForEach(hidden) { file in
-                        Button((file.path as NSString).lastPathComponent) { session.selectedFileID = file.id }
-                    }
-                } label: {
-                    Text("+\(hidden.count)")
-                        .font(.detail)
-                        .foregroundStyle(Theme.textTertiary)
-                        .padding(.horizontal, 4)
-                        .frame(height: 30)
-                        .contentShape(.rect)
-                }
-                .menuStyle(.button)
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
-                .fixedSize()
+            if hiddenCount > 0 {
+                TabOverflowButton(session: session, files: files, hiddenCount: hiddenCount)
+                    .padding(.leading, 2)
             }
         }
         .fixedSize()
@@ -133,12 +118,14 @@ private struct FileTabs: View {
     }
 }
 
+/// An open file: its change letter and name. The selected tab sits raised; hovered ones get a fill.
 struct FileTab: View {
     let file: ChangedFile
     let isSelected: Bool
     var onClose: (() -> Void)?
 
     @State private var isHovered = false
+    @State private var isCloseHovered = false
 
     var body: some View {
         HStack(spacing: 7) {
@@ -148,27 +135,180 @@ struct FileTab: View {
             Text((file.path as NSString).lastPathComponent)
                 // One weight, so the tabs keep their width as the selection moves.
                 .font(.control.weight(.medium))
-                .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textTertiary)
+                .foregroundStyle(isSelected ? Theme.textPrimary : isHovered ? Theme.textSecondary : Theme.textTertiary)
                 .lineLimit(1)
             if let onClose {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Theme.textTertiary)
-                        .frame(width: 12, height: 12)
+                        .font(.system(size: 8.5, weight: .bold))
+                        .foregroundStyle(isCloseHovered ? Theme.textPrimary : Theme.textTertiary)
+                        .frame(width: 16, height: 16)
+                        .background(isCloseHovered ? Theme.selected : .clear, in: .rect(cornerRadius: 4))
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
+                .onHover { isCloseHovered = $0 }
                 // Room is kept so tabs do not shift; the ✕ shows on the selected and hovered tab.
                 .opacity(isSelected || isHovered ? 1 : 0)
-                .help("Close Tab")
+                .help("Close Tab  ⌘W")
+                .padding(.trailing, -4)
             }
         }
         .padding(.horizontal, 10)
         .frame(height: 30)
-        .background(isSelected ? Theme.selected : isHovered ? Theme.hover : .clear, in: .rect(cornerRadius: 8))
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isSelected ? Theme.raised : isHovered ? Theme.hover : .clear)
+                .overlay {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.line, lineWidth: 0.5)
+                    }
+                }
+                .shadow(color: .black.opacity(isSelected ? 0.06 : 0), radius: 1, y: 0.5)
+        }
         .contentShape(.rect(cornerRadius: 8))
         .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+    }
+}
+
+/// `⌄ 3`: the tabs that do not fit; opens a list of every open tab to switch to or close.
+private struct TabOverflowButton: View {
+    let session: ProjectSession
+    let files: [ChangedFile]
+    let hiddenCount: Int
+
+    @State private var isPresented = false
+
+    var body: some View {
+        Button { isPresented.toggle() } label: {
+            HStack(spacing: 4) {
+                Text("+\(hiddenCount)")
+                    .font(.detail.weight(.medium))
+                    .monospacedDigit()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8.5, weight: .bold))
+            }
+            .foregroundStyle(isPresented ? Theme.textPrimary : Theme.textSecondary)
+            .padding(.horizontal, 8)
+            .frame(height: 30)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.hover(cornerRadius: 8, isSelected: isPresented))
+        .fixedSize()
+        .focusEffectDisabled()
+        .glassTooltip("Show All Tabs")
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            OpenTabsPanel(session: session, files: files) { isPresented = false }
+        }
+    }
+}
+
+/// Every open tab, newest first, with arrows, return and escape like the launcher.
+private struct OpenTabsPanel: View {
+    let session: ProjectSession
+    let files: [ChangedFile]
+    let dismiss: () -> Void
+
+    @State private var highlighted: ChangedFile.ID?
+
+    private var ordered: [ChangedFile] { files.reversed() }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Open Tabs")
+                .font(.caption11.weight(.medium))
+                .foregroundStyle(Theme.textTertiary)
+                .padding(.horizontal, 8)
+                .padding(.top, 2)
+                .padding(.bottom, 4)
+            ScrollView {
+                VStack(spacing: 2) {
+                    ForEach(ordered) { file in
+                        OpenTabRow(
+                            file: file,
+                            isSelected: file.id == session.selectedFileID,
+                            isHighlighted: file.id == highlighted,
+                            choose: { choose(file) },
+                            close: { session.closeTab(file.id) })
+                        .onHover { if $0 { highlighted = file.id } }
+                    }
+                }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxHeight: 360)
+        }
+        .padding(6)
+        .frame(width: 320)
+        .onAppear { highlighted = session.selectedFileID ?? ordered.first?.id }
+        .paletteKeys(
+            up: { move(-1) }, down: { move(1) },
+            choose: { ordered.first { $0.id == highlighted }.map(choose) },
+            dismiss: dismiss)
+    }
+
+    private func choose(_ file: ChangedFile) {
+        session.selectedFileID = file.id
+        dismiss()
+    }
+
+    private func move(_ offset: Int) {
+        let ids = ordered.map(\.id)
+        guard !ids.isEmpty else { return }
+        let index = highlighted.flatMap(ids.firstIndex(of:)) ?? 0
+        highlighted = ids[(index + offset + ids.count) % ids.count]
+    }
+}
+
+private struct OpenTabRow: View {
+    let file: ChangedFile
+    let isSelected: Bool
+    let isHighlighted: Bool
+    let choose: () -> Void
+    let close: () -> Void
+
+    var body: some View {
+        Button(action: choose) {
+            HStack(spacing: 8) {
+                Text(FileBadge(kind: file.kind).letter)
+                    .font(.statusLetter)
+                    .foregroundStyle(Theme.changeColor(file.kind))
+                    .frame(width: 12)
+                Text((file.path as NSString).lastPathComponent)
+                    .font(.control.weight(.medium))
+                    .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Text((file.path as NSString).deletingLastPathComponent)
+                    .font(.detail)
+                    .foregroundStyle(Theme.textTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                Spacer(minLength: 4)
+                if isHighlighted {
+                    Button(action: close) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundStyle(Theme.textTertiary)
+                            .frame(width: 16, height: 16)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.hover(cornerRadius: 4))
+                    .help("Close Tab")
+                } else if isSelected {
+                    Circle()
+                        .fill(Theme.textSecondary)
+                        .frame(width: 5, height: 5)
+                        .frame(width: 16, height: 16)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 30)
+            .background(isHighlighted ? Theme.hover : .clear, in: .rect(cornerRadius: 7))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
     }
 }
 
