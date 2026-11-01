@@ -585,9 +585,8 @@ struct ProviderIcon: View {
     var body: some View {
         mark
             .frame(width: size, height: size)
-            .background(background, in: .rect(cornerRadius: size / 4))
+            .background { RoundedRectangle(cornerRadius: size / 4).fill(background).shadow(color: .black.opacity(0.15), radius: 2, y: 1) }
             .overlay(RoundedRectangle(cornerRadius: size / 4).strokeBorder(.white.opacity(0.18)))
-            .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
     }
 
     @ViewBuilder private var mark: some View {

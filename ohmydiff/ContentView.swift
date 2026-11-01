@@ -146,7 +146,7 @@ struct ContentView: View {
         .background(Theme.canvas)
         .clipShape(.rect(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.lineSubtle))
-        .shadow(color: .black.opacity(0.06), radius: 1.5, y: 1)
+        .background { RoundedRectangle(cornerRadius: 12).fill(Theme.canvas).shadow(color: Theme.cardShadow, radius: 1.5, y: 1) }
     }
 
     @ViewBuilder

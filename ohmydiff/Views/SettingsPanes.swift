@@ -174,9 +174,12 @@ struct SettingsTile<Content: View>: View {
         Button(action: action) {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(isSelected ? Theme.surface : .clear, in: .rect(cornerRadius: 12))
+                .background {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 12).fill(Theme.surface).shadow(color: Theme.cardShadow, radius: 2.5, y: 3)
+                    }
+                }
                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(isSelected ? Theme.lineStrong : Theme.line))
-                .shadow(color: .black.opacity(isSelected ? 0.12 : 0), radius: 2.5, y: 3)
                 .contentShape(.rect(cornerRadius: 12))
         }
         .buttonStyle(.plain)
