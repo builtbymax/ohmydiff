@@ -9,8 +9,8 @@ struct BranchPanel: View {
     let session: ProjectSession
     let branch: HistoryBranch
 
-    @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
+    @AppStorage(AppSettings.branchesLayoutKey) private var layout = BranchesLayout.overview
     @State private var ticket: Ticket?
     @State private var suggestions: Suggestions?
 
@@ -244,18 +244,10 @@ struct BranchPanel: View {
         return !diffs.isEmpty
     }
 
-    /// The branch's whole diff in a review window.
+    /// The branch's whole diff in the review layout, beside the list of branches.
     private func review() {
-        guard canReview, case .loaded(let diffs) = history.files, let first = diffs.first, let base = branch.base else { return }
-        let snapshot = DiffSnapshot(
-            project: session.project.displayName, context: "\(branch.name) · \(branch.commits.count) commits", root: session.rootURL,
-            files: diffs.map { diff in
-                DiffSnapshot.File(diff: diff, sources: (
-                    diff.oldPath.map { RevisionFile(revision: base, path: $0) },
-                    diff.newPath.map { RevisionFile(revision: branch.tip, path: $0) }))
-            },
-            selectedID: first.id, highlights: [:], promptContext: nil)
-        openWindow(id: DiffWindow.id, value: model.register(.snapshot(snapshot)))
+        guard canReview else { return }
+        withAnimation(.snappy(duration: 0.2)) { layout = .review }
     }
 
     // MARK: Drafting
