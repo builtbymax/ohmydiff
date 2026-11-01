@@ -12,7 +12,7 @@ A native macOS diff viewer for git and [GitButler](https://gitbutler.com) worksp
 
 [**Download**](https://github.com/builtbymax/ohmydiff/releases/latest) · [Releases](https://github.com/builtbymax/ohmydiff/releases) · [Issues](https://github.com/builtbymax/ohmydiff/issues)
 
-<img src=".github/assets/screenshot.jpg" alt="ohmydiff showing an uncommitted hunk in a git repository" width="900">
+<img src=".github/assets/screenshot.png" alt="ohmydiff app design showing split diffs, branches, and an inline AI explanation" width="900">
 
 </div>
 
