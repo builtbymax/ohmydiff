@@ -391,7 +391,7 @@ final class AppModel {
             guard let session = await focusProject(containing: URL(fileURLWithPath: path, isDirectory: true)) else { return }
             mode = .branches
             session.history.reveal(.branch(name))
-            await session.refreshHistory()
+            await session.refreshHistory(force: true)
         case .commit(let path, let sha):
             guard let session = await focusProject(containing: URL(fileURLWithPath: path, isDirectory: true)) else { return }
             mode = .history

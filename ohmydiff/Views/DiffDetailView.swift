@@ -35,8 +35,7 @@ struct DiffDetailView: View {
     private func content(_ content: ProjectSession.DiffState.Content, file: ChangedFile) -> some View {
         switch content {
         case .loading:
-            ProgressView()
-                .controlSize(.small)
+            DelayedProgress()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .noDifference:
             EmptyState("No Differences", systemImage: "equal", description: "\(file.path) matches the last commit.")
@@ -176,11 +175,16 @@ struct FileDiffView: View {
         }
         .task(id: prefersWholeFile && DiffSettings.canShowWholeFile(diff) ? diff : nil) {
             guard prefersWholeFile, DiffSettings.canShowWholeFile(diff), wholeFile?.source != diff else { return }
-            let old = await contents(.old)
-            let new = await contents(.new)
-            guard !Task.isCancelled, let expanded = await DiffHighlighting.wholeFile(for: diff, old: old, new: new),
+            if let cached = WholeFileCache.expansion(of: diff) {
+                wholeFile = (diff, cached.diff, cached.highlights)
+                return
+            }
+            let oldData = await contents(.old)
+            let newData = await contents(.new)
+            guard !Task.isCancelled, let expanded = await DiffHighlighting.wholeFile(for: diff, old: oldData, new: newData),
                   !Task.isCancelled
             else { return }
+            WholeFileCache.store(expanded, for: diff)
             wholeFile = (diff, expanded.diff, expanded.highlights)
         }
     }
@@ -249,8 +253,10 @@ struct FileDiffView: View {
 
     /// The whole file when it is wanted and loaded for the current diff.
     private var shownWholeFile: (diff: FileDiff, highlights: SyntaxHighlights?)? {
-        guard prefersWholeFile, let wholeFile, wholeFile.source == diff else { return nil }
-        return (wholeFile.diff, wholeFile.highlights)
+        guard prefersWholeFile else { return nil }
+        if let wholeFile, wholeFile.source == diff { return (wholeFile.diff, wholeFile.highlights) }
+        // Seen lately: show the expansion in the same frame as the diff, without a changes-only flash.
+        return WholeFileCache.expansion(of: diff)
     }
 
     /// Whether the diff rows are shown, rather than a placeholder.

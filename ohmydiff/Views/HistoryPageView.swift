@@ -45,7 +45,7 @@ struct HistoryPageView: View {
     private var list: some View {
         switch log.phase {
         case .idle:
-            ProgressView().controlSize(.small)
+            DelayedProgress()
         case .failed(let message):
             EmptyState("Could not load the history", systemImage: "exclamationmark.triangle", description: message) {
                 Button("Try again") { Task { await session.refreshLog() } }
@@ -370,7 +370,7 @@ private struct CommitInspector: View {
     private func files(_ commit: LogCommit) -> some View {
         switch log.files {
         case .loading, nil:
-            ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(20)
+            DelayedProgress().frame(maxWidth: .infinity).padding(20)
         case .failed(let message):
             Text(message).font(.detail).foregroundStyle(Theme.delFg).padding(20)
         case .loaded(let diffs):

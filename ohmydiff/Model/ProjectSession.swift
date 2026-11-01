@@ -86,6 +86,9 @@ final class ProjectSession {
     /// Plain git: the checked-out branch, which commits go to; `nil` on a detached HEAD or for GitButler.
     private(set) var currentBranch: String?
     @ObservationIgnored private var fetchLoop: Task<Void, Never>?
+    /// What `refreshHistory` last loaded for.
+    @ObservationIgnored private var historyFingerprint: String?
+    @ObservationIgnored private var historyRefreshed: Date?
 
     var selectedFileID: ChangedFile.ID? {
         didSet {
@@ -252,9 +255,15 @@ final class ProjectSession {
         history.close()
     }
 
-    /// Reloads History mode's branches; a no-op until the first refresh opened the repository.
-    func refreshHistory() async {
+    /// Reloads History mode's branches; a no-op until the first refresh opened the repository. Unless forced, only
+    /// when refs moved since the last time, or a minute went by for what refs don't show, e.g. pull requests.
+    func refreshHistory(force: Bool = false) async {
         guard let repository else { return }
+        let fingerprint = await repository.refsFingerprint()
+        let isStale = historyRefreshed.map { Date.now.timeIntervalSince($0) > 60 } ?? true
+        guard force || isStale || fingerprint == nil || fingerprint != historyFingerprint else { return }
+        historyFingerprint = fingerprint
+        historyRefreshed = .now
         await history.refresh(repository)
         if log.isActive { await log.refresh(repository) }
     }
@@ -688,7 +697,10 @@ final class ProjectSession {
     /// Replaces the groups, keeping the selection on the same file where possible.
     private func apply(_ newGroups: [ChangeGroup]) {
         let previous = groups
-        if newGroups != previous { groups = newGroups }
+        if newGroups != previous {
+            groups = newGroups
+            pruneDiffCache()
+        }
         if !extraSelectedFileIDs.isEmpty {
             extraSelectedFileIDs.formIntersection(newGroups.allFiles.map(\.id))
         }
@@ -707,48 +719,119 @@ final class ProjectSession {
             diff = nil
             return
         }
-        // Keep showing the current diff while the same file reloads, so live refreshes do not flash.
-        if diff?.fileID != file.id { diff = DiffState(fileID: file.id, content: .loading) }
+        let ignoresWhitespace = Self.ignoresWhitespace
+        let key = DiffCacheKey(fileID: file.id, ignoresWhitespace: ignoresWhitespace)
+        // A file seen lately shows at once from the cache and is checked again below; others show loading.
+        // The same file reloading keeps what it shows, so live refreshes do not flash.
+        if diff?.fileID != file.id || diff?.ignoresWhitespace != ignoresWhitespace {
+            diff = diffCache[key] ?? DiffState(fileID: file.id, content: .loading, ignoresWhitespace: ignoresWhitespace)
+        }
         // Before the first refresh opens the repository; that refresh calls back here.
         guard let repository else { return }
 
-        let ignoresWhitespace = Self.ignoresWhitespace
         diffTask = Task {
-            let content: DiffState.Content
-            do {
-                content = try await repository.diff(for: file, ignoringWhitespace: ignoresWhitespace).map(DiffState.Content.diff) ?? .noDifference
-            } catch is CancellationError {
-                return
-            } catch {
-                content = .failed(String(describing: error))
+            let state = await Self.loadState(of: file, repository: repository, ignoresWhitespace: ignoresWhitespace) { [weak self] plain in
+                // Highlights are slow for this file: show the plain diff instead of loading, never over shown content.
+                guard let self, self.selectedFileID == file.id, self.diff?.content == .loading else { return }
+                self.diff = plain
             }
-            guard !Task.isCancelled, selectedFileID == file.id else { return }
-
-            var state = DiffState(fileID: file.id, content: content, ignoresWhitespace: ignoresWhitespace)
-            if case .diff(let fileDiff) = content, !ignoresWhitespace {
+            guard let state, !Task.isCancelled, selectedFileID == file.id else { return }
+            if case .diff(let fileDiff) = state.content, !ignoresWhitespace {
                 let sizes = fileDiff.hunks.map(\.size)
                 if hunkSizes[file.id] != sizes { hunkSizes[file.id] = sizes }
             }
-            guard case .diff(let fileDiff) = content, let language = SyntaxLanguage(path: fileDiff.path), !fileDiff.isBinary else {
-                if state != diff { diff = state }
-                return
-            }
-            if let current = diff, current.fileID == file.id, current.content == content, current.highlights != nil {
-                // Unchanged; keep the highlights already shown.
-                return
-            }
-            // A newly selected file shows its diff at once and gains colors when they are ready. A
-            // reload of the shown file waits for them, so a live refresh does not flash uncolored.
-            let isReload = diff?.fileID == file.id && diff?.content != .loading
-            if !isReload { diff = state }
+            storeInCache(state, key: key)
+            if state != diff { diff = state }
+            prefetchNeighbors(of: file, repository: repository, ignoresWhitespace: ignoresWhitespace)
+        }
+    }
 
-            let highlights = await DiffHighlighting.highlights(for: fileDiff, language: language) { side in
+    // MARK: - Diff cache
+
+    private struct DiffCacheKey: Hashable {
+        var fileID: ChangedFile.ID
+        var ignoresWhitespace: Bool
+    }
+
+    /// Diffs with their colors, most recent last; shown at once when a file is selected again.
+    @ObservationIgnored private var diffCache: [DiffCacheKey: DiffState] = [:]
+    @ObservationIgnored private var diffCacheOrder: [DiffCacheKey] = []
+    @ObservationIgnored private var prefetchTask: Task<Void, Never>?
+    private static let diffCacheLimit = 40
+
+    private func storeInCache(_ state: DiffState, key: DiffCacheKey) {
+        guard state.content != .loading else { return }
+        diffCache[key] = state
+        diffCacheOrder.removeAll { $0 == key }
+        diffCacheOrder.append(key)
+        while diffCacheOrder.count > Self.diffCacheLimit { diffCache[diffCacheOrder.removeFirst()] = nil }
+    }
+
+    /// Drops cached diffs of files no longer changed.
+    private func pruneDiffCache() {
+        let ids = Set(groups.lazy.flatMap(\.files).map(\.id))
+        diffCacheOrder.removeAll { key in
+            guard !ids.contains(key.fileID) else { return false }
+            diffCache[key] = nil
+            return true
+        }
+    }
+
+    /// Loads the files above and below the selected one in the background, so moving through the list is instant.
+    private func prefetchNeighbors(of file: ChangedFile, repository: Repository, ignoresWhitespace: Bool) {
+        prefetchTask?.cancel()
+        let files = groups.flatMap(\.files)
+        guard let index = files.firstIndex(where: { $0.id == file.id }) else { return }
+        let neighbors = [index + 1, index - 1, index + 2].filter(files.indices.contains).map { files[$0] }
+            .filter { diffCache[DiffCacheKey(fileID: $0.id, ignoresWhitespace: ignoresWhitespace)] == nil }
+        guard !neighbors.isEmpty else { return }
+        prefetchTask = Task(priority: .utility) { [weak self] in
+            for neighbor in neighbors {
+                guard !Task.isCancelled,
+                      let state = await Self.loadState(of: neighbor, repository: repository, ignoresWhitespace: ignoresWhitespace, showPlain: { _ in }),
+                      !Task.isCancelled
+                else { return }
+                self?.storeInCache(state, key: DiffCacheKey(fileID: neighbor.id, ignoresWhitespace: ignoresWhitespace))
+            }
+        }
+    }
+
+    /// A file's diff with its syntax colors. Colors that take longer than a moment arrive after `showPlain`
+    /// got the diff without them, so text never waits on highlighting.
+    private static func loadState(
+        of file: ChangedFile, repository: Repository, ignoresWhitespace: Bool, showPlain: @escaping (DiffState) -> Void
+    ) async -> DiffState? {
+        let content: DiffState.Content
+        do {
+            content = try await repository.diff(for: file, ignoringWhitespace: ignoresWhitespace).map(DiffState.Content.diff) ?? .noDifference
+        } catch is CancellationError {
+            return nil
+        } catch {
+            content = .failed(String(describing: error))
+        }
+        var state = DiffState(fileID: file.id, content: content, ignoresWhitespace: ignoresWhitespace)
+        guard case .diff(let fileDiff) = content, !fileDiff.isBinary, let language = SyntaxLanguage(path: fileDiff.path) else { return state }
+        let highlighting = Task {
+            await DiffHighlighting.highlights(for: fileDiff, language: language) { side in
                 try? await repository.contents(of: file, side: side, limit: SyntaxHighlighter.maximumLength)
             }
-            guard !Task.isCancelled, selectedFileID == file.id else { return }
-            state.highlights = highlights
-            if state != diff { diff = state }
         }
+        // Wait a moment so text and colors usually appear together.
+        let waited = Task {
+            try? await Task.sleep(for: .milliseconds(90))
+            return true
+        }
+        let isQuick = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { _ = await highlighting.value; return true }
+            group.addTask { _ = await waited.value; return false }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        if !isQuick { showPlain(state) }
+        state.highlights = await withTaskCancellationHandler { await highlighting.value } onCancel: { highlighting.cancel() }
+        guard !Task.isCancelled else { return nil }
+        return state
     }
 
     // MARK: - Watching
