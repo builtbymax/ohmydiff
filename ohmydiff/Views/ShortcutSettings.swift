@@ -11,7 +11,7 @@ struct ShortcutSettings: View {
 
     var body: some View {
         let _ = stored
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 22) {
             HStack(spacing: 8) {
                 SettingsInput(placeholder: "Search actions or keys", text: $search, trailingImage: "magnifyingglass")
                     .frame(width: 232)
@@ -28,26 +28,11 @@ struct ShortcutSettings: View {
                 .buttonStyle(.pill(.ghost))
                 .disabled(Shortcuts.overrides().isEmpty)
             }
-            HStack(alignment: .top, spacing: 12) {
-                column([.moveAround, .review])
-                column([.branches, .window])
-            }
-            Text("Project 1–9 (⌃1–⌃9), workspaces (⌃⌘1–⌃⌘9) and Settings (⌘,) keep their keys.")
-                .font(.detail)
-                .foregroundStyle(Theme.textTertiary)
-        }
-    }
-
-    private func column(_ groups: [ShortcutAction.Group]) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            ForEach(groups, id: \.self) { group in
+            ForEach([ShortcutAction.Group.moveAround, .review, .branches, .window], id: \.self) { group in
                 let actions = visible(in: group)
                 if !actions.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(group.rawValue)
-                            .font(.sectionLabel)
-                            .foregroundStyle(Theme.textTertiary)
-                        SettingsTable(background: Theme.surface) {
+                    SettingsSection(title: group.rawValue) {
+                        SettingsTable {
                             ForEach(actions) { action in
                                 ShortcutRow(action: action, recording: $recording)
                             }
@@ -55,8 +40,10 @@ struct ShortcutSettings: View {
                     }
                 }
             }
+            Text("Project 1–9 (⌃1–⌃9), workspaces (⌃⌘1–⌃⌘9) and Settings (⌘,) keep their keys.")
+                .font(.detail)
+                .foregroundStyle(Theme.textTertiary)
         }
-        .frame(maxWidth: .infinity, alignment: .top)
     }
 
     private func visible(in group: ShortcutAction.Group) -> [ShortcutAction] {
@@ -71,7 +58,8 @@ struct ShortcutSettings: View {
     }
 }
 
-/// One action: its title, a dot when changed, and its key; clicking records a new one.
+/// One action in the settings row style: its title, and its key in a field that records a new one when clicked;
+/// a changed key can be reset beside it.
 private struct ShortcutRow: View {
     let action: ShortcutAction
     @Binding var recording: ShortcutAction?
@@ -82,44 +70,35 @@ private struct ShortcutRow: View {
     private var isRecording: Bool { recording == action }
 
     var body: some View {
-        HStack(spacing: 10) {
+        let isChanged = Shortcuts.overrides()[action] != nil
+        HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(action.title)
-                    .font(isRecording ? .row.weight(.medium) : .row)
+                    .font(.row)
                     .foregroundStyle(Theme.textPrimary)
                 if isRecording {
                     Text(hint)
-                        .font(.caption11)
+                        .font(.detail)
                         .foregroundStyle(clash == nil ? Theme.textTertiary : Theme.warnFg)
                         .lineLimit(1)
+                } else if isChanged {
+                    Text("Changed from \(action.defaultShortcut?.label ?? "none")")
+                        .font(.detail)
+                        .foregroundStyle(Theme.textTertiary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if Shortcuts.overrides()[action] != nil, !isRecording {
-                Circle().fill(Theme.infoFg).frame(width: 5, height: 5)
-                    .help("Changed from \(action.defaultShortcut?.label ?? "none")")
+            if isChanged, !isRecording {
+                IconButton("Reset to \(action.defaultShortcut?.label ?? "None")", systemImage: "arrow.uturn.backward", size: 24) {
+                    Shortcuts.reset(action)
+                }
             }
-            if isRecording {
-                Text("Press keys…")
-                    .font(.control.weight(.medium))
-                    .foregroundStyle(Theme.textPrimary)
-                    .padding(.horizontal, 10)
-                    .frame(height: 26)
-                    .background(Theme.raised, in: .rect(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.infoFg))
-            } else if let shortcut = Shortcuts.shortcut(action) {
-                KeyCap(shortcut.label)
-            } else {
-                Text("None")
-                    .font(.caption11)
-                    .foregroundStyle(Theme.textTertiary)
+            ShortcutField(label: Shortcuts.shortcut(action)?.label, isRecording: isRecording) {
+                recording = isRecording ? nil : action
             }
         }
-        .padding(.horizontal, 10)
-        .frame(height: isRecording ? 46 : 28)
-        .background(isRecording ? Theme.infoBg : .clear)
-        .contentShape(.rect)
-        .onTapGesture { recording = isRecording ? nil : action }
+        .padding(.horizontal, 14)
+        .frame(minHeight: isRecording || isChanged ? 56 : 46)
         .contextMenu {
             Button("Record New Key") { recording = action }
             Button("Remove Key") { Shortcuts.set(nil, for: action) }
@@ -179,5 +158,49 @@ private struct ShortcutRow: View {
         Shortcuts.set(shortcut, for: action)
         recording = nil
         return true
+    }
+}
+
+/// The key of an action as an editable field: its key cap and a pencil, `Add key` when it has none, and
+/// `Press keys…` while recording.
+private struct ShortcutField: View {
+    let label: String?
+    let isRecording: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if isRecording {
+                    Text("Press keys…")
+                        .font(.control.weight(.medium))
+                        .foregroundStyle(Theme.textPrimary)
+                } else if let label {
+                    KeyCap(label)
+                } else {
+                    Text("Add key")
+                        .font(.control)
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: isRecording ? "record.circle" : "pencil")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(isRecording ? Theme.infoFg : isHovered ? Theme.textSecondary : Theme.textTertiary)
+            }
+            .padding(.leading, 6)
+            .padding(.trailing, 8)
+            .frame(width: 128, height: 28)
+            .background(isHovered && !isRecording ? Theme.hover : Theme.canvas, in: .rect(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isRecording ? Theme.infoFg : isHovered ? Theme.lineStrong : Theme.line))
+            .contentShape(.rect(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .onHover { isHovered = $0 }
+        .help(isRecording ? "Press the new keys, or esc to cancel" : "Click to record a new key")
     }
 }
