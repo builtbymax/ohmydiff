@@ -20,6 +20,14 @@ struct ProjectCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        let _ = AppDelegate.openMainWindow = { [openWindow] in openWindow(id: "main") }
+        CommandGroup(before: .windowList) {
+            // The main window is a single window; closing it would otherwise leave no way back.
+            Button("ohmydiff") { openWindow(id: "main") }
+                .keyboardShortcut("0", modifiers: [.command, .shift])
+            Divider()
+        }
+
         CommandGroup(after: .appInfo) {
             Button("Check for Updates…") { Updater.shared.checkForUpdates() }
                 .disabled(!Updater.shared.canCheck)
