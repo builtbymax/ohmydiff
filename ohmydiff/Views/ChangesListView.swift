@@ -494,7 +494,7 @@ private struct FileHoverCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text(kindTitle)
+                Text(kind.title)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(badge.color)
                     .padding(.horizontal, 7)
@@ -518,8 +518,12 @@ private struct FileHoverCard: View {
         }
     }
 
-    private var kindTitle: String {
-        switch kind {
+}
+
+extension FileChangeKind {
+    /// `Modified`, `Added`, …, e.g. in a file's hover card and the inspector.
+    var title: String {
+        switch self {
         case .added: "Added"
         case .untracked: "Untracked"
         case .deleted: "Deleted"

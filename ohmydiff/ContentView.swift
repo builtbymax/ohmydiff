@@ -42,6 +42,7 @@ struct ContentView: View {
     @AppStorage(AppSettings.listWidthKey) private var listWidth = 300.0
     @AppStorage(AppSettings.isListHiddenKey) private var isListHidden = false
     @AppStorage(AppSettings.isSidebarHiddenKey) private var isSidebarHidden = false
+    @AppStorage(AppSettings.isInspectorShownKey) private var isInspectorShown = true
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
 
     var body: some View {
@@ -196,6 +197,12 @@ struct ContentView: View {
                     }
                     DiffDetailView(session: session)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if isInspectorShown {
+                        Rectangle().fill(Theme.lineSubtle).frame(width: 1)
+                        ChangesInspector(model: model, session: session)
+                            .frame(width: 320)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
                 }
                 .overlay(alignment: .bottomLeading) {
                     if let request = session.actionRequest, request.action == .commit {
