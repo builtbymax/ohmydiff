@@ -101,12 +101,15 @@ struct Chip: View {
     var tone = Tone.neutral
     /// Neutral chips read primary instead of secondary, e.g. a branch picked as a commit target.
     var isEmphasized = false
+    /// Shortens its title in the middle when given less than its width, e.g. a long branch name in a panel.
+    var truncates = false
 
-    init(_ title: String, systemImage: String? = nil, tone: Tone = .neutral, isEmphasized: Bool = false) {
+    init(_ title: String, systemImage: String? = nil, tone: Tone = .neutral, isEmphasized: Bool = false, truncates: Bool = false) {
         self.title = title
         self.systemImage = systemImage
         self.tone = tone
         self.isEmphasized = isEmphasized
+        self.truncates = truncates
     }
 
     var body: some View {
@@ -119,13 +122,14 @@ struct Chip: View {
             Text(title)
                 .font(.chip)
                 .lineLimit(1)
+                .truncationMode(.middle)
         }
         .foregroundStyle(foreground)
         .padding(.leading, systemImage == nil ? 7 : 6)
         .padding(.trailing, 7)
         .padding(.vertical, 2)
         .background(background, in: .capsule)
-        .fixedSize()
+        .fixedSize(horizontal: !truncates, vertical: true)
     }
 
     private var foreground: Color {
@@ -148,6 +152,51 @@ struct Chip: View {
         case .info: Theme.infoBg
         case .danger: Theme.delBg
         }
+    }
+}
+
+/// Lays out its children left to right, wrapping to new lines, each line centered on its tallest child. A child
+/// wider than the row is offered the row's width, so a truncating chip or text shortens instead of overflowing.
+struct FlowRow: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat?
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        let lines = lines(for: subviews, width: width)
+        let height = lines.map(\.height).reduce(0, +) + (lineSpacing ?? spacing) * CGFloat(max(lines.count - 1, 0))
+        let widest = lines.map { $0.items.map(\.size.width).reduce(0, +) + spacing * CGFloat(max($0.items.count - 1, 0)) }.max() ?? 0
+        return CGSize(width: proposal.width ?? widest, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for line in lines(for: subviews, width: bounds.width) {
+            var x = bounds.minX
+            for item in line.items {
+                item.subview.place(
+                    at: CGPoint(x: x, y: y + (line.height - item.size.height) / 2), proposal: ProposedViewSize(item.size))
+                x += item.size.width + spacing
+            }
+            y += line.height + (lineSpacing ?? spacing)
+        }
+    }
+
+    private func lines(for subviews: Subviews, width: CGFloat) -> [(items: [(subview: LayoutSubview, size: CGSize)], height: CGFloat)] {
+        var lines: [(items: [(subview: LayoutSubview, size: CGSize)], height: CGFloat)] = [([], 0)]
+        var x: CGFloat = 0
+        for subview in subviews {
+            var size = subview.sizeThatFits(.unspecified)
+            if size.width > width { size = subview.sizeThatFits(ProposedViewSize(width: width, height: nil)) }
+            if x > 0, x + size.width > width {
+                lines.append(([], 0))
+                x = 0
+            }
+            lines[lines.count - 1].items.append((subview, size))
+            lines[lines.count - 1].height = max(lines[lines.count - 1].height, size.height)
+            x += size.width + spacing
+        }
+        return lines
     }
 }
 

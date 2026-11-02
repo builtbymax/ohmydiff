@@ -132,14 +132,13 @@ struct BranchesTopBar: View {
             NewBranchPopover(history: history, isGitButler: history.isGitButler) { model.isNewBranchPresented = false }
         }
         .padding(.trailing, 6)
-        if layout == .overview {
-            IconButton(isInspectorShown ? "Hide Pull Request  ⌥⌘I" : "Show Pull Request  ⌥⌘I", systemImage: "sidebar.right", isSelected: isInspectorShown) {
-                withAnimation(.snappy(duration: 0.2)) { isInspectorShown.toggle() }
-            }
-        } else {
+        if layout == .review {
             IconButton(isListPinned ? "Widen Branch List on Hover" : "Keep Branch List Open", systemImage: "sidebar.left", isSelected: isListPinned) {
                 withAnimation(.snappy(duration: 0.2)) { isListPinned.toggle() }
             }
+        }
+        IconButton(isInspectorShown ? "Hide Branch Details  ⌥⌘I" : "Show Branch Details  ⌥⌘I", systemImage: "sidebar.right", isSelected: isInspectorShown) {
+            withAnimation(.snappy(duration: 0.2)) { isInspectorShown.toggle() }
         }
     }
 
