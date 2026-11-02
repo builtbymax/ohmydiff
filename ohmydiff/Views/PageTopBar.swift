@@ -2,8 +2,8 @@ import AppKit
 import OhMyDiffCore
 import SwiftUI
 
-/// The 46 pt bar at the top of the content panel. Changes shows the open file and the branch's remote
-/// actions; the other pages show their title and filters.
+/// The 46 pt bar at the top of the content panel. Changes shows the open file and the branch's push and
+/// pull request; the other pages show their title and filters.
 struct PageTopBar: View {
     let model: AppModel
     let mode: WorkspaceMode
@@ -40,7 +40,7 @@ struct PageTopBar: View {
     }
 }
 
-/// Changes: the selected file, then fetching, pushing and the pull request of its branch.
+/// Changes: the selected file, then pushing and the pull request of its branch. Fetching lives in the sidebar.
 private struct ChangesTopBar: View {
     let model: AppModel
     let session: ProjectSession
@@ -52,15 +52,12 @@ private struct ChangesTopBar: View {
             Chip(branch, systemImage: "arrow.triangle.branch")
                 .padding(.trailing, 6)
         }
-        if session.phase == .ready {
-            FetchButton(model: model, session: session, isLabeled: session.project.kind != .gitButler)
-            if let branch {
-                PushButton(history: session.history, branch: branch)
-                    .padding(.leading, 4)
-                if let pullRequest = session.history.pullRequest(of: branch) {
-                    PullRequestButton(history: session.history, pullRequest: pullRequest)
-                        .padding(.leading, 6)
-                }
+        if session.phase == .ready, let branch {
+            PushButton(history: session.history, branch: branch)
+                .padding(.leading, 4)
+            if let pullRequest = session.history.pullRequest(of: branch) {
+                PullRequestButton(history: session.history, pullRequest: pullRequest)
+                    .padding(.leading, 6)
             }
         }
     }
@@ -309,58 +306,6 @@ private struct OpenTabRow: View {
         }
         .buttonStyle(.plain)
         .focusEffectDisabled()
-    }
-}
-
-/// `↓`: fetches, or opens the update once the remote has something new. Plain git labels it `Fetch`.
-private struct FetchButton: View {
-    let model: AppModel
-    let session: ProjectSession
-    let isLabeled: Bool
-
-    var body: some View {
-        let hasUpdates = session.upstream?.hasUpdates == true
-        Button {
-            if hasUpdates {
-                model.isUpstreamUpdatePresented = true
-            } else {
-                Task { await session.fetch() }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                if session.isFetching {
-                    ProgressView().controlSize(.mini).frame(width: 14, height: 14)
-                } else {
-                    Image(systemName: session.fetchError != nil ? "exclamationmark.triangle" : isLabeled && !hasUpdates ? "arrow.clockwise" : "arrow.down")
-                        .font(.system(size: 12))
-                        .foregroundStyle(session.fetchError != nil ? Theme.warnFg : hasUpdates ? Theme.textPrimary : Theme.textSecondary)
-                        .frame(width: 14, height: 14)
-                }
-                if hasUpdates, let upstream = session.upstream {
-                    Text(UpstreamControls.updateTitle(upstream))
-                        .font(.control.weight(.medium))
-                        .foregroundStyle(Theme.textPrimary)
-                } else if isLabeled {
-                    Text("Fetch")
-                        .font(.control.weight(.medium))
-                        .foregroundStyle(Theme.textSecondary)
-                }
-            }
-            .padding(.horizontal, 7)
-            .frame(height: 28)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.hover(cornerRadius: 8))
-        .disabled(session.isFetching || session.isUpdatingFromUpstream)
-        .focusEffectDisabled()
-        .glassTooltip(tooltip)
-    }
-
-    private var tooltip: String {
-        if let error = session.fetchError { return "Fetch failed: \(error)" }
-        if session.upstream?.hasUpdates == true { return "Review and Update…  ⇧⌘U" }
-        let fetched = session.lastFetched.map { " · fetched \(UpstreamControls.fetchedTitle($0).lowercased())" } ?? ""
-        return "Fetch from \(session.upstream?.target ?? "the remote")\(fetched)  ⇧⌘F"
     }
 }
 

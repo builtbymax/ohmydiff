@@ -1,7 +1,7 @@
 import OhMyDiffCore
 import SwiftUI
 
-/// The left column: the project, the launcher, the pages, the branches of the project and the footer.
+/// The left column: the project, the launcher, the pages, the branches of the project, its remote and the footer.
 struct SidebarView: View {
     @Bindable var model: AppModel
     @Binding var isHidden: Bool
@@ -31,6 +31,9 @@ struct SidebarView: View {
             }
             .scrollIndicators(.never)
             .frame(maxHeight: .infinity)
+            if let session = model.selectedSession, session.phase == .ready {
+                SidebarUpstream(model: model, session: session)
+            }
             footer
         }
         .padding(.horizontal, 10)
