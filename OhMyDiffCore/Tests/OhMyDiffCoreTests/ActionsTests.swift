@@ -319,6 +319,32 @@ extension TestRepo {
 
 @Suite(.enabled(if: Toolchain.locate("but", in: Toolchain.mergedPath(nil, ProcessInfo.processInfo.environment["PATH"], home: NSHomeDirectory())) != nil, "requires the `but` CLI"))
 struct GitButlerActionTests {
+    @Test func stacksChangesDependingOnMultipleBranches() async throws {
+        let repo = try await TestRepo(gitButler: true)
+        try repo.write("first.txt", twentyLines)
+        try await repo.but("commit", "-b", "feature/base", "-m", "first")
+        try await repo.but("branch", "new", "feature/top", "--above", "feature/base")
+        try repo.write("second.txt", twentyLines)
+        try await repo.but("commit", "-b", "feature/top", "-m", "second")
+        try repo.write("first.txt", edited([2: "first edited"]))
+        try repo.write("second.txt", edited([2: "second edited"]))
+        let repository = try await repo.open()
+        let targets = [
+            ChangeTarget(file: try await repo.file("first.txt", in: .unassigned, of: repository)),
+            ChangeTarget(file: try await repo.file("second.txt", in: .unassigned, of: repository))
+        ]
+        do {
+            try await repository.commit(targets, toBranch: "feature/next", message: "edit both")
+            Issue.record("dependent changes must require stacking")
+        } catch ChangeActionError.dependsOn(let anchor) {
+            #expect(anchor == "feature/top")
+        }
+        try await repository.commit(targets, toBranch: "feature/next", stackedOn: "feature/top", message: "edit both")
+        let status = try await repository.butStatus()
+        #expect(status.stacks.first?.branches.map(\.name) == ["feature/next", "feature/top", "feature/base"])
+        #expect(status.unassignedChanges.isEmpty)
+    }
+
     @Test func stacksDependentChangesOnTheirBranch() async throws {
         let repo = try await TestRepo(gitButler: true)
         try repo.write("notes.txt", twentyLines)

@@ -2,7 +2,7 @@ import OhMyDiffCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The detail pane in Changes mode: the selected file's diff.
+/// The diff of the selected uncommitted file, with hunk actions.
 struct DiffDetailView: View {
     let session: ProjectSession
     @AppStorage(AppSettings.showsWhitespaceChangesKey) private var showsWhitespaceChanges = true

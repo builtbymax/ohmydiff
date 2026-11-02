@@ -2,56 +2,68 @@ import OhMyDiffCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The file list of the Changes page: a filter, the change groups (branch lanes in GitButler, staged
-/// and unstaged in git) and the commit composer.
+/// The project while it loads, or why it cannot be shown: its folder is gone or git failed. Once loaded, `content`.
+struct ProjectPhaseGate<Content: View>: View {
+    let model: AppModel
+    let session: ProjectSession
+    @ViewBuilder var content: Content
+
+    @State private var isLocating = false
+
+    var body: some View {
+        Group {
+            switch session.phase {
+            case .idle:
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .missing:
+                EmptyState("Folder not found", systemImage: "questionmark.folder", description: "\(session.project.path) was moved or deleted.") {
+                    Button("Locate…") { isLocating = true }
+                    Button("Remove project") { model.remove(session.project.id) }
+                        .buttonStyle(.pill(.destructive))
+                    Button("Try again") { session.refresh() }
+                }
+            case .failed(let message):
+                EmptyState("Could not load the project", systemImage: "exclamationmark.triangle", description: message) {
+                    Button("Try again") { session.refresh() }
+                }
+            case .ready:
+                content
+            }
+        }
+        .fileImporter(isPresented: $isLocating, allowedContentTypes: [.folder]) { result in
+            guard case .success(let url) = result else { return }
+            Task { await model.relocate(session.project.id, to: url) }
+        }
+    }
+}
+
+/// The uncommitted files on the Branches page: a filter, the change groups (branch lanes in GitButler, staged
+/// and unstaged in git), or one lane's files, and the commit composer.
 struct ChangesListView: View {
     let model: AppModel
     @Bindable var session: ProjectSession
+    /// The one group listed; `nil` for all of them.
+    var scope: ChangeGroup.ID? = nil
 
-    @State private var isLocating = false
     @State private var filter = ""
     @State private var collapsedGroups: Set<ChangeGroup.ID> = []
     @AppStorage(AppSettings.groupsChangesKey) private var groupsChanges = true
     @AppStorage(AppSettings.collapsesGeneratedFilesKey) private var collapsesGeneratedFiles = true
 
-    var body: some View {
-        content
-            .butCompatibilityBanner(session)
-            .fileImporter(isPresented: $isLocating, allowedContentTypes: [.folder]) { result in
-                guard case .success(let url) = result else { return }
-                Task { await model.relocate(session.project.id, to: url) }
-            }
-            .changeActionPresentation(session)
-    }
+    /// Group headers only make sense with more than the one group of a lane.
+    private var showsGroups: Bool { groupsChanges && scope == nil }
 
-    @ViewBuilder
-    private var content: some View {
-        switch session.phase {
-        case .idle:
-            ProgressView()
-                .controlSize(.small)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .missing:
-            EmptyState("Folder not found", systemImage: "questionmark.folder", description: "\(session.project.path) was moved or deleted.") {
-                Button("Locate…") { isLocating = true }
-                Button("Remove project") { model.remove(session.project.id) }
-                    .buttonStyle(.pill(.destructive))
-                Button("Try again") { session.refresh() }
-            }
-        case .failed(let message):
-            EmptyState("Could not load the project", systemImage: "exclamationmark.triangle", description: message) {
-                Button("Try again") { session.refresh() }
-            }
-        case .ready:
-            VStack(spacing: 1) {
-                filterRow
-                    .padding(.bottom, 6)
-                list
-                CommitComposer(session: session, draft: session.commitDraft)
-                    .padding(.top, 6)
-            }
-            .padding(8)
+    var body: some View {
+        VStack(spacing: 1) {
+            filterRow
+                .padding(.bottom, 6)
+            list
+            CommitComposer(session: session, draft: session.commitDraft)
+                .padding(.top, 6)
         }
+        .padding(8)
     }
 
     /// `Filter files`, collapse generated files, group by branch.
@@ -80,10 +92,11 @@ struct ChangesListView: View {
                 collapsesGeneratedFiles ? "Show Generated Files" : "Collapse Generated Files",
                 systemImage: collapsesGeneratedFiles ? "eye.slash" : "eye", isSelected: !collapsesGeneratedFiles
             ) { collapsesGeneratedFiles.toggle() }
-            IconButton(
-                groupsChanges ? (session.project.kind == .gitButler ? "Show as One List" : "Show as One List") : "Group by Branch",
-                systemImage: "square.3.layers.3d", isSelected: !groupsChanges
-            ) { groupsChanges.toggle() }
+            if scope == nil {
+                IconButton(groupsChanges ? "Show as One List" : "Group by Branch", systemImage: "square.3.layers.3d", isSelected: !groupsChanges) {
+                    groupsChanges.toggle()
+                }
+            }
         }
     }
 
@@ -96,7 +109,7 @@ struct ChangesListView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 1) {
-                        if groupsChanges {
+                        if showsGroups {
                             ForEach(groups) { group in
                                 ChangeGroupHeader(group: group, isCollapsed: collapsedGroups.contains(group.id)) {
                                     withAnimation(.snappy(duration: 0.18)) {
@@ -106,13 +119,6 @@ struct ChangesListView: View {
                                 .contextMenu { ChangeActionMenu(session: session, targets: group.files.map { ChangeTarget(file: $0) }, isGroup: true) }
                                 .padding(.top, group.id == groups.first?.id ? 0 : 6)
                                 if !collapsedGroups.contains(group.id) {
-                                    if group.files.isEmpty {
-                                        Text("No changes on this branch")
-                                            .font(.detail)
-                                            .foregroundStyle(Theme.textTertiary)
-                                            .padding(.leading, 33)
-                                            .frame(height: 28)
-                                    }
                                     ForEach(group.files) { file in
                                         ChangeFileRow(file: file, session: session)
                                     }
@@ -159,7 +165,7 @@ struct ChangesListView: View {
 
     /// Selects the next or previous file across all groups.
     private func moveSelection(_ offset: Int, proxy: ScrollViewProxy) -> KeyPress.Result {
-        let files = visibleGroups.filter { !collapsedGroups.contains($0.id) || !groupsChanges }.flatMap(\.files)
+        let files = visibleGroups.filter { !collapsedGroups.contains($0.id) || !showsGroups }.flatMap(\.files)
         guard !files.isEmpty else { return .ignored }
         let current = files.firstIndex { $0.id == session.selectedFileID }
         let next = current.map { min(max($0 + offset, 0), files.count - 1) } ?? 0
@@ -173,17 +179,15 @@ struct ChangesListView: View {
         return .handled
     }
 
-    /// Applied GitButler stacks are always listed; other groups only when they contain files. The filter
-    /// matches file paths.
+    /// Groups with files; the branch list beside shows the lanes without. The filter matches file paths.
     private var visibleGroups: [ChangeGroup] {
         let query = filter.trimmingCharacters(in: .whitespaces)
-        return session.groups.compactMap { group in
+        return session.uncommittedGroups(scope).compactMap { group in
             var group = group
             if !query.isEmpty {
                 group.files = group.files.filter { FuzzyMatcher.match(query, in: $0.path) != nil }
                 return group.files.isEmpty ? nil : group
             }
-            if case .stack = group.kind { return group }
             return group.files.isEmpty ? nil : group
         }
     }

@@ -7,6 +7,7 @@ struct ProjectCommands: Commands {
     @AppStorage(DiffSettings.layoutKey) private var diffLayout: DiffLayoutMode = .split
     @AppStorage(DiffSettings.wholeFileKey) private var showsWholeFile = false
     @AppStorage(AppSettings.isListHiddenKey) private var isListHidden = false
+    @AppStorage(AppSettings.branchesLayoutKey) private var branchesLayout = BranchesLayout.overview
     @AppStorage(AppSettings.isSidebarHiddenKey) private var isSidebarHidden = false
     @AppStorage(AppSettings.showsWhitespaceChangesKey) private var showsWhitespaceChanges = true
     @AppStorage(AppSettings.isInspectorShownKey) private var isInspectorShown = true
@@ -50,7 +51,7 @@ struct ProjectCommands: Commands {
 
         // ⌘W closes the open file's tab in the main window, like an editor; the window closes with ⇧⌘W.
         CommandGroup(replacing: .saveItem) {
-            let session = isMainWindow == true && model.mode == .changes ? model.selectedSession : nil
+            let session = isMainWindow == true && model.isReviewingUncommitted(layout: branchesLayout) ? model.selectedSession : nil
             if let session, let tab = session.selectedTab {
                 Button("Close Tab") { session.closeTab(tab) }
                     .keyboardShortcut("w", modifiers: .command)
@@ -157,7 +158,7 @@ struct ProjectCommands: Commands {
             Divider()
 
             ForEach(WorkspaceMode.available) { page in
-                Button(page.title) { model.mode = page }
+                Button(page.title) { model.open(page) }
                     .keyboardShortcut(Shortcuts.keyboardShortcut(page.shortcutAction))
             }
 

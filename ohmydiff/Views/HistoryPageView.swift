@@ -52,6 +52,7 @@ struct HistoryPageView: View {
             }
         case .ready:
             let visible = log.visible
+            let graphWidth = GraphCell.width(for: visible.map(\.row))
             if visible.isEmpty {
                 EmptyState(log.search.isEmpty ? "No commits yet" : "No matching commits", systemImage: "clock.arrow.circlepath")
             } else {
@@ -63,14 +64,14 @@ struct HistoryPageView: View {
                                 // The day sits next to the graph, whose lanes run on through it.
                                 HStack(spacing: 10) {
                                     GraphPassage(lanes: log.drawsGraph ? section.items.first?.row.above ?? [] : [])
-                                        .frame(width: 60, height: 32)
+                                        .frame(width: graphWidth, height: 32)
                                     Text(section.title)
                                         .font(.sectionLabel)
                                         .foregroundStyle(Theme.textTertiary)
                                 }
                                 ForEach(section.items, id: \.commit.id) { item in
                                     CommitRow(
-                                        commit: item.commit, row: item.row, drawsGraph: log.drawsGraph,
+                                        commit: item.commit, row: item.row, drawsGraph: log.drawsGraph, graphWidth: graphWidth,
                                         pullRequest: pullRequest(for: item.commit), isSelected: item.commit.id == log.selectedID
                                     ) { log.selectedID = item.commit.id }
                                     .id(item.commit.id)
@@ -147,6 +148,7 @@ private struct CommitRow: View {
     let commit: LogCommit
     let row: GraphRow
     let drawsGraph: Bool
+    let graphWidth: CGFloat
     let pullRequest: PullRequest?
     let isSelected: Bool
     let select: () -> Void
@@ -155,7 +157,7 @@ private struct CommitRow: View {
         Button(action: select) {
             HStack(spacing: 10) {
                 GraphCell(row: row, isPushed: commit.isPushed, drawsLines: drawsGraph)
-                    .frame(width: 60, height: 40)
+                    .frame(width: graphWidth, height: 40)
                 Text(commit.commit.summary)
                     .font(.row)
                     .foregroundStyle(Theme.textPrimary)
@@ -200,7 +202,8 @@ private struct GraphCell: View {
     let drawsLines: Bool
 
     private static let spacing: CGFloat = 12
-    private static let maxLanes = 4
+    /// Lanes further out share the last one's place, so a busy log does not push the messages away.
+    private static let maxLanes = 10
 
     var body: some View {
         Canvas { context, size in
@@ -243,6 +246,13 @@ private struct GraphCell: View {
     }
 
     static func x(_ lane: Int) -> CGFloat { 14 + CGFloat(min(lane, maxLanes)) * spacing }
+
+    /// Wide enough for the outermost lane of `rows`; never narrower than four lanes, so the messages stay put
+    /// in small logs.
+    static func width(for rows: [GraphRow]) -> CGFloat {
+        let outermost = rows.lazy.map { ([$0.lane] + $0.above + $0.below).max() ?? 0 }.max() ?? 0
+        return max(x(outermost) + 10, 60)
+    }
 
     /// The first lane is the main line; the others take the state colours in turn.
     static func color(_ lane: Int) -> Color {

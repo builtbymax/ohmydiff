@@ -17,7 +17,7 @@ struct SidebarView: View {
                 .padding(.top, 6)
                 .padding(.bottom, 10)
             ForEach(WorkspaceMode.available) { page in
-                NavRow(page: page, count: count(for: page), isSelected: model.mode == page) { model.mode = page }
+                NavRow(page: page, count: count(for: page), isSelected: model.mode == page) { model.open(page) }
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -86,8 +86,9 @@ struct SidebarView: View {
     private func count(for page: WorkspaceMode) -> Int? {
         guard let session = model.selectedSession, session.phase == .ready else { return nil }
         switch page {
-        case .changes: return session.changeCount
-        case .branches: return session.history.groups.flatMap(\.branches).count
+        case .branches:
+            // The uncommitted files while there are any, else the branches.
+            return session.changeCount > 0 ? session.changeCount : session.history.groups.flatMap(\.branches).count
         case .pullRequests:
             // What needs the user once the inbox loaded, else the branches' open pull requests.
             return session.pullRequests.phase == .ready ? session.pullRequests.count(.reviewRequested) : session.history.openPullRequestCount
@@ -220,9 +221,11 @@ private struct SidebarBranches: View {
                 if let unassigned = session.groups.first(where: { $0.kind == .unassigned }) {
                     BranchRow(
                         name: "Unassigned", systemImage: "tray", trailing: unassigned.files.isEmpty ? nil : "\(unassigned.files.count)",
-                        isSelected: model.mode == .changes && session.selectedFile.map { file in unassigned.files.contains { $0.id == file.id } } == true
+                        isSelected: model.mode == .branches && session.history.selection?.isUncommitted == true
+                            && session.selectedFile.map { file in unassigned.files.contains { $0.id == file.id } } == true
                     ) {
-                        model.mode = .changes
+                        model.mode = .branches
+                        session.reviewUncommitted()
                         session.select(group: unassigned.id)
                     }
                 }
@@ -258,26 +261,24 @@ private struct SidebarBranches: View {
         model.isNewBranchPresented = true
     }
 
-    /// Whether the page on screen shows the branch: its card on Branches, its tip in History, its files in Changes.
+    /// Whether the page on screen shows the branch: it or its uncommitted files on Branches, its tip in History.
     private func isSelected(_ branch: String) -> Bool {
         switch model.mode {
-        case .branches: session.history.selectedBranch?.name == branch
-        case .history: session.log.selectedCommit?.branches.contains(branch) == true
-        case .changes: session.selectedFile.flatMap { session.assignedBranch(of: $0.path) } == branch
-        case .pullRequests: false
+        case .branches:
+            if case .uncommitted(let scope?)? = session.history.selection { return session.lane(containing: branch)?.id == scope }
+            return session.history.selectedBranch?.name == branch
+        case .history: return session.log.selectedCommit?.branches.contains(branch) == true
+        case .pullRequests: return false
         }
     }
 
-    /// Changes: the branch's files; History: its tip in the log; otherwise, and for a branch without
-    /// uncommitted files, its card on Branches. Every page then still shows what was clicked.
+    /// Branches reviewing uncommitted changes: the branch's lane; History: its tip in the log; otherwise, and for a
+    /// branch without uncommitted files, the branch on Branches. Every page then still shows what was clicked.
     private func select(_ branch: String) {
         switch model.mode {
-        case .changes:
-            if let group = session.groups.first(where: { group in
-                guard case .stack(_, let branches) = group.kind else { return false }
-                return branches.contains(branch) && !group.files.isEmpty
-            }) {
-                session.select(group: group.id)
+        case .branches where session.history.selection?.isUncommitted == true:
+            if let lane = session.lane(containing: branch), !lane.files.isEmpty {
+                session.reviewUncommitted(lane.id)
                 return
             }
         case .history:

@@ -97,7 +97,7 @@ struct Shortcut: Hashable, Codable {
 /// Everything with a key, in the groups of Settings → Shortcuts.
 enum ShortcutAction: String, CaseIterable, Identifiable {
     // Move around
-    case launcher, switchProject, nextHunk, previousHunk, changes, branches, pullRequests, history, refresh
+    case launcher, switchProject, nextHunk, previousHunk, branches, pullRequests, history, refresh
     // Review
     case stageHunk, unstageHunk, discardHunk, explainHunk, splitDiff, fullFile, whitespace, openInEditor, openDiffWindow,
          copyPath, copyPrompt, explainInClaude
@@ -117,7 +117,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
 
     var group: Group {
         switch self {
-        case .launcher, .switchProject, .nextHunk, .previousHunk, .changes, .branches, .pullRequests, .history, .refresh: .moveAround
+        case .launcher, .switchProject, .nextHunk, .previousHunk, .branches, .pullRequests, .history, .refresh: .moveAround
         case .stageHunk, .unstageHunk, .discardHunk, .explainHunk, .splitDiff, .fullFile, .whitespace, .openInEditor, .openDiffWindow,
              .copyPath, .copyPrompt, .explainInClaude: .review
         case .newBranch, .draftPullRequest, .mergeWhenGreen, .fetch, .updateWorkspace, .addProject: .branches
@@ -131,7 +131,6 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .switchProject: "Switch project"
         case .nextHunk: "Next hunk"
         case .previousHunk: "Previous hunk"
-        case .changes: "Changes"
         case .branches: "Branches"
         case .pullRequests: "Pull requests"
         case .history: "History"
@@ -174,10 +173,9 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .switchProject: Shortcut("p", .command)
         case .nextHunk: Shortcut("n")
         case .previousHunk: Shortcut("p")
-        case .changes: Shortcut("1", .command)
-        case .branches: Shortcut("2", .command)
-        case .pullRequests: Shortcut("3", .command)
-        case .history: Shortcut("4", .command)
+        case .branches: Shortcut("1", .command)
+        case .pullRequests: Shortcut("2", .command)
+        case .history: Shortcut("3", .command)
         case .refresh: Shortcut("r", .command)
         case .stageHunk: Shortcut("s")
         case .unstageHunk: Shortcut("u")

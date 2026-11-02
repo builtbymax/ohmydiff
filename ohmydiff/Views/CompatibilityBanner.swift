@@ -16,16 +16,23 @@ private struct CompatibilityBannerInset: ViewModifier {
 
     func body(content: Content) -> some View {
         content.safeAreaInset(edge: .top, spacing: 0) {
-            Group {
-                if let incompatibility {
-                    CompatibilityBanner(incompatibility: incompatibility)
-                } else if let mismatch, dismissed != Self.key(mismatch) {
-                    MismatchBanner(mismatch: mismatch) { dismissed = Self.key(mismatch) }
-                }
+            // Padded only with a banner, so without one the page starts right under the top bar.
+            if let incompatibility {
+                CompatibilityBanner(incompatibility: incompatibility)
+                    .modifier(BannerPadding())
+            } else if let mismatch, dismissed != Self.key(mismatch) {
+                MismatchBanner(mismatch: mismatch) { dismissed = Self.key(mismatch) }
+                    .modifier(BannerPadding())
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
+        }
+    }
+
+    private struct BannerPadding: ViewModifier {
+        func body(content: Content) -> some View {
+            content
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
         }
     }
 

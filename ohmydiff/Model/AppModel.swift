@@ -21,8 +21,19 @@ final class AppModel {
         }
     }
 
-    /// Changes or History, chosen on the rail or from the command palette.
-    var mode: WorkspaceMode = .changes
+    /// The page, chosen in the sidebar or from the command palette.
+    var mode: WorkspaceMode = .branches
+
+    /// Opens a page from the sidebar, the Go menu or the launcher. Branches lands on the uncommitted changes.
+    func open(_ page: WorkspaceMode) {
+        mode = page
+        if page == .branches { selectedSession?.history.needsLanding = true }
+    }
+
+    /// Whether the Branches page's review layout shows uncommitted changes, with their file tabs.
+    func isReviewingUncommitted(layout: BranchesLayout) -> Bool {
+        mode == .branches && layout == .review && selectedSession?.history.selection?.isUncommitted == true
+    }
 
     /// The ⌘K command palette.
     var isSwitcherPresented = false {
@@ -173,6 +184,7 @@ final class AppModel {
         if let oldID { sessions[oldID]?.deactivate() }
         if let selectedProjectID {
             session(for: selectedProjectID).activate()
+            if mode == .branches { session(for: selectedProjectID).history.needsLanding = true }
             defaults.set(selectedProjectID.uuidString, forKey: Self.selectionKey)
             update(selectedProjectID) { $0.lastOpenedAt = .now }
             // Opening a project of another workspace, e.g. from the palette or a link, shows that workspace.
@@ -309,7 +321,6 @@ final class AppModel {
         selectedSession?.groups.first { $0.kind == .staged }?.files.map { ChangeTarget(file: $0) } ?? []
     }
 
-    /// Opens the commit sheet for everything staged, in Changes mode where the sheet lives.
     /// Drafts the selected branch's pull request description on the Branches page.
     func draftPullRequestDescription() {
         guard let session = selectedSession, let branch = session.history.selectedBranch else { return }
@@ -329,9 +340,11 @@ final class AppModel {
         Task { await session.history.setAutoMerge(true, pullRequest: pullRequest, method: .preferred, branch: branch.name) }
     }
 
+    /// Opens the commit card for everything staged, beside the uncommitted changes where the card lives.
     func commitStaged() {
         guard let session = selectedSession, !stagedTargets.isEmpty else { return }
-        mode = .changes
+        mode = .branches
+        session.reviewUncommitted()
         session.request(.commit, on: stagedTargets)
     }
 
@@ -385,7 +398,8 @@ final class AppModel {
             let root = session.project.url.resolvingSymlinksInPath().path + "/"
             let directory = file.deletingLastPathComponent().resolvingSymlinksInPath().path + "/"
             guard directory.hasPrefix(root) else { return }
-            mode = .changes
+            mode = .branches
+            session.reviewUncommitted()
             session.reveal(path: String(directory.dropFirst(root.count)) + file.lastPathComponent, line: line)
         case .branch(let path, let name):
             guard let session = await focusProject(containing: URL(fileURLWithPath: path, isDirectory: true)) else { return }

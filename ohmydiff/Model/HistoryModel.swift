@@ -17,11 +17,20 @@ final class HistoryModel {
         case branch(String)
         /// One commit, listed under `branch`; the same commit can appear under several plain-git branches.
         case commit(sha: String, branch: String)
+        /// Uncommitted changes, with hunk actions and the commit composer: one GitButler lane's, or all of them
+        /// for `nil`.
+        case uncommitted(ChangeGroup.ID?)
 
-        var branchName: String {
+        /// `nil` for uncommitted changes, which have no branch of their own until committed.
+        var branchName: String? {
             switch self {
             case .branch(let name), .commit(_, let name): name
+            case .uncommitted: nil
             }
+        }
+
+        var isUncommitted: Bool {
+            if case .uncommitted = self { true } else { false }
         }
     }
 
@@ -56,6 +65,11 @@ final class HistoryModel {
     var pendingDeletion: [HistoryBranch]?
     /// The Branches page's filter.
     var branchFilter = BranchFilter.applied
+    /// Set when the Branches page is opened from the sidebar, the Go menu or the launcher, or its project is
+    /// switched to: it then lands on the uncommitted changes, if there are any, once the project has loaded.
+    var needsLanding = false
+    /// Whether landing picks the Branches page's layout; off once the user picks one.
+    var picksLayout = true
     /// Each check, the description and size of pull requests, by number, once the Branches page showed them.
     private(set) var details: [Int: PullRequestDetail] = [:]
     /// AI drafted pull request descriptions, by branch, until used or dismissed.
@@ -145,7 +159,9 @@ final class HistoryModel {
         if pullRequestsLoaded.map({ Date.now.timeIntervalSince($0) > 60 }) ?? true {
             Task { await loadPullRequests() }
         }
-        if let selection, let branch = selectedBranch, selection.isValid(in: branch) {
+        if selection?.isUncommitted == true {
+            // The Branches page keeps it while it lists the changes.
+        } else if let selection, let branch = selectedBranch, selection.isValid(in: branch) {
             // Same selection; reload its files only if the branch moved.
             if revisions(for: selection) != loadedRevisions { loadFiles(isReload: true) }
         } else {
@@ -505,6 +521,7 @@ final class HistoryModel {
 
     /// Selects a branch or commit, now when it is listed, else after the next refresh.
     func reveal(_ target: RevealTarget) {
+        needsLanding = false
         pendingReveal = target
         resolvePendingReveal(isFinal: false)
     }
@@ -559,13 +576,15 @@ final class HistoryModel {
             return Revisions(base: base, tip: branch.tip)
         case .commit(let sha, _):
             return Revisions(base: nil, tip: sha)
+        case .uncommitted:
+            return nil
         }
     }
 
     /// A reload keeps the current files visible until the new ones arrive, so live refreshes do not flash.
     private func loadFiles(isReload: Bool = false) {
         filesTask?.cancel()
-        guard let selection, let repository else {
+        guard let selection, !selection.isUncommitted, let repository else {
             files = nil
             loadedRevisions = nil
             return
@@ -659,6 +678,7 @@ private extension HistoryModel.Selection {
         switch self {
         case .branch: true
         case .commit(let sha, _): branch.commits.contains { $0.sha == sha }
+        case .uncommitted: false
         }
     }
 }

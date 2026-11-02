@@ -69,6 +69,26 @@ import Testing
         let toolchain = try await Toolchain.discover()
         #expect(toolchain.git.lastPathComponent == "git")
     }
+
+    @Test func preservesGitButlerFailureHintsFromBothStreams() async throws {
+        let repo = try await TestRepo()
+        let fake = repo.directory.appending(path: "but")
+        try Data("""
+            #!/bin/sh
+            echo 'Cannot commit' >&2
+            echo 'Hint: but branch new next --above feature/base'
+            exit 1
+            """.utf8).write(to: fake)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+        let toolchain = Toolchain(git: repo.toolchain.git, but: fake, environment: repo.toolchain.environment)
+        do {
+            _ = try await toolchain.but(["commit"], in: repo.root)
+            Issue.record("expected the command to fail")
+        } catch ProcessError.nonZeroExit(_, _, let diagnostics) {
+            #expect(diagnostics.contains("Cannot commit"))
+            #expect(Repository.dependencyAnchor(diagnostics) == "feature/base")
+        }
+    }
 }
 
 @Suite struct ProcessRunnerInputTests {
