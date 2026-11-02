@@ -65,6 +65,11 @@ final class PullRequestsModel {
         return Date.now.timeIntervalSince(mergedAt) < 7 * 24 * 3600
     }
 
+    /// The user's pull requests merged in the last seven days, newest merge first.
+    var mergedThisWeek: [InboxPullRequest] {
+        items.filter { isRecentlyMerged($0) && isMine($0) }.sorted { ($0.mergedAt ?? .distantPast) > ($1.mergedAt ?? .distantPast) }
+    }
+
     /// The sections the filter shows, in order, without empty ones.
     var sections: [(title: String, items: [InboxPullRequest])] {
         let open = items.filter { $0.state == .open }
