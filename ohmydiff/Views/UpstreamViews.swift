@@ -2,89 +2,91 @@ import AppKit
 import OhMyDiffCore
 import SwiftUI
 
-/// `origin/main · 10 min ago` in the toolbar: fetches on click, and offers the update once the remote
-/// has commits the workspace lacks.
-struct UpstreamControls: View {
-    @Bindable var model: AppModel
+/// The sidebar's remote, on every page, as one row like the branches above it: `origin/main` and how long
+/// ago it was fetched, or `↓ 3` once the remote has commits the workspace lacks. Clicking fetches, or opens
+/// the update when there is one.
+struct SidebarUpstream: View {
+    let model: AppModel
     let session: ProjectSession
-    @State private var isPillHovered = false
+
+    /// A fetch older than this reads as stale.
+    private static let staleAfter: TimeInterval = 60 * 60
+
+    private var update: UpstreamStatus? { session.upstream.flatMap { $0.hasUpdates ? $0 : nil } }
+    private var isBusy: Bool { session.isFetching || session.isUpdatingFromUpstream }
 
     var body: some View {
-        // In a narrow window the pill drops the target and fetch time, and the button says only "Update".
-        ViewThatFits(in: .horizontal) {
-            controls(isCompact: false)
-            controls(isCompact: true)
-        }
-        .animation(.snappy(duration: 0.2), value: session.upstream?.hasUpdates)
-    }
-
-    private func controls(isCompact: Bool) -> some View {
-        HStack(spacing: 10) {
-            if session.upstream != nil || session.isFetching || session.fetchError != nil {
-                fetchPill(isCompact: isCompact)
+        Button {
+            if update != nil {
+                model.isUpstreamUpdatePresented = true
+            } else {
+                Task { await session.fetch() }
             }
-            if let upstream = session.upstream, upstream.hasUpdates {
-                Button { model.isUpstreamUpdatePresented = true } label: {
-                    Text(isCompact ? "Update" : Self.updateTitle(upstream))
-                        .font(.callout.weight(.semibold))
-                        .padding(.horizontal, 14)
-                        .frame(height: 38)
-                        .contentShape(.capsule)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.black)
-                .background { Capsule().fill(Theme.inverse).shadow(color: Theme.overlayShadow, radius: 6, y: 2) }
-                .focusEffectDisabled()
-                .glassTooltip("Review and Update…")
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        } label: {
+            HStack(spacing: 8) {
+                icon
+                    .frame(width: 15, height: 15)
+                Text(session.upstream?.target ?? "Remote")
+                    .font(.row)
+                    .foregroundStyle(update != nil ? Theme.textPrimary : Theme.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                trailing
             }
+            .padding(.horizontal, 8)
+            .rowHeight(30)
+            .contentShape(.rect)
         }
-        .fixedSize()
-    }
-
-    private func fetchPill(isCompact: Bool) -> some View {
-        Button { Task { await session.fetch() } } label: {
-            HStack(spacing: 7) {
-                if !isCompact {
-                    Image(systemName: "dot.radiowaves.left.and.right")
-                        .foregroundStyle(.secondary)
-                    Text(session.upstream?.target ?? "Remote")
-                        .foregroundStyle(.secondary)
-                    Divider().frame(height: 14)
-                }
-                if session.isFetching {
-                    ProgressView().controlSize(.mini)
-                    if !isCompact { Text("Fetching…") }
-                } else if session.fetchError != nil {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    if !isCompact { Text("Fetch failed") }
-                } else {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                    if !isCompact, let lastFetched = session.lastFetched {
-                        TimelineView(.periodic(from: .now, by: 30)) { _ in
-                            Text(Self.fetchedTitle(lastFetched))
-                        }
-                    }
-                }
-            }
-            .font(.caption.weight(.medium))
-            .lineLimit(1)
-            .padding(.horizontal, 12)
-            .frame(height: 38)
-            .contentShape(.capsule)
-        }
-        .buttonStyle(.plain)
-        .background(Theme.selected.opacity(isPillHovered ? 1 : 0), in: .capsule)
-        .onHover { isPillHovered = $0 }
-        .animation(.easeOut(duration: 0.15), value: isPillHovered)
-        .glassEffect(.regular.interactive(), in: .capsule)
-        .disabled(session.isFetching || session.isUpdatingFromUpstream)
+        .buttonStyle(.row(isSelected: false))
+        .disabled(isBusy)
         .focusEffectDisabled()
-        .glassTooltip(session.fetchError.map { "Fetch failed: \($0)" } ?? "Fetch from \(session.upstream?.target ?? "the remote")")
+        .contextMenu {
+            Button("Fetch from Remote") { Task { await session.fetch() } }
+            Button("Review and Update…") { model.isUpstreamUpdatePresented = true }
+                .disabled(update == nil)
+        }
+        .glassTooltip(tooltip, edge: .top)
     }
 
-    static func fetchedTitle(_ date: Date) -> String {
-        Date.now.timeIntervalSince(date) < 60 ? "Just now" : date.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
+    @ViewBuilder private var icon: some View {
+        if isBusy {
+            ProgressView().controlSize(.mini)
+        } else if session.fetchError != nil {
+            Image(systemName: "exclamationmark.triangle").font(.system(size: 12)).foregroundStyle(Theme.warnFg)
+        } else {
+            Image(systemName: update != nil ? "arrow.down" : "arrow.clockwise")
+                .font(.system(size: 12, weight: update != nil ? .semibold : .regular))
+                .foregroundStyle(update != nil ? Theme.textPrimary : Theme.textTertiary)
+        }
+    }
+
+    /// `↓ 3` with an update, `failed`, or the fetch's age: `now`, `4m`, `2h`, amber once stale.
+    @ViewBuilder private var trailing: some View {
+        if let update {
+            Text(update.incoming.isEmpty ? "update" : "↓ \(update.incoming.count)")
+                .font(.sectionLabel)
+                .monospacedDigit()
+                .foregroundStyle(Theme.textPrimary)
+        } else if !isBusy, session.fetchError != nil {
+            Text("failed")
+                .font(.caption11)
+                .foregroundStyle(Theme.warnFg)
+        } else if !isBusy, let lastFetched = session.lastFetched {
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                Text(RelativeAge.short(lastFetched, now: context.date))
+                    .font(.caption11)
+                    .monospacedDigit()
+                    .foregroundStyle(context.date.timeIntervalSince(lastFetched) >= Self.staleAfter ? Theme.warnFg : Theme.textTertiary)
+            }
+        }
+    }
+
+    private var tooltip: String {
+        if let error = session.fetchError { return "Fetch failed: \(error)" }
+        if let update { return "\(Self.updateTitle(update)) · Review and Update…  \(Shortcuts.label(.updateWorkspace))" }
+        let fetched = session.lastFetched.map { " · fetched \($0.formatted(.relative(presentation: .named)))" } ?? ""
+        return "Fetch from \(session.upstream?.target ?? "the remote")\(fetched)  \(Shortcuts.label(.fetch))"
     }
 
     /// `33 upstream commits`, or what is left to tidy up when the remote has nothing new.
