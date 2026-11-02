@@ -68,6 +68,8 @@ final class HistoryModel {
     @ObservationIgnored private var pullRequestsLoaded: Date?
     /// Reloads the open pull requests' statuses while any of their checks run.
     @ObservationIgnored private var statusPollTask: Task<Void, Never>?
+    /// Pull requests open when last looked up, to tell Activity when one merged or closed, also on GitHub.
+    @ObservationIgnored private var openPullRequests: Set<Int> = []
 
     var selection: Selection? {
         didSet {
@@ -161,8 +163,25 @@ final class HistoryModel {
         guard let found = try? await repository.pullRequests() else { return }
         var lookup: [String: PullRequest?] = [:]
         for branch in groups.flatMap(\.branches) { lookup[branch.name] = .some(found[branch.name]) }
+        // Also those followed before, whose branch `but pull` may have removed since.
+        for pullRequest in found.values where openPullRequests.contains(pullRequest.number) || lookup[pullRequest.headRefName ?? ""] != nil {
+            noteState(pullRequest)
+        }
         if lookup != pullRequests { pullRequests = lookup }
         await loadOpenStatuses()
+    }
+
+    /// Follows a listed branch's open pull request, and lists it in Activity once it is no longer open, e.g. merged
+    /// on GitHub after auto-merge failed.
+    private func noteState(_ pullRequest: PullRequest) {
+        guard pullRequest.state != .open else {
+            openPullRequests.insert(pullRequest.number)
+            return
+        }
+        guard openPullRequests.remove(pullRequest.number) != nil else { return }
+        ActivityLog.shared.record(
+            pullRequest.state == .merged ? "Merged #\(pullRequest.number)" : "Closed #\(pullRequest.number)",
+            detail: pullRequest.headRefName ?? "")
     }
 
     /// Reads every open pull request's status at once, then keeps polling while checks run.
@@ -170,7 +189,10 @@ final class HistoryModel {
         guard let repository else { return }
         // What GitHub reports now replaces everything, so pull requests that closed meanwhile drop out.
         if let statuses = try? await repository.openPullRequestStatuses(), statuses != pullRequestStatuses {
+            let closed = !Set(pullRequestStatuses.keys).isSubset(of: statuses.keys)
             pullRequestStatuses = statuses
+            // One merged or closed meanwhile, e.g. by auto-merge once its checks passed: show its new state now.
+            if closed { Task { await loadPullRequests() } }
         }
         // Keep polling while anything is known to run, also after a failed lookup, so a spinner never sticks.
         guard pullRequestStatuses.values.contains(where: \.hasPendingChecks), statusPollTask == nil else { return }
@@ -411,6 +433,7 @@ final class HistoryModel {
         guard let repository, force || pullRequests[branch] == nil else { return }
         // A failed lookup (offline, `gh` not signed in) shows no pull request rather than an error.
         let found = (try? await repository.pullRequest(forBranch: branch)) ?? nil
+        if let found { noteState(found) }
         pullRequests[branch] = .some(found)
     }
 

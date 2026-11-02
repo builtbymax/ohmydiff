@@ -42,7 +42,10 @@ final class ActivityLog {
         }
     }
 
+    /// Records something that happened; the same note within a minute is listed once, e.g. a merge both the toast
+    /// and the pull request lookup report.
     func record(_ title: String, detail: String = "", failed: Bool = false) {
+        if entries.contains(where: { $0.kind == .done && $0.title == title && Date.now.timeIntervalSince($0.date) < 60 }), !failed { return }
         insert(Entry(title: title, detail: detail, kind: failed ? .failed : .done))
     }
 
