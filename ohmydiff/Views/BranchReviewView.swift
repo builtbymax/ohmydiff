@@ -10,7 +10,8 @@ enum BranchesLayout: String {
 }
 
 /// The Branches page's review layout: a compact column of branches and commits, the selection's files, and the
-/// selected file's diff. The first column widens over the files while the pointer rests on it.
+/// selected file's diff, with the branch's details on the right. The first column widens over the files while
+/// the pointer rests on it.
 struct BranchReviewView: View {
     let model: AppModel
     let session: ProjectSession
@@ -18,6 +19,7 @@ struct BranchReviewView: View {
     @AppStorage(AppSettings.branchListWidthKey) private var filesWidth = 240.0
     @AppStorage(AppSettings.branchesLayoutKey) private var layout = BranchesLayout.overview
     @AppStorage(Self.isListPinnedKey) private var isListPinned = false
+    @AppStorage(AppSettings.isInspectorShownKey) private var isInspectorShown = true
     @State private var isListExpanded = false
     /// Branches whose commits are folded away with their chevron or ←.
     @State private var collapsed: Set<String> = []
@@ -28,6 +30,7 @@ struct BranchReviewView: View {
     static let isListPinnedKey = "branchReviewListPinned"
     private static let compactWidth: CGFloat = 190
     private static let expandedWidth: CGFloat = 320
+    private static let detailsWidth: CGFloat = 380
 
     var body: some View {
         let cards = history.branchCards(for: history.branchFilter)
@@ -46,6 +49,12 @@ struct BranchReviewView: View {
                     .overlay(alignment: .trailing) { ColumnResizer(width: $filesWidth, range: AppSettings.branchFilesWidths) }
                 BranchReviewDetail(model: model, session: session)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if isInspectorShown {
+                    Rectangle().fill(Theme.lineSubtle).frame(width: 1)
+                    details
+                        .frame(width: Self.detailsWidth)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
             .focusable()
             .focusEffectDisabled()
@@ -60,6 +69,16 @@ struct BranchReviewView: View {
                 return .handled
             }
             .onAppear { history.selection.map { proxy.scrollTo($0) } }
+        }
+    }
+
+    /// The selected branch's details, or those of the branch a selected commit is on.
+    @ViewBuilder private var details: some View {
+        if let branch = history.selectedBranch {
+            BranchPanel(model: model, session: session, branch: branch)
+                .id(branch.name)
+        } else {
+            EmptyState("No branch selected", systemImage: "arrow.triangle.branch")
         }
     }
 

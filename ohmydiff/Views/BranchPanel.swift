@@ -2,8 +2,8 @@ import AppKit
 import OhMyDiffCore
 import SwiftUI
 
-/// The right side of the Branches page: the branch's pull request with its checks, linked ticket and
-/// description, or what it takes to open one.
+/// The right side of the Branches page, in both layouts: the branch's pull request with its checks, linked
+/// ticket and description, or what it takes to open one.
 struct BranchPanel: View {
     let model: AppModel
     let session: ProjectSession
@@ -49,7 +49,8 @@ struct BranchPanel: View {
                 .frame(height: 60)
         }
         .task(id: branch.name) {
-            history.selection = .branch(branch.name)
+            // Beside the review layout's diff a commit of the branch may be selected; keep it.
+            if history.selection?.branchName != branch.name { history.selection = .branch(branch.name) }
             // A branch looked up before shows its ticket at once; the tracker is only asked once per branch.
             if let known = history.tickets[branch.name] { ticket = known }
             suggestions = await session.suggestions()
@@ -75,24 +76,28 @@ struct BranchPanel: View {
 
     @ViewBuilder private var head: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                if let pullRequest {
-                    Chip(pullRequest.stateTitle, systemImage: pullRequest.systemImage, tone: pullRequest.tone)
-                    if pullRequest.state == .open, let status {
-                        ChecksChip(checks: status.checks)
-                        switch status.isMergeable {
-                        case true?: Chip("No conflicts", systemImage: "checkmark")
-                        case false?: Chip("Conflicts with \(pullRequest.baseRefName)", systemImage: "xmark", tone: .danger)
-                        case nil: EmptyView()
+            HStack(alignment: .top, spacing: 6) {
+                // Wraps in a narrow panel instead of pushing the panel wider than its column.
+                FlowRow(spacing: 6) {
+                    if let pullRequest {
+                        Chip(pullRequest.stateTitle, systemImage: pullRequest.systemImage, tone: pullRequest.tone)
+                        if pullRequest.state == .open, let status {
+                            ChecksChip(checks: status.checks)
+                            switch status.isMergeable {
+                            case true?: Chip("No conflicts", systemImage: "checkmark")
+                            case false?: Chip("Conflicts with \(pullRequest.baseRefName)", systemImage: "xmark", tone: .danger, truncates: true)
+                            case nil: EmptyView()
+                            }
                         }
+                        if detail?.autoMerge == true {
+                            Chip("Merges when green", systemImage: "arrow.triangle.merge", tone: .merged)
+                        }
+                    } else {
+                        Chip("No pull request", systemImage: "arrow.triangle.pull")
+                        if branch.isConflicted { Chip("conflicted", systemImage: "exclamationmark.triangle", tone: .danger) }
                     }
-                    if detail?.autoMerge == true {
-                        Chip("Merges when green", systemImage: "arrow.triangle.merge", tone: .merged)
-                    }
-                } else {
-                    Chip("No pull request", systemImage: "arrow.triangle.pull")
-                    if branch.isConflicted { Chip("conflicted", systemImage: "exclamationmark.triangle", tone: .danger) }
                 }
+                .padding(.vertical, 5)
                 Spacer(minLength: 8)
                 if let pullRequest {
                     IconButton("Copy Link", systemImage: "doc.on.doc") {
@@ -103,7 +108,7 @@ struct BranchPanel: View {
                     IconButton("Open on GitHub", systemImage: "arrow.up.right.square") { NSWorkspace.shared.open(pullRequest.url) }
                 }
             }
-            .frame(height: 28)
+            .frame(minHeight: 28)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(pullRequest?.title ?? branch.name)
                     .font(.panelTitle)
@@ -115,26 +120,42 @@ struct BranchPanel: View {
                         .foregroundStyle(Theme.textTertiary)
                 }
             }
-            HStack(spacing: 6) {
-                Chip(pullRequest?.baseRefName ?? branch.baseName ?? "main", systemImage: "arrow.triangle.branch")
-                Text("←")
-                    .font(.detail)
-                    .foregroundStyle(Theme.textTertiary)
-                Chip(branch.name, systemImage: "arrow.triangle.branch", isEmphasized: true)
-                Text(byline)
-                    .font(.caption11)
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineLimit(1)
+            // The byline follows the branches while they fit, else it takes a line of its own.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    refs
+                    bylineText("· " + byline)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    FlowRow(spacing: 6, lineSpacing: 4) { refs }
+                    bylineText(byline)
+                }
             }
         }
     }
 
-    /// `· 3 commits · builtbymax`.
+    /// `main ← feat/name`.
+    @ViewBuilder private var refs: some View {
+        Chip(pullRequest?.baseRefName ?? branch.baseName ?? "main", systemImage: "arrow.triangle.branch", truncates: true)
+        Text("←")
+            .font(.detail)
+            .foregroundStyle(Theme.textTertiary)
+        Chip(branch.name, systemImage: "arrow.triangle.branch", isEmphasized: true, truncates: true)
+    }
+
+    private func bylineText(_ text: String) -> some View {
+        Text(text)
+            .font(.caption11)
+            .foregroundStyle(Theme.textTertiary)
+            .lineLimit(1)
+    }
+
+    /// `3 commits · builtbymax`.
     private var byline: String {
         let count = detail?.commitCount ?? branch.commits.count
         var parts = ["\(count) \(count == 1 ? "commit" : "commits")"]
         if let author = detail?.author ?? branch.commits.first?.authorName { parts.append(author) }
-        return "· " + parts.joined(separator: " · ")
+        return parts.joined(separator: " · ")
     }
 
     // MARK: Body
@@ -229,12 +250,15 @@ struct BranchPanel: View {
         .disabled(history.branchActivity != nil)
     }
 
-    private var reviewButton: some View {
-        Button(action: review) {
-            Label("Review", systemImage: "eye")
+    /// Only in the overview; the review layout already shows the diff beside the panel.
+    @ViewBuilder private var reviewButton: some View {
+        if layout == .overview {
+            Button(action: review) {
+                Label("Review", systemImage: "eye")
+            }
+            .buttonStyle(.pill(height: 32))
+            .disabled(!canReview)
         }
-        .buttonStyle(.pill(height: 32))
-        .disabled(!canReview)
     }
 
     private var mergeMethodTitle: String { MergeMethod.preferred.rawValue.capitalized }
@@ -373,10 +397,12 @@ private struct DraftCard: View {
                 Text("Draft description")
                     .font(.row.weight(.medium))
                     .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+                    .layoutPriority(1)
                 Spacer(minLength: 8)
-                Chip(providerTitle, systemImage: "apple.terminal")
+                Chip(providerTitle, systemImage: "apple.terminal", truncates: true)
             }
-            HStack(spacing: 6) {
+            FlowRow(spacing: 6, lineSpacing: 4) {
                 Text("From")
                     .font(.caption11)
                     .foregroundStyle(Theme.textTertiary)
@@ -407,28 +433,40 @@ private struct DraftCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Theme.hover, in: .rect(cornerRadius: 9))
             }
-            HStack(spacing: 6) {
-                if text != nil, !isDrafting {
-                    Button(primaryTitle, action: use)
-                        .buttonStyle(.pill(.prominent))
-                    Button(action: draft) { Label("Regenerate", systemImage: "arrow.clockwise") }
-                        .buttonStyle(.pill(.ghost))
-                } else {
-                    Button(action: draft) {
-                        Label(history.draftErrors[branch.name] == nil ? "Draft" : "Retry", systemImage: history.draftErrors[branch.name] == nil ? "sparkles" : "arrow.clockwise")
-                    }
-                    .buttonStyle(.pill(.prominent))
-                    .disabled(isDrafting)
-                }
-                Spacer(minLength: 8)
-                Button(action: openTemplate) { Label("Template", systemImage: "doc.text") }
-                    .buttonStyle(.pill(.ghost))
+            // Narrow, Template keeps only its icon so the row stays inside the card.
+            ViewThatFits(in: .horizontal) {
+                actions(text: text, isDrafting: isDrafting, isTemplateTitled: true)
+                actions(text: text, isDrafting: isDrafting, isTemplateTitled: false)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(Theme.surface, in: .rect(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.line))
+    }
+
+    private func actions(text: String?, isDrafting: Bool, isTemplateTitled: Bool) -> some View {
+        HStack(spacing: 6) {
+            if text != nil, !isDrafting {
+                Button(primaryTitle, action: use)
+                    .buttonStyle(.pill(.prominent))
+                Button(action: draft) { Label("Regenerate", systemImage: "arrow.clockwise") }
+                    .buttonStyle(.pill(.ghost))
+            } else {
+                Button(action: draft) {
+                    Label(history.draftErrors[branch.name] == nil ? "Draft" : "Retry", systemImage: history.draftErrors[branch.name] == nil ? "sparkles" : "arrow.clockwise")
+                }
+                .buttonStyle(.pill(.prominent))
+                .disabled(isDrafting)
+            }
+            Spacer(minLength: 8)
+            if isTemplateTitled {
+                Button(action: openTemplate) { Label("Template", systemImage: "doc.text") }
+                    .buttonStyle(.pill(.ghost))
+            } else {
+                IconButton("Template", systemImage: "doc.text", action: openTemplate)
+            }
+        }
     }
 
     private var providerTitle: String {
@@ -611,7 +649,9 @@ private struct ConflictSteps: View {
                 Text("#\(pullRequest.number) can’t merge")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Theme.textPrimary)
-                Chip("Conflicts with \(pullRequest.baseRefName)", systemImage: "xmark", tone: .danger)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Chip("Conflicts with \(pullRequest.baseRefName)", systemImage: "xmark", tone: .danger, truncates: true)
             }
             step(
                 1, title: "Update from \(pullRequest.baseRefName)", command: isGitButler ? "but pull" : "git pull",

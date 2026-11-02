@@ -394,46 +394,6 @@ struct ModelPicker: View {
     }
 }
 
-/// Lays out its children left to right, wrapping to new lines.
-struct FlowRow: Layout {
-    var spacing: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = rows(for: subviews, width: proposal.width ?? .infinity)
-        let height = rows.map { $0.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0 }.reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0))
-        return CGSize(width: proposal.width ?? 0, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var y = bounds.minY
-        for row in rows(for: subviews, width: bounds.width) {
-            var x = bounds.minX
-            let height = row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
-            for subview in row {
-                let size = subview.sizeThatFits(.unspecified)
-                subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-                x += size.width + spacing
-            }
-            y += height + spacing
-        }
-    }
-
-    private func rows(for subviews: Subviews, width: CGFloat) -> [[LayoutSubview]] {
-        var rows: [[LayoutSubview]] = [[]]
-        var x: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > width {
-                rows.append([])
-                x = 0
-            }
-            rows[rows.count - 1].append(subview)
-            x += size.width + spacing
-        }
-        return rows
-    }
-}
-
 /// A Keychain secret that is replaced or removed but never shown, so opening Settings never reads it.
 struct SecretField: View {
     let label: String
