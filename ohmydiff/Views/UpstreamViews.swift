@@ -236,14 +236,36 @@ struct UpstreamUpdateSheet: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
+    /// A clean update closes the sheet and says so in a toast; conflicts stay in the sheet with how to resolve them.
     private func update() {
         error = nil
+        let target = session.upstream?.target
         Task {
             do {
-                result = try await session.updateFromUpstream()
+                let result = try await session.updateFromUpstream()
+                guard result.conflicted.isEmpty else {
+                    self.result = result
+                    return
+                }
+                Toasts.shared.show(
+                    Self.toastMessage(result, target: target), systemImage: "arrow.down", tint: Theme.okFg,
+                    action: isGitButler ? Toasts.undo { [session] in session.undoLastOperation() } : nil)
+                dismiss()
             } catch {
                 self.error = String(describing: error)
             }
+        }
+    }
+
+    /// e.g. `Updated 2 branches from origin/main · 1 integrated`.
+    static func toastMessage(_ result: UpstreamUpdateResult, target: String?) -> String {
+        let from = target.map { " from \($0)" } ?? ""
+        let integrated = result.integrated.isEmpty ? "" : " · \(result.integrated.count) integrated"
+        switch result.updated.count {
+        case 0 where result.integrated.isEmpty: return "Up to date\(from)"
+        case 0: return "Updated\(from)\(integrated)"
+        case 1: return "Updated \(result.updated[0])\(from)\(integrated)"
+        case let count: return "Updated \(count) branches\(from)\(integrated)"
         }
     }
 }
@@ -355,6 +377,7 @@ private struct BranchUpdateRow: View {
     }
 }
 
+/// What an update that left conflicts did, with how to resolve them.
 private struct ResultSummary: View {
     let result: UpstreamUpdateResult
     let isGitButler: Bool
@@ -371,9 +394,6 @@ private struct ResultSummary: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-            if result.updated.isEmpty, result.integrated.isEmpty, result.conflicted.isEmpty {
-                Text("Everything is up to date.").foregroundStyle(.secondary)
             }
         }
     }
