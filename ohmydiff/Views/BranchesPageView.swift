@@ -22,6 +22,8 @@ struct BranchesPageView: View {
             }
         }
         .branchActionPresentation(history) { await session.suggestions() }
+        // The Merged filter lists the user's merged pull requests from the Pull requests page's inbox.
+        .task(id: session.lastRefreshed) { await session.refreshPullRequests() }
         .onChange(of: cards.map { $0.map(\.name) }, initial: true) { _, names in
             // Keep a listed branch selected, so the panel always has one to show.
             let all = names.flatMap(\.self)
@@ -31,10 +33,11 @@ struct BranchesPageView: View {
     }
 
     private func overview(_ cards: [[HistoryBranch]]) -> some View {
-        HStack(spacing: 0) {
+        let merged = history.branchFilter == .merged ? session.mergedPullRequests : []
+        return HStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    if cards.isEmpty {
+                    if cards.isEmpty && merged.isEmpty {
                         emptyState
                     }
                     ForEach(cards, id: \.first?.name) { branches in
@@ -42,7 +45,10 @@ struct BranchesPageView: View {
                             model: model, session: session, branches: branches,
                             isSelected: branches.contains { $0.name == history.selection?.branchName })
                     }
-                    if history.isGitButler, !cards.isEmpty {
+                    if !merged.isEmpty {
+                        MergedPullRequestsCard(model: model, session: session, items: merged)
+                    }
+                    if history.isGitButler, !cards.isEmpty, history.branchFilter != .merged {
                         HStack(alignment: .top, spacing: 8) {
                             Image(systemName: "square.3.layers.3d")
                                 .font(.system(size: 11))
@@ -86,7 +92,9 @@ struct BranchesPageView: View {
         case .all:
             EmptyState("No branches yet", systemImage: "arrow.triangle.branch")
         case .merged:
-            EmptyState("Nothing merged yet", systemImage: "arrow.triangle.merge", description: "Branches whose pull request was merged show here.")
+            EmptyState(
+                "Nothing merged this week", systemImage: "arrow.triangle.merge",
+                description: "Your pull requests merged in the last seven days show here, and branches that are in the target already.")
         }
     }
 }
@@ -145,7 +153,8 @@ struct BranchesTopBar: View {
     private var counts: [HistoryModel.BranchFilter: String] {
         let applied = history.branchCards(for: .applied).joined().count
         let all = history.branchCards(for: .all).joined().count
-        return [.applied: "\(applied)", .all: "\(all)"]
+        let merged = history.branchCards(for: .merged).joined().count + session.mergedPullRequests.count
+        return [.applied: "\(applied)", .all: "\(all)", .merged: "\(merged)"]
     }
 }
 
@@ -295,7 +304,92 @@ private struct StackCard: View {
     }
 }
 
+/// The user's pull requests merged this week whose branch is gone, e.g. removed by `but pull`; each opens in the
+/// Pull requests page.
+private struct MergedPullRequestsCard: View {
+    let model: AppModel
+    let session: ProjectSession
+    let items: [InboxPullRequest]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text("Merged this week").font(.sectionLabel)
+                Text("\(items.count)").font(.caption11)
+            }
+            .foregroundStyle(Theme.textTertiary)
+            .padding(.horizontal, 14)
+            .frame(height: 36, alignment: .leading)
+            ForEach(items) { item in
+                MergedPullRequestRow(item: item) {
+                    session.pullRequests.filter = .mine
+                    session.pullRequests.selectedNumber = item.number
+                    model.mode = .pullRequests
+                }
+                .overlay(alignment: .top) { Rectangle().fill(Theme.lineSubtle).frame(height: 1) }
+            }
+        }
+        .background(Theme.surface, in: .rect(cornerRadius: 12))
+        .clipShape(.rect(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.line))
+    }
+}
+
+/// A merged pull request: title, number, its branch and when it merged.
+private struct MergedPullRequestRow: View {
+    let item: InboxPullRequest
+    let open: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.triangle.merge")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.mergedFg)
+                .frame(width: 15, height: 15)
+            Text(item.title)
+                .font(.system(size: 13.5, weight: .medium))
+                .foregroundStyle(Theme.textPrimary)
+                .lineLimit(1)
+            Text("#\(item.number)")
+                .font(.detail)
+                .foregroundStyle(Theme.textTertiary)
+            Chip(item.headRefName, systemImage: "arrow.triangle.branch", truncates: true)
+            Spacer(minLength: 8)
+            Text(item.mergedAt.map { "merged \(RelativeAge.short($0)) ago" } ?? "merged")
+                .font(.caption11)
+                .foregroundStyle(Theme.textTertiary)
+                .lineLimit(1)
+                .fixedSize()
+            IconButton("Open on GitHub", systemImage: "arrow.up.right.square") { NSWorkspace.shared.open(item.url) }
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 8)
+        .rowHeight(46)
+        .background(isHovered ? Theme.hover.opacity(0.5) : .clear)
+        .contentShape(.rect)
+        .onHover { isHovered = $0 }
+        .onTapGesture(perform: open)
+        .help("Show in Pull Requests")
+        .contextMenu {
+            Button("Show in Pull Requests", action: open)
+            Button("Open #\(item.number) on GitHub") { NSWorkspace.shared.open(item.url) }
+            Button("Copy Link") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(item.url.absoluteString, forType: .string)
+            }
+        }
+    }
+}
+
 extension ProjectSession {
+    /// The user's pull requests merged this week, unless the Merged filter lists their branch already.
+    var mergedPullRequests: [InboxPullRequest] {
+        let listed = Set(history.branchCards(for: .merged).joined().map(\.name))
+        return pullRequests.mergedThisWeek.filter { !listed.contains($0.headRefName) }
+    }
+
     /// Commits the remote does not have: all of a never pushed branch, else what the log knows is unpushed.
     func isLocal(_ commit: CommitInfo, in branch: HistoryBranch) -> Bool {
         switch branch.status {
