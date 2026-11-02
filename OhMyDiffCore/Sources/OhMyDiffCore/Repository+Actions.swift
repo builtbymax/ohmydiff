@@ -218,8 +218,20 @@ extension Repository {
             do {
                 _ = try await toolchain.but(["commit", "-b", branch, "-m", message] + ids, in: root, timeout: .seconds(60))
             } catch let error as ProcessError {
-                if case .nonZeroExit(_, _, let stderr) = error, let anchor = Self.dependencyAnchor(stderr) {
-                    throw ChangeActionError.dependsOn(anchor)
+                if case .nonZeroExit(_, _, let stderr) = error {
+                    if let anchor = Self.dependencyAnchor(stderr) {
+                        throw ChangeActionError.dependsOn(anchor)
+                    }
+                    // With several dependencies the CLI lists them without a stacking hint.
+                    // Only offer an anchor when all of them belong to the same applied stack.
+                    let dependencies = Self.dependencyBranches(stderr)
+                    if !dependencies.isEmpty, let status = try? await butStatus(),
+                       let stack = status.stacks.first(where: {
+                           dependencies.isSubset(of: Set($0.branches.map(\.name)))
+                       }),
+                       let anchor = stack.branches.first(where: { dependencies.contains($0.name) })?.name {
+                        throw ChangeActionError.dependsOn(anchor)
+                    }
                 }
                 throw error
             }
@@ -272,6 +284,15 @@ extension Repository {
         let anchor = stderr[range.upperBound...].prefix { !$0.isWhitespace }
             .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
         return anchor.isEmpty ? nil : anchor
+    }
+
+    static func dependencyBranches(_ output: String) -> Set<String> {
+        Set(output.split(separator: "\n").compactMap { line in
+            guard let range = line.range(of: " depends on ") else { return nil }
+            let name = line[range.upperBound...].prefix { !$0.isWhitespace }
+                .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+            return name.isEmpty ? nil : name
+        })
     }
 
     private func check(_ action: ChangeAction, _ targets: [ChangeTarget]) throws {

@@ -111,7 +111,7 @@ struct CommitTargetCard: View {
             Text("Commit \(countTitle)")
                 .font(.system(size: 13.5, weight: .semibold))
                 .foregroundStyle(Theme.textPrimary)
-            Chip(subject, systemImage: "doc")
+            Chip(subject, systemImage: "doc", truncates: true)
             Spacer(minLength: 8)
             KeyCap("esc")
         }
@@ -161,6 +161,7 @@ struct CommitTargetCard: View {
                     .textFieldStyle(.plain)
                     .font(.code(12.5))
                     .foregroundStyle(Theme.textPrimary)
+                    .frame(minWidth: 0, maxWidth: .infinity)
                     .focused($focus, equals: .branchName)
                     .onChange(of: newBranch) { _, _ in if focus == .branchName { isNameSuggested = false } }
                     .onSubmit { focus = .message }
@@ -180,7 +181,7 @@ struct CommitTargetCard: View {
             .background(Theme.canvas, in: .rect(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(focus == .branchName ? Theme.lineStrong : Theme.line))
             if !alternatives.isEmpty {
-                HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Or")
                         .font(.caption11)
                         .foregroundStyle(Theme.textTertiary)
@@ -189,12 +190,13 @@ struct CommitTargetCard: View {
                             newBranch = name
                             isNameSuggested = true
                         } label: {
-                            Chip(name, systemImage: "sparkles")
+                            Chip(name, systemImage: "sparkles", truncates: true)
                         }
                         .buttonStyle(.plain)
+                        .help(name)
                     }
-                    Spacer(minLength: 0)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             if let suggestionError, generating == nil {
                 Text(String(describing: suggestionError))
@@ -325,11 +327,14 @@ struct CommitTargetCard: View {
     private var footer: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let error {
-                Text(error)
-                    .font(.caption11)
-                    .foregroundStyle(Theme.delFg)
-                    .lineLimit(3)
-                    .textSelection(.enabled)
+                ScrollView {
+                    Text(error)
+                        .font(.caption11)
+                        .foregroundStyle(Theme.delFg)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(height: 100)
             } else {
                 Text(command)
                     .font(.code(11))
@@ -449,7 +454,12 @@ struct CommitTargetCard: View {
                     stacksOnDependency = true
                     self.error = nil
                 } else {
-                    self.error = String(describing: error)
+                    if case ProcessError.nonZeroExit(_, let code, let output) = error {
+                        let detail = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                        self.error = detail.isEmpty ? "Commit failed (exit code \(code))." : detail
+                    } else {
+                        self.error = String(describing: error)
+                    }
                 }
             }
         }

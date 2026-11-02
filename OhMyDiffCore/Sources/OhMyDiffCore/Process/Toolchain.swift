@@ -113,8 +113,12 @@ extension Toolchain {
             but, arguments: ["-C", directory.path] + arguments, currentDirectory: directory,
             environment: environment, timeout: timeout)
         guard output.exitCode == 0 else {
+            // GitButler can print actionable failure details and dependency hints on stdout.
+            let diagnostics = [output.stderrString, output.stdoutString]
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .joined(separator: "\n")
             throw ProcessError.nonZeroExit(
-                command: "but " + arguments.joined(separator: " "), exitCode: output.exitCode, stderr: output.stderrString)
+                command: "but " + arguments.joined(separator: " "), exitCode: output.exitCode, stderr: diagnostics)
         }
         return output
     }

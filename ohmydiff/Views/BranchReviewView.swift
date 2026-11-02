@@ -3,22 +3,32 @@ import OhMyDiffCore
 import SwiftUI
 
 /// How the Branches page shows its stacks: as cards beside the pull request panel, or as narrow columns beside
-/// the selected branch's or commit's diff, like Changes.
+/// the diff of the selected branch, commit or uncommitted changes.
 enum BranchesLayout: String {
     case overview
     case review
+
+    /// The stored layout, for code outside the views that read it with `@AppStorage`.
+    static var current: BranchesLayout {
+        get { UserDefaults.standard.string(forKey: AppSettings.branchesLayoutKey).flatMap(Self.init(rawValue:)) ?? .overview }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: AppSettings.branchesLayoutKey) }
+    }
 }
 
-/// The Branches page's review layout: a compact column of branches and commits, the selection's files, and the
-/// selected file's diff, with the branch's details on the right. The first column widens over the files while
-/// the pointer rests on it.
+/// The Branches page's review layout: a compact column of uncommitted changes, branches and commits, the
+/// selection's files, and the selected file's diff, with the branch's details on the right. Uncommitted changes
+/// list with the commit composer and get hunk actions and the file inspector. The first column widens over the
+/// files while the pointer rests on it.
 struct BranchReviewView: View {
     let model: AppModel
     let session: ProjectSession
 
     @AppStorage(AppSettings.branchListWidthKey) private var filesWidth = 240.0
+    @AppStorage(AppSettings.listWidthKey) private var changesWidth = 300.0
+    @AppStorage(AppSettings.isListHiddenKey) private var isFileListHidden = false
     @AppStorage(AppSettings.branchesLayoutKey) private var layout = BranchesLayout.overview
     @AppStorage(Self.isListPinnedKey) private var isListPinned = false
+    @AppStorage(Self.isListHiddenKey) private var isListHidden = false
     @AppStorage(AppSettings.isInspectorShownKey) private var isInspectorShown = true
     @State private var isListExpanded = false
     /// Branches whose commits are folded away with their chevron or ←.
@@ -28,34 +38,82 @@ struct BranchReviewView: View {
     private var history: HistoryModel { session.history }
     /// Whether the branch list stays open at full width instead of widening while the pointer rests on it.
     static let isListPinnedKey = "branchReviewListPinned"
+    /// Whether the branch list is left out; the sidebar's branches still select them.
+    static let isListHiddenKey = "branchReviewListHidden"
     private static let compactWidth: CGFloat = 190
     private static let expandedWidth: CGFloat = 320
     private static let detailsWidth: CGFloat = 380
+    private static let inspectorWidth: CGFloat = 320
 
     var body: some View {
-        let cards = history.branchCards(for: history.branchFilter)
+        let cards = session.listedBranchCards(in: .review)
+        let scope = uncommittedScope
         ScrollViewReader { proxy in
             HStack(spacing: 0) {
-                // Holds the compact width; the list draws over the files when it widens.
-                Color.clear
-                    .frame(width: isListPinned ? Self.expandedWidth : Self.compactWidth)
-                    .overlay(alignment: .leading) { list(cards) }
-                    .zIndex(1)
-                BranchFilesColumn(history: history)
-                    .frame(width: filesWidth)
-                    .overlay(alignment: .trailing) {
-                        Rectangle().fill(Theme.lineSubtle).frame(width: 1)
+                if !isListHidden {
+                    // Holds the compact width; the list draws over the files when it widens.
+                    Color.clear
+                        .frame(width: listWidth)
+                        .overlay(alignment: .leading) { list(cards) }
+                        .zIndex(1)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+                if let scope {
+                    if !isFileListHidden {
+                        UncommittedFilesColumn(model: model, session: session, scope: scope)
+                            .frame(width: changesWidth)
+                            .overlay(alignment: .trailing) {
+                                Rectangle().fill(Theme.lineSubtle).frame(width: 1)
+                            }
+                            .overlay(alignment: .trailing) { ColumnResizer(width: $changesWidth, range: AppSettings.listWidths) }
+                            .transition(.move(edge: .leading).combined(with: .opacity))
                     }
-                    .overlay(alignment: .trailing) { ColumnResizer(width: $filesWidth, range: AppSettings.branchFilesWidths) }
-                BranchReviewDetail(model: model, session: session)
+                    Group {
+                        if scope == nil || session.selectedFile.map(isInScope) == true {
+                            DiffDetailView(session: session)
+                        } else {
+                            EmptyState("No Selection", systemImage: "text.alignleft")
+                        }
+                    }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    BranchFilesColumn(history: history)
+                        .frame(width: filesWidth)
+                        .overlay(alignment: .trailing) {
+                            Rectangle().fill(Theme.lineSubtle).frame(width: 1)
+                        }
+                        .overlay(alignment: .trailing) { ColumnResizer(width: $filesWidth, range: AppSettings.branchFilesWidths) }
+                    BranchReviewDetail(model: model, session: session)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
                 if isInspectorShown {
                     Rectangle().fill(Theme.lineSubtle).frame(width: 1)
-                    details
-                        .frame(width: Self.detailsWidth)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                    Group {
+                        if scope != nil {
+                            ChangesInspector(model: model, session: session)
+                        } else {
+                            details
+                        }
+                    }
+                    .frame(width: scope != nil ? Self.inspectorWidth : Self.detailsWidth)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
+            .overlay(alignment: .bottomLeading) {
+                if scope != nil, let request = session.actionRequest, request.action == .commit {
+                    ZStack(alignment: .bottomLeading) {
+                        // Clicking outside the card closes it, like a popover.
+                        Color.black.opacity(0.001)
+                            .onTapGesture { session.actionRequest = nil }
+                        CommitTargetCard(session: session, request: request) { session.actionRequest = nil }
+                            .id(request.id)
+                            .padding(.leading, listWidth + 12)
+                            .padding(.bottom, 168)
+                            .popoverTransition(anchor: .bottomLeading)
+                    }
+                }
+            }
+            .animation(Theme.popoverAnimation, value: session.actionRequest?.id)
             .focusable()
             .focusEffectDisabled()
             .onKeyPress(.downArrow) { move(1, in: cards, proxy: proxy) }
@@ -65,11 +123,33 @@ struct BranchReviewView: View {
             .onKeyPress("n") { jumpToHunk(1) }
             .onKeyPress("p") { jumpToHunk(-1) }
             .onKeyPress(.escape) {
+                history.picksLayout = false
                 withAnimation(.snappy(duration: 0.2)) { layout = .overview }
                 return .handled
             }
             .onAppear { history.selection.map { proxy.scrollTo($0) } }
+            .onChange(of: session.selectedFileID) {
+                // A refresh selects the next file once the selected one is committed; keep to the lane's files.
+                guard case .uncommitted(let scope?)? = history.selection, let file = session.selectedFile, !isInScope(file),
+                      let first = session.uncommittedGroups(scope).allFiles.first
+                else { return }
+                session.select(first.id)
+            }
         }
+    }
+
+    private var listWidth: CGFloat { isListHidden ? 0 : isListPinned ? Self.expandedWidth : Self.compactWidth }
+
+    /// Whether the selected lane, or all uncommitted changes, list the file.
+    private func isInScope(_ file: ChangedFile) -> Bool {
+        guard case .uncommitted(let scope)? = history.selection else { return false }
+        return session.uncommittedGroups(scope).allFiles.contains { $0.id == file.id }
+    }
+
+    /// The uncommitted changes the selection lists: `.some(nil)` for all of them, `nil` for a branch or commit.
+    private var uncommittedScope: ChangeGroup.ID?? {
+        guard case .uncommitted(let scope)? = history.selection else { return nil }
+        return .some(scope)
     }
 
     /// The selected branch's details, or those of the branch a selected commit is on.
@@ -107,26 +187,33 @@ struct BranchReviewView: View {
             }
     }
 
-    /// Steps through the selection's files, then on to the next or previous branch or commit.
+    /// Steps through the selection's files, then on to the next or previous row of the list.
     private func move(_ offset: Int, in cards: [[HistoryBranch]], proxy: ScrollViewProxy) -> KeyPress.Result {
-        if case .loaded(let diffs) = history.files, let index = diffs.firstIndex(where: { $0.id == history.selectedFileID }),
+        if let scope = uncommittedScope {
+            let files = session.uncommittedGroups(scope).allFiles
+            if let index = files.firstIndex(where: { $0.id == session.selectedFileID }), files.indices.contains(index + offset) {
+                let next = files[index + offset].id
+                session.selectedFileID = next
+                proxy.scrollTo(next)
+                return .handled
+            }
+        } else if case .loaded(let diffs) = history.files, let index = diffs.firstIndex(where: { $0.id == history.selectedFileID }),
            diffs.indices.contains(index + offset) {
             let next = diffs[index + offset].id
             history.selectedFileID = next
             proxy.scrollTo(next)
             return .handled
         }
-        let items = cards.flatMap { branches in
-            branches.reversed().flatMap { branch in
-                [HistoryModel.Selection.branch(branch.name)]
-                    + (history.isMerged(branch) || collapsed.contains(branch.name) ? [] : branch.commits.map { .commit(sha: $0.sha, branch: branch.name) })
-            }
-        }
+        let items = BranchReviewList.rows(session: session, cards: cards, collapsed: collapsed)
         guard !items.isEmpty else { return .ignored }
         let current = items.firstIndex { $0 == history.selection }
         let next = items[current.map { min(max($0 + offset, 0), items.count - 1) } ?? 0]
         guard next != history.selection else { return .handled }
-        history.selection = next
+        if case .uncommitted(let scope) = next {
+            session.reviewUncommitted(scope)
+        } else {
+            history.selection = next
+        }
         proxy.scrollTo(next)
         return .handled
     }
@@ -155,7 +242,8 @@ struct BranchReviewView: View {
 
 // MARK: - Branches and commits
 
-/// Each stack's branches from the base up, with their commits. Compact, it leaves out SHAs and pull requests.
+/// The uncommitted changes, then each stack's branches from the base up, with their commits and the lane's
+/// uncommitted changes on top. Compact, it leaves out SHAs and pull requests.
 private struct BranchReviewList: View {
     let session: ProjectSession
     let cards: [[HistoryBranch]]
@@ -164,12 +252,45 @@ private struct BranchReviewList: View {
 
     private var history: HistoryModel { session.history }
 
+    /// Every row in list order, for ↑ and ↓.
+    static func rows(session: ProjectSession, cards: [[HistoryBranch]], collapsed: Set<String>) -> [HistoryModel.Selection] {
+        let history = session.history
+        let top: [HistoryModel.Selection] = showsUncommitted(session: session, scope: nil) ? [.uncommitted(nil)] : []
+        return top + cards.flatMap { stackRows(session: session, branches: $0, collapsed: collapsed) }
+    }
+
+    /// One stack's rows, base first: each branch, the lane's uncommitted changes on the top branch, and commits.
+    static func stackRows(session: ProjectSession, branches: [HistoryBranch], collapsed: Set<String>) -> [HistoryModel.Selection] {
+        let history = session.history
+        let lane = session.lane(of: branches).flatMap { showsUncommitted(session: session, scope: $0.id) ? $0 : nil }
+        return branches.reversed().flatMap { branch in
+            [HistoryModel.Selection.branch(branch.name)]
+                + (branch.name == branches.first?.name ? lane.map { [.uncommitted($0.id)] } ?? [] : [])
+                + (history.isMerged(branch) || collapsed.contains(branch.name) ? [] : branch.commits.map { .commit(sha: $0.sha, branch: branch.name) })
+        }
+    }
+
+    /// Uncommitted rows show while they have files, and while selected, so committing the last file does not
+    /// pull the row away. A lane's only shows when it has its own files.
+    private static func showsUncommitted(session: ProjectSession, scope: ChangeGroup.ID?) -> Bool {
+        if session.history.selection == .uncommitted(scope) { return true }
+        return !session.uncommittedGroups(scope).allFiles.isEmpty
+    }
+
     var body: some View {
-        if cards.isEmpty {
+        if cards.isEmpty && !Self.showsUncommitted(session: session, scope: nil) {
             EmptyState("No branches", systemImage: "arrow.triangle.branch")
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
+                    if Self.showsUncommitted(session: session, scope: nil) {
+                        ReviewUncommittedRow(
+                            title: "Uncommitted", systemImage: "tray", files: session.groups.allFiles, indent: 11,
+                            isSelected: history.selection == .uncommitted(nil)
+                        ) { session.reviewUncommitted() }
+                        .id(HistoryModel.Selection.uncommitted(nil))
+                        .padding(.bottom, cards.isEmpty ? 0 : 8)
+                    }
                     ForEach(Array(cards.enumerated()), id: \.element.first?.name) { index, branches in
                         stack(branches)
                             .padding(.top, index == 0 ? 0 : 8)
@@ -212,28 +333,115 @@ private struct BranchReviewList: View {
 
     @ViewBuilder
     private func rows(_ branches: [HistoryBranch]) -> some View {
-        // Base first, like the overview's cards.
+        // Base first, like the overview's cards. Stacked branches are joined by a line through their icons
+        // and commits, from the first row to the last.
         let ordered = Array(branches.reversed())
+        let all = branches.count > 1 ? Self.stackRows(session: session, branches: branches, collapsed: collapsed) : []
+        let rail = { (selection: HistoryModel.Selection) in
+            StackRail(continuesUp: all.first != selection && all.contains(selection), continuesDown: all.last != selection && all.contains(selection))
+        }
+        let lane = session.lane(of: branches).flatMap { Self.showsUncommitted(session: session, scope: $0.id) ? $0 : nil }
         ForEach(Array(ordered.enumerated()), id: \.element.name) { index, branch in
             let selection = HistoryModel.Selection.branch(branch.name)
             let isCollapsed = collapsed.contains(branch.name)
             ReviewBranchRow(
-                history: history, branch: branch, isStacked: index > 0, isCompact: isCompact,
+                history: history, branch: branch, isCompact: isCompact,
                 isSelected: history.selection == selection, isCollapsed: isCollapsed,
                 toggle: { toggle(branch.name) }
             ) { history.selection = selection }
+            .modifier(rail(selection))
             .id(selection)
+            // The lane's uncommitted changes go on top of the stack, above its newest commit.
+            if index == ordered.count - 1, let lane {
+                ReviewUncommittedRow(
+                    title: "Uncommitted", systemImage: "circle.dashed", files: lane.files, indent: 22,
+                    isSelected: history.selection == .uncommitted(lane.id)
+                ) { session.reviewUncommitted(lane.id) }
+                .modifier(rail(.uncommitted(lane.id)))
+                .id(HistoryModel.Selection.uncommitted(lane.id))
+            }
             if !history.isMerged(branch), !isCollapsed {
                 ForEach(branch.commits, id: \.sha) { commit in
                     let selection = HistoryModel.Selection.commit(sha: commit.sha, branch: branch.name)
                     ReviewCommitRow(
-                        commit: commit, isLocal: session.isLocal(commit, in: branch), indent: index > 0 ? 32 : 22,
+                        commit: commit, isLocal: session.isLocal(commit, in: branch), indent: 22,
                         isCompact: isCompact, isSelected: history.selection == selection
                     ) { history.selection = selection }
+                    .modifier(rail(selection))
                     .id(selection)
                 }
             }
         }
+    }
+}
+
+/// The line joining a stack's rows: through the icon column, above and below the row's icon. The branch and
+/// commit icons sit 29 pt in, so the line runs through them all.
+private struct StackRail: ViewModifier {
+    let continuesUp: Bool
+    let continuesDown: Bool
+
+    private static let x: CGFloat = 29
+    /// Room left around the icon.
+    private static let gap: CGFloat = 9
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if continuesUp || continuesDown {
+                GeometryReader { proxy in
+                    let middle = proxy.size.height / 2
+                    Path { path in
+                        if continuesUp {
+                            path.move(to: CGPoint(x: Self.x, y: 0))
+                            path.addLine(to: CGPoint(x: Self.x, y: middle - Self.gap))
+                        }
+                        if continuesDown {
+                            // On into the 1 pt between rows.
+                            path.move(to: CGPoint(x: Self.x, y: middle + Self.gap))
+                            path.addLine(to: CGPoint(x: Self.x, y: proxy.size.height + 1))
+                        }
+                    }
+                    .stroke(Theme.lineStrong, lineWidth: 1.5)
+                }
+                .allowsHitTesting(false)
+            }
+        }
+    }
+}
+
+/// Uncommitted changes in the review list: all of them or a lane's, with how many files.
+private struct ReviewUncommittedRow: View {
+    let title: String
+    let systemImage: String
+    let files: [ChangedFile]
+    let indent: CGFloat
+    let isSelected: Bool
+    let select: () -> Void
+
+    var body: some View {
+        Button(action: select) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 14, height: 14)
+                Text(title)
+                    .font(.control.weight(.medium))
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("\(files.count)")
+                    .font(.caption11.monospacedDigit())
+                    .foregroundStyle(Theme.textTertiary)
+            }
+            .padding(.leading, indent)
+            .padding(.trailing, 8)
+            .rowHeight(28)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.row(isSelected: isSelected))
+        .focusEffectDisabled()
+        .help(files.count == 1 ? "1 uncommitted file" : "\(files.count) uncommitted files")
     }
 }
 
@@ -253,7 +461,6 @@ extension BranchReviewList {
 private struct ReviewBranchRow: View {
     let history: HistoryModel
     let branch: HistoryBranch
-    let isStacked: Bool
     let isCompact: Bool
     let isSelected: Bool
     let isCollapsed: Bool
@@ -302,7 +509,7 @@ private struct ReviewBranchRow: View {
                     .foregroundStyle(Theme.textTertiary)
                     .help(branch.commits.count == 1 ? "1 commit" : "\(branch.commits.count) commits")
             }
-            .padding(.leading, isStacked ? 14 : 4)
+            .padding(.leading, 4)
             .padding(.trailing, 8)
             .rowHeight(30)
             .contentShape(.rect)
@@ -438,6 +645,32 @@ private struct BranchFilesColumn: View {
                 .focusEffectDisabled()
                 .id(diff.id)
             }
+        }
+    }
+}
+
+/// The selected uncommitted changes under a head naming them: the filter, the files and the commit composer.
+private struct UncommittedFilesColumn: View {
+    let model: AppModel
+    let session: ProjectSession
+    let scope: ChangeGroup.ID?
+
+    var body: some View {
+        let files = session.uncommittedGroups(scope).allFiles
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(scope.flatMap { id in session.groups.first { $0.id == id }?.title } ?? "Uncommitted changes")
+                    .font(.control.weight(.medium))
+                    .foregroundStyle(Theme.textPrimary)
+                Text(["uncommitted", files.count == 1 ? "1 file" : "\(files.count) files"].joined(separator: " · "))
+                    .font(.caption11)
+                    .foregroundStyle(Theme.textTertiary)
+            }
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            ChangesListView(model: model, session: session, scope: scope)
         }
     }
 }

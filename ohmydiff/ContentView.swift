@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 /// The pages of the sidebar.
 enum WorkspaceMode: String, CaseIterable, Identifiable {
-    case changes = "Changes"
+    /// Uncommitted changes, branches and their commits.
     case branches = "Branches"
     case pullRequests = "Pull requests"
     case history = "History"
@@ -14,21 +14,19 @@ enum WorkspaceMode: String, CaseIterable, Identifiable {
     var title: String { rawValue }
 
     /// The pages built so far, in sidebar order.
-    static let available: [WorkspaceMode] = [.changes, .branches, .pullRequests, .history]
+    static let available: [WorkspaceMode] = [.branches, .pullRequests, .history]
 
     var systemImage: String {
         switch self {
-        case .changes: "tray"
         case .branches: "arrow.triangle.branch"
         case .pullRequests: "arrow.triangle.pull"
         case .history: "clock.arrow.circlepath"
         }
     }
 
-    /// ⌘1–⌘4 unless changed in Settings → Shortcuts.
+    /// ⌘1–⌘3 unless changed in Settings → Shortcuts.
     var shortcutAction: ShortcutAction {
         switch self {
-        case .changes: .changes
         case .branches: .branches
         case .pullRequests: .pullRequests
         case .history: .history
@@ -39,10 +37,7 @@ enum WorkspaceMode: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @Bindable var model: AppModel
 
-    @AppStorage(AppSettings.listWidthKey) private var listWidth = 300.0
-    @AppStorage(AppSettings.isListHiddenKey) private var isListHidden = false
     @AppStorage(AppSettings.isSidebarHiddenKey) private var isSidebarHidden = false
-    @AppStorage(AppSettings.isInspectorShownKey) private var isInspectorShown = true
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppAppearance.system
 
     var body: some View {
@@ -182,47 +177,12 @@ struct ContentView: View {
     private var pageBody: some View {
         if let session = model.selectedSession {
             switch model.mode {
-            case .pullRequests:
-                PullRequestsPageView(model: model, session: session)
-            case .changes:
-                HStack(spacing: 0) {
-                    if !isListHidden {
-                        ChangesListView(model: model, session: session)
-                            .frame(width: listWidth)
-                            .overlay(alignment: .trailing) {
-                                Rectangle().fill(Theme.lineSubtle).frame(width: 1)
-                            }
-                            .overlay(alignment: .trailing) { ColumnResizer(width: $listWidth, range: AppSettings.listWidths) }
-                            .transition(.move(edge: .leading).combined(with: .opacity))
-                    }
-                    DiffDetailView(session: session)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if isInspectorShown {
-                        Rectangle().fill(Theme.lineSubtle).frame(width: 1)
-                        ChangesInspector(model: model, session: session)
-                            .frame(width: 320)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                    }
-                }
-                .overlay(alignment: .bottomLeading) {
-                    if let request = session.actionRequest, request.action == .commit {
-                        ZStack(alignment: .bottomLeading) {
-                            // Clicking outside the card closes it, like a popover.
-                            Color.black.opacity(0.001)
-                                .onTapGesture { session.actionRequest = nil }
-                            CommitTargetCard(session: session, request: request) { session.actionRequest = nil }
-                                .id(request.id)
-                                .padding(.leading, 12)
-                                .padding(.bottom, 168)
-                                .popoverTransition(anchor: .bottomLeading)
-                        }
-                    }
-                }
-                .animation(Theme.popoverAnimation, value: session.actionRequest?.id)
-            case .history:
-                HistoryPageView(model: model, session: session)
             case .branches:
                 BranchesPageView(model: model, session: session)
+            case .pullRequests:
+                PullRequestsPageView(model: model, session: session)
+            case .history:
+                HistoryPageView(model: model, session: session)
             }
         } else if model.projects.isEmpty {
             FirstRunView(model: model)

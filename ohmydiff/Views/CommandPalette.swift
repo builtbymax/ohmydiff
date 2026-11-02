@@ -485,7 +485,8 @@ struct CommandPalette: View {
         guard let session = model.selectedSession else { return [] }
         return session.groups.flatMap(\.files).map { file in
             let open = {
-                model.mode = .changes
+                model.mode = .branches
+                session.reviewUncommitted()
                 session.selectedFileID = file.id
             }
             let target = DiffFileTarget(url: session.rootURL.appending(path: file.path), relativePath: file.path, line: nil)
@@ -575,7 +576,7 @@ struct CommandPalette: View {
         let session = model.selectedSession
 
         for page in WorkspaceMode.available where page != model.mode {
-            add("Go to \(page.title)", page.systemImage, Shortcuts.label(page.shortcutAction)) { model.mode = page }
+            add("Go to \(page.title)", page.systemImage, Shortcuts.label(page.shortcutAction)) { model.open(page) }
         }
         add("Switch project…", "chevron.up.chevron.down", "⌘P") { model.isProjectMenuPresented = true }
         if let session {

@@ -2,9 +2,9 @@ import AppKit
 import OhMyDiffCore
 import SwiftUI
 
-/// The right side of the Changes page: the selected file's kind, branch and facts, the commits that last
-/// changed the current hunk, the file's recent history, its branch's ticket and pull request, and copying
-/// its path or opening it.
+/// The right side of uncommitted changes on the Branches page: the selected file's kind, branch and facts, the
+/// commits that last changed the current hunk, the file's recent history, its branch's ticket and pull request,
+/// and copying its path or opening it.
 struct ChangesInspector: View {
     let model: AppModel
     let session: ProjectSession

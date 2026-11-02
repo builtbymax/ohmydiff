@@ -2,8 +2,8 @@ import AppKit
 import OhMyDiffCore
 import SwiftUI
 
-/// The 46 pt bar at the top of the content panel. Changes shows the open file and the branch's push and
-/// pull request; the other pages show their title and filters.
+/// The 46 pt bar at the top of the content panel: the page's title and filters, and, while Branches reviews
+/// uncommitted changes, the open files and the branch's push and pull request.
 struct PageTopBar: View {
     let model: AppModel
     let mode: WorkspaceMode
@@ -12,8 +12,6 @@ struct PageTopBar: View {
         HStack(spacing: 2) {
             if let session = model.selectedSession {
                 switch mode {
-                case .changes:
-                    ChangesTopBar(model: model, session: session)
                 case .pullRequests:
                     PullRequestsTopBar(session: session, inbox: session.pullRequests)
                 case .branches:
@@ -40,16 +38,12 @@ struct PageTopBar: View {
     }
 }
 
-/// Changes: the selected file, then pushing and the pull request of its branch, and the inspector. Fetching
-/// lives in the sidebar.
-private struct ChangesTopBar: View {
-    let model: AppModel
+/// Pushing and the pull request of the selected uncommitted file's branch; plain git names the checked-out
+/// branch first.
+struct UncommittedBranchButtons: View {
     let session: ProjectSession
-    @AppStorage(AppSettings.isInspectorShownKey) private var isInspectorShown = true
 
     var body: some View {
-        FileTabs(session: session)
-        Spacer(minLength: 8)
         if session.project.kind != .gitButler, let branch = session.currentBranch {
             Chip(branch, systemImage: "arrow.triangle.branch")
                 .padding(.trailing, 6)
@@ -62,13 +56,9 @@ private struct ChangesTopBar: View {
                     .padding(.leading, 6)
             }
         }
-        IconButton(isInspectorShown ? "Hide Inspector  ⌥⌘I" : "Show Inspector  ⌥⌘I", systemImage: "sidebar.right", isSelected: isInspectorShown) {
-            withAnimation(.snappy(duration: 0.2)) { isInspectorShown.toggle() }
-        }
-        .padding(.leading, 6)
     }
 
-    /// The branch the bar acts on: the selected file's in GitButler, the checked-out one in plain git.
+    /// The branch the buttons act on: the selected file's in GitButler, the checked-out one in plain git.
     private var branch: HistoryBranch? {
         let name: String? = session.project.kind == .gitButler
             ? session.selectedFile.flatMap { session.assignedBranch(of: $0.path) } ?? session.branchNames.first
@@ -79,7 +69,7 @@ private struct ChangesTopBar: View {
 }
 
 /// The files opened lately as tabs, newest kept; the ones that do not fit go in an overflow list.
-private struct FileTabs: View {
+struct FileTabs: View {
     let session: ProjectSession
 
     var body: some View {
