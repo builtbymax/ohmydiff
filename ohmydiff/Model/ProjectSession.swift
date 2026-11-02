@@ -648,6 +648,18 @@ final class ProjectSession {
         return Suggestions.commitLog(found.commits)
     }
 
+    /// The latest commits that touched `path`, for the inspector; `nil` when they could not be read.
+    func fileHistory(of path: String) async -> FileHistory? {
+        guard let repository = await openedRepository() else { return nil }
+        return try? await repository.fileHistory(of: path)
+    }
+
+    /// The commits that last changed `lines` of `path` at HEAD, for the inspector.
+    func blame(_ path: String, lines: ClosedRange<Int>) async -> [BlameCommit] {
+        guard let repository = await openedRepository() else { return [] }
+        return (try? await repository.blame(path, lines: lines)) ?? []
+    }
+
     // MARK: - Selection and diff
 
     /// Selects the changed file at `path` (relative to the root) and scrolls its diff to `line` of the new

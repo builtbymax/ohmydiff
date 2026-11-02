@@ -40,10 +40,12 @@ struct PageTopBar: View {
     }
 }
 
-/// Changes: the selected file, then pushing and the pull request of its branch. Fetching lives in the sidebar.
+/// Changes: the selected file, then pushing and the pull request of its branch, and the inspector. Fetching
+/// lives in the sidebar.
 private struct ChangesTopBar: View {
     let model: AppModel
     let session: ProjectSession
+    @AppStorage(AppSettings.isInspectorShownKey) private var isInspectorShown = true
 
     var body: some View {
         FileTabs(session: session)
@@ -60,6 +62,10 @@ private struct ChangesTopBar: View {
                     .padding(.leading, 6)
             }
         }
+        IconButton(isInspectorShown ? "Hide Inspector  ⌥⌘I" : "Show Inspector  ⌥⌘I", systemImage: "sidebar.right", isSelected: isInspectorShown) {
+            withAnimation(.snappy(duration: 0.2)) { isInspectorShown.toggle() }
+        }
+        .padding(.leading, 6)
     }
 
     /// The branch the bar acts on: the selected file's in GitButler, the checked-out one in plain git.

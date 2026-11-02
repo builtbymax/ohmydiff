@@ -35,17 +35,17 @@ extension Repository {
 
     /// Commits reachable from `revisions`, newest first in date order, with their parents and refs. With no
     /// revisions: every local branch, or for GitButler the workspace. GitButler's own workspace commit and
-    /// refs are left out.
-    public func commitLog(_ revisions: [String] = [], limit: Int = Repository.logLimit) async throws -> [LogCommit] {
+    /// refs are left out. With `paths`, only commits that touch them.
+    public func commitLog(_ revisions: [String] = [], paths: [String] = [], limit: Int = Repository.logLimit) async throws -> [LogCommit] {
         let sources = revisions.isEmpty ? (kind == .gitButler ? ["HEAD"] : ["--branches", "HEAD"]) : revisions
         let format = "%H%x00%P%x00%D%x00%an%x00%ae%x00%aI%x00%B%x1e"
         let output = try await toolchain.git(
-            ["log", "--date-order", "--decorate=short", "--format=\(format)", "-n", String(limit)] + sources + ["--"], in: root)
+            ["log", "--date-order", "--decorate=short", "--format=\(format)", "-n", String(limit)] + sources + ["--"] + paths, in: root)
         var commits = Self.parseCommitLog(output.stdoutString)
         // Asks for the unpushed commits rather than the pushed ones, so old pushed commits outside any window count too.
-        let unpushed = try? await toolchain.git(["rev-list", "-n", String(limit)] + sources + ["--not", "--remotes", "--"], in: root)
+        let unpushed = try? await toolchain.git(["rev-list", "-n", String(limit)] + sources + ["--not", "--remotes", "--"] + paths, in: root)
         let unpushedSHAs = Set((unpushed?.stdoutString ?? "").split(separator: "\n").map(String.init))
-        let onHead = try? await toolchain.git(["rev-list", "-n", String(limit * 2), "HEAD", "--"], in: root)
+        let onHead = try? await toolchain.git(["rev-list", "-n", String(limit * 2), "HEAD", "--"] + paths, in: root)
         let onHeadSHAs = onHead.map { Set($0.stdoutString.split(separator: "\n").map(String.init)) }
         for index in commits.indices {
             let sha = commits[index].commit.sha
