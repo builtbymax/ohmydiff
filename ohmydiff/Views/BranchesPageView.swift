@@ -247,7 +247,7 @@ struct BranchesTopBar: View {
 }
 
 /// Which panels the Branches page shows, by layout: the details or inspector on the right, and in the review
-/// layout the branch list, whether it stays wide and, beside uncommitted changes, the file list.
+/// layout the branch list, whether it stays wide, and the file list.
 private struct PanelsMenu: View {
     let layout: BranchesLayout
     let isReviewingUncommitted: Bool
@@ -266,7 +266,7 @@ private struct PanelsMenu: View {
                     Toggle("Keep Branch List Open", isOn: animated($isListPinned))
                 }
             }
-            if isReviewingUncommitted {
+            if layout == .review {
                 Toggle("File List", isOn: animated(Binding(get: { !isFileListHidden }, set: { isFileListHidden = !$0 })))
             }
         } label: {

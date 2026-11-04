@@ -34,6 +34,10 @@ struct BranchReviewView: View {
     /// Branches whose commits are folded away with their chevron or ←.
     @State private var collapsed: Set<String> = []
     @State private var expandTask: Task<Void, Never>?
+    /// Whether the pointer rests on the hidden file list's count, or on the list floating over the diff.
+    @State private var isCountHovered = false
+    @State private var isPeekHovered = false
+    @State private var isPeeking = false
 
     private var history: HistoryModel { session.history }
     /// Whether the branch list stays open at full width instead of widening while the pointer rests on it.
@@ -84,15 +88,20 @@ struct BranchReviewView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .fileListPeek(fileList(scope), isPeeking: isPeeking && isFileListHidden, toggle: fileListToggle(scope)) { isPeekHovered = $0 }
                 } else {
-                    BranchFilesColumn(history: history)
-                        .frame(width: fit.filesWidth)
-                        .overlay(alignment: .trailing) {
-                            Rectangle().fill(Theme.lineSubtle).frame(width: 1)
-                        }
-                        .overlay(alignment: .trailing) { ColumnResizer(width: $filesWidth, range: AppSettings.branchFilesWidths) }
+                    if !isFileListHidden {
+                        BranchFilesColumn(history: history)
+                            .frame(width: fit.filesWidth)
+                            .overlay(alignment: .trailing) {
+                                Rectangle().fill(Theme.lineSubtle).frame(width: 1)
+                            }
+                            .overlay(alignment: .trailing) { ColumnResizer(width: $filesWidth, range: AppSettings.branchFilesWidths) }
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
                     BranchReviewDetail(model: model, session: session)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .fileListPeek(fileList(scope), isPeeking: isPeeking && isFileListHidden, toggle: fileListToggle(scope)) { isPeekHovered = $0 }
                 }
                 if fit.showsInspector {
                     Rectangle().fill(Theme.lineSubtle).frame(width: 1)
@@ -136,6 +145,14 @@ struct BranchReviewView: View {
                 return .handled
             }
             .onAppear { history.selection.map { proxy.scrollTo($0) } }
+            .task(id: isCountHovered || isPeekHovered) {
+                // A moment's rest opens the list; leaving it and the count closes it after a grace period.
+                let isHovered = isCountHovered || isPeekHovered
+                try? await Task.sleep(for: .milliseconds(isHovered ? 150 : 250))
+                guard !Task.isCancelled else { return }
+                withAnimation(.snappy(duration: 0.15)) { isPeeking = isHovered }
+            }
+            .onChange(of: isFileListHidden) { isPeeking = false }
             .onChange(of: session.selectedFileID) {
                 // A refresh selects the next file once the selected one is committed; keep to the lane's files.
                 guard case .uncommitted(let scope?)? = history.selection, let file = session.selectedFile, !isInScope(file),
@@ -164,7 +181,7 @@ struct BranchReviewView: View {
         let sideWidth = (isUncommitted ? Self.inspectorWidth : Self.detailsWidth) + 1
         var fit = Fit(
             showsList: !isListHidden, showsInspector: isInspectorShown, listWidth: listWidth,
-            filesWidth: isUncommitted && isFileListHidden ? 0 : isUncommitted ? changesWidth : filesWidth)
+            filesWidth: isFileListHidden ? 0 : isUncommitted ? changesWidth : filesWidth)
         var room = width - Self.diffMinWidth - fit.filesWidth - fit.listWidth
         if fit.showsInspector {
             if room < sideWidth { fit.showsInspector = false } else { room -= sideWidth }
@@ -178,6 +195,38 @@ struct BranchReviewView: View {
             fit.filesWidth = max(range.lowerBound, fit.filesWidth + room)
         }
         return fit
+    }
+
+    /// The files the hidden file list holds: the lane's uncommitted files, or the branch's or commit's.
+    private func fileList(_ scope: ChangeGroup.ID??) -> (items: [FileListItem], selectedID: String?, select: (String) -> Void) {
+        if let scope {
+            let items = session.uncommittedGroups(scope).allFiles.map {
+                FileListItem(id: $0.id, path: $0.path, previousPath: $0.previousPath, kind: $0.kind, stats: $0.stats)
+            }
+            return (items, session.selectedFileID, { id in session.select(id); closePeek() })
+        }
+        guard case .loaded(let diffs) = history.files else { return ([], nil, { _ in }) }
+        let items = diffs.map { diff in
+            FileListItem(
+                id: diff.id, path: diff.path, previousPath: diff.oldPath == diff.newPath ? nil : diff.oldPath, kind: diff.kind,
+                stats: diff.isBinary ? nil : LineStats(additions: diff.additions, deletions: diff.deletions))
+        }
+        return (items, history.selectedFileID, { id in history.selectedFileID = id; closePeek() })
+    }
+
+    /// The list goes away under the pointer, which then never reports leaving it.
+    private func closePeek() {
+        isPeekHovered = false
+        isCountHovered = false
+        isPeeking = false
+    }
+
+    private func fileListToggle(_ scope: ChangeGroup.ID??) -> FileListToggle {
+        let items = fileList(scope).items
+        let stats = items.reduce(LineStats(additions: 0, deletions: 0)) {
+            LineStats(additions: $0.additions + ($1.stats?.additions ?? 0), deletions: $0.deletions + ($1.stats?.deletions ?? 0))
+        }
+        return FileListToggle(count: items.count, stats: stats) { isCountHovered = $0 }
     }
 
     /// Whether the selected lane, or all uncommitted changes, list the file.
