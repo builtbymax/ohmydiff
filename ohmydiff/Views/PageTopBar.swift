@@ -125,7 +125,7 @@ struct FileTabs: View {
     }
 }
 
-/// An open file: its change letter and name. The selected tab sits raised; hovered ones get a fill.
+/// An open file: its change letter, icon and name. The selected tab sits raised; hovered ones get a fill.
 struct FileTab: View {
     let file: ChangedFile
     let isSelected: Bool
@@ -139,6 +139,8 @@ struct FileTab: View {
             Text(FileBadge(kind: file.kind).letter)
                 .font(.statusLetter)
                 .foregroundStyle(Theme.changeColor(file.kind))
+            FileIcon(path: file.path)
+                .padding(.trailing, -2)
             Text((file.path as NSString).lastPathComponent)
                 // One weight, so the tabs keep their width as the selection moves.
                 .font(.control.weight(.medium))
@@ -281,6 +283,7 @@ private struct OpenTabRow: View {
                     .font(.statusLetter)
                     .foregroundStyle(Theme.changeColor(file.kind))
                     .frame(width: 12)
+                FileIcon(path: file.path)
                 Text((file.path as NSString).lastPathComponent)
                     .font(.control.weight(.medium))
                     .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)

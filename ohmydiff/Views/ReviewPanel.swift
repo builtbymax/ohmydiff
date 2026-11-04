@@ -197,6 +197,7 @@ private struct ReviewFileRow: View {
             Text(badge.letter)
                 .font(.statusLetter)
                 .foregroundStyle(badge.color)
+            FileIcon(path: file.path)
             Text((file.path as NSString).lastPathComponent)
                 .font(.control)
                 .foregroundStyle(file.isViewed ? Theme.textTertiary : Theme.textPrimary)
