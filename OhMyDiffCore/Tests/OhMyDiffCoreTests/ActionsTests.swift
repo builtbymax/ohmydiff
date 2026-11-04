@@ -301,6 +301,18 @@ extension TestRepo {
         #expect(try await repo.git("branch", "--format=%(refname:short)") == "main\n")
     }
 
+    @Test func renamesBranches() async throws {
+        let repo = try await setUp()
+        try await repo.git("branch", "feature/old")
+        let repository = try await repo.open()
+
+        try await repository.renameBranch("feature/old", to: " feature/new ")
+        try await repository.renameBranch("main", to: "trunk")
+        #expect(try await repository.currentBranch() == "trunk")
+        #expect(try await repo.git("branch", "--format=%(refname:short)") == "feature/new\ntrunk\n")
+        await #expect(throws: ChangeActionError.self) { try await repository.renameBranch("trunk", to: "bad..name") }
+    }
+
     @Test func runsCommitHooks() async throws {
         let repo = try await setUp()
         let hook = repo.root.appending(path: ".git/hooks/commit-msg")
@@ -319,6 +331,19 @@ extension TestRepo {
 
 @Suite(.enabled(if: Toolchain.locate("but", in: Toolchain.mergedPath(nil, ProcessInfo.processInfo.environment["PATH"], home: NSHomeDirectory())) != nil, "requires the `but` CLI"))
 struct GitButlerActionTests {
+    @Test func renamesAndDeletesBranches() async throws {
+        let repo = try await TestRepo(gitButler: true)
+        try repo.write("one.txt", "one\n")
+        try await repo.but("commit", "-b", "feature/one", "-m", "add one")
+        try await repo.but("branch", "new", "feature/two")
+        let repository = try await repo.open()
+
+        try await repository.renameBranch("feature/one", to: "feature/renamed")
+        try await repository.deleteBranches(["feature/two"])
+        let status = try await repository.butStatus()
+        #expect(status.stacks.flatMap(\.branches).map(\.name) == ["feature/renamed"])
+    }
+
     @Test func stacksChangesDependingOnMultipleBranches() async throws {
         let repo = try await TestRepo(gitButler: true)
         try repo.write("first.txt", twentyLines)

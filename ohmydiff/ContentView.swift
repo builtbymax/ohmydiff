@@ -177,14 +177,18 @@ struct ContentView: View {
     @ViewBuilder
     private var pageBody: some View {
         if let session = model.selectedSession {
-            switch model.mode {
-            case .branches:
-                BranchesPageView(model: model, session: session)
-            case .pullRequests:
-                PullRequestsPageView(model: model, session: session)
-            case .history:
-                HistoryPageView(model: model, session: session)
+            Group {
+                switch model.mode {
+                case .branches:
+                    BranchesPageView(model: model, session: session)
+                case .pullRequests:
+                    PullRequestsPageView(model: model, session: session)
+                case .history:
+                    HistoryPageView(model: model, session: session)
+                }
             }
+            // On every page, since the sidebar's branches have the branch menu too.
+            .branchActionPresentation(session.history) { await session.suggestions() }
         } else if model.projects.isEmpty {
             FirstRunView(model: model)
         } else {

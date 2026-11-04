@@ -61,8 +61,10 @@ final class HistoryModel {
     var forcePushBranch: HistoryBranch?
     /// A merge waiting for confirmation.
     var pendingMerge: (pullRequest: PullRequest, method: MergeMethod, branch: String)?
-    /// Plain-git branches waiting for their deletion to be confirmed.
+    /// Branches waiting for their deletion to be confirmed.
     var pendingDeletion: [HistoryBranch]?
+    /// A branch whose new name is being typed.
+    var pendingRename: HistoryBranch?
     /// The Branches page's filter.
     var branchFilter = BranchFilter.applied
     /// Set when the Branches page is opened from the sidebar, the Go menu or the launcher, or its project is
@@ -267,7 +269,7 @@ final class HistoryModel {
     /// Plain git: branches whose upstream was deleted or whose pull request was merged.
     var goneBranches: [HistoryBranch] {
         guard !isGitButler else { return [] }
-        return groups.flatMap(\.branches).filter(canDelete)
+        return groups.flatMap(\.branches).filter { canDelete($0) && isGone($0) }
     }
 
     /// Whether the branch's pull request was merged with the branch exactly as it is, so nothing was added since.
@@ -277,16 +279,41 @@ final class HistoryModel {
         return pullRequest.headRefOid == branch.tip
     }
 
-    /// Plain git: a branch whose upstream was deleted or whose pull request was merged, unless it is checked out
-    /// or the main line.
+    /// A branch whose upstream was deleted or whose pull request was merged.
+    func isGone(_ branch: HistoryBranch) -> Bool {
+        branch.status == .upstreamGone || isMergedByPullRequest(branch)
+    }
+
+    /// Any branch but the main line; in plain git also not the checked-out one.
     func canDelete(_ branch: HistoryBranch) -> Bool {
-        !isGitButler && !branch.isCurrent && !branch.isDefault && (branch.status == .upstreamGone || isMergedByPullRequest(branch))
+        !branch.isDefault && (isGitButler || !branch.isCurrent)
     }
 
     func deleteBranches(_ branches: [HistoryBranch]) async {
-        await perform(branches.count == 1 ? "Deleting…" : "Deleting \(branches.count) branches…", branch: nil) { repository in
+        let done = await perform(branches.count == 1 ? "Deleting…" : "Deleting \(branches.count) branches…", branch: nil) { repository in
             try await repository.deleteBranches(branches.map(\.name))
         }
+        guard done else { return }
+        Toasts.shared.show(
+            branches.count == 1 ? "Deleted \(branches[0].name)" : "Deleted \(branches.count) branches", systemImage: "trash", tint: Theme.textSecondary)
+    }
+
+    /// The main line keeps its name; everything else can be renamed.
+    func canRename(_ branch: HistoryBranch) -> Bool {
+        !branch.isDefault
+    }
+
+    /// Renames the branch and keeps it selected when it was.
+    func renameBranch(_ branch: HistoryBranch, to newName: String) async -> Bool {
+        let newName = newName.trimmingCharacters(in: .whitespaces)
+        let wasSelected = selectedBranch?.name == branch.name
+        let done = await perform("Renaming…", branch: nil) { repository in
+            try await repository.renameBranch(branch.name, to: newName)
+        }
+        guard done else { return false }
+        if wasSelected { reveal(.branch(newName)) }
+        Toasts.shared.show("Renamed \(branch.name) to \(newName)", systemImage: "pencil", tint: Theme.okFg)
+        return true
     }
 
     // MARK: Branches page

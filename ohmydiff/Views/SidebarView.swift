@@ -217,6 +217,7 @@ private struct SidebarBranches: View {
                         name: branch.name, systemImage: "arrow.triangle.branch", pullRequest: history.pullRequest(of: branch),
                         isSelected: isSelected(branch.name)
                     ) { select(branch.name) }
+                    .contextMenu { BranchMenuItems(branch: branch, history: history) }
                 }
                 if let unassigned = session.groups.first(where: { $0.kind == .unassigned }) {
                     BranchRow(
@@ -240,6 +241,7 @@ private struct SidebarBranches: View {
                         name: current.name, systemImage: "checkmark", trailing: aheadBehind(current), pullRequest: history.pullRequest(of: current),
                         isSelected: true, isCurrent: true
                     ) { select(current.name) }
+                    .contextMenu { BranchMenuItems(branch: current, history: history) }
                 }
                 let others = branches.filter { !$0.isCurrent }
                 if !others.isEmpty {
@@ -250,6 +252,7 @@ private struct SidebarBranches: View {
                             name: branch.name, systemImage: "arrow.triangle.branch", trailing: age(branch), pullRequest: history.pullRequest(of: branch),
                             isSelected: false
                         ) { select(branch.name) }
+                        .contextMenu { BranchMenuItems(branch: branch, history: history) }
                     }
                 }
             }

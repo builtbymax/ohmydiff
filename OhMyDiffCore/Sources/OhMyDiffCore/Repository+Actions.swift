@@ -105,13 +105,29 @@ extension Repository {
         for target in hunks { try await apply(target, arguments: ["--cached", "--reverse"]) }
     }
 
-    /// Plain git: deletes local branches, e.g. ones whose upstream was deleted after merging. The checked-out
-    /// branch is refused. Deleted commits stay recoverable through the reflog for a while.
+    /// Deletes branches with their commits. GitButler takes them out of the workspace; plain git refuses the
+    /// checked-out branch. Deleted commits stay recoverable through the oplog or the reflog for a while.
     public func deleteBranches(_ names: [String]) async throws {
-        guard kind == .git, !names.isEmpty else { return }
-        if let current = try await currentBranch(), names.contains(current) { throw ChangeActionError.deletingCheckedOut(current) }
-        // `-D`: squash-merged branches are not ancestors of their target, so `-d` would refuse them.
-        _ = try await toolchain.git(["branch", "-D", "--"] + names, in: root)
+        guard !names.isEmpty else { return }
+        switch kind {
+        case .gitButler:
+            _ = try await toolchain.but(["branch", "delete"] + names, in: root, timeout: .seconds(60))
+        case .git:
+            if let current = try await currentBranch(), names.contains(current) { throw ChangeActionError.deletingCheckedOut(current) }
+            // `-D`: squash-merged branches are not ancestors of their target, so `-d` would refuse them.
+            _ = try await toolchain.git(["branch", "-D", "--"] + names, in: root)
+        }
+    }
+
+    /// Renames a local branch. Its remote copy keeps the old name until the branch is pushed again.
+    public func renameBranch(_ name: String, to newName: String) async throws {
+        let newName = newName.trimmingCharacters(in: .whitespaces)
+        guard try await isValidBranchName(newName) else { throw ChangeActionError.invalidBranchName(newName) }
+        guard newName != name else { return }
+        switch kind {
+        case .gitButler: _ = try await toolchain.but(["reword", name, "-m", newName], in: root, timeout: .seconds(60))
+        case .git: _ = try await toolchain.git(["branch", "-m", "--", name, newName], in: root)
+        }
     }
 
     /// GitButler: moves `branch` on top of `target`, so it builds on it in `target`'s stack.
