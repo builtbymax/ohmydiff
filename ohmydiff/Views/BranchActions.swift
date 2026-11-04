@@ -81,6 +81,7 @@ extension View {
 private struct BranchActionPresentation: ViewModifier {
     @Bindable var history: HistoryModel
     let suggestions: () async -> Suggestions?
+    @State private var newName = ""
 
     func body(content: Content) -> some View {
         content
@@ -130,6 +131,21 @@ private struct BranchActionPresentation: ViewModifier {
                 Text(deletionMessage(branches))
             }
             .alert(
+                "Rename \(history.pendingRename?.name ?? "")",
+                isPresented: Binding(get: { history.pendingRename != nil }, set: { if !$0 { history.pendingRename = nil } }),
+                presenting: history.pendingRename
+            ) { branch in
+                TextField("Branch name", text: $newName)
+                Button("Rename") { Task { await history.renameBranch(branch, to: newName) } }
+                    .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button("Cancel", role: .cancel) {}
+            } message: { branch in
+                Text(branch.status == nil || branch.status == .unpushed
+                    ? "The new name for the branch."
+                    : "Its remote copy keeps the old name until the branch is pushed again.")
+            }
+            .onChange(of: history.pendingRename?.name) { _, name in newName = name ?? "" }
+            .alert(
                 "Action Failed",
                 isPresented: Binding(get: { history.branchActionError != nil }, set: { if !$0 { history.branchActionError = nil } })
             ) {
@@ -148,6 +164,13 @@ private struct BranchActionPresentation: ViewModifier {
     private func deletionMessage(_ branches: [HistoryBranch]) -> String {
         var lines: [String] = []
         if branches.count > 1 { lines.append(branches.map(\.name).joined(separator: ", ")) }
+        if history.isGitButler {
+            let commits = branches.reduce(0) { $0 + $1.commits.count }
+            lines.append(commits == 0
+                ? "The branch has no commits. It is taken out of the workspace."
+                : "Its \(commits == 1 ? "commit is" : "\(commits) commits are") deleted with it. Undo it from GitButler's operations history.")
+            return lines.joined(separator: "\n\n")
+        }
         let unmerged = branches.filter { !$0.commits.isEmpty }
         if unmerged.isEmpty {
             lines.append("Every commit is on the main line.")

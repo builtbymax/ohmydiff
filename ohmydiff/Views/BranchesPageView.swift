@@ -23,7 +23,6 @@ struct BranchesPageView: View {
         }
         .butCompatibilityBanner(session)
         .changeActionPresentation(session)
-        .branchActionPresentation(history) { await session.suggestions() }
         // The Merged filter lists the user's merged pull requests from the Pull requests page's inbox.
         .task(id: session.lastRefreshed) { await session.refreshPullRequests() }
         .onChange(of: cards.map { $0.map(\.name) }, initial: true) { _, names in
@@ -633,7 +632,7 @@ private struct BranchHead: View {
                 IconButton(branch.needsForcePush ? "Force Push" : "Push", systemImage: "arrow.up") { history.requestPush(branch) }
                     .disabled(history.branchActivity != nil)
             }
-            if history.isMerged(branch), history.canDelete(branch) {
+            if !history.isGitButler, history.isMerged(branch), history.canDelete(branch) {
                 IconButton("Delete Branch…", systemImage: "xmark") { history.pendingDeletion = [branch] }
             } else {
                 BranchMoreMenu(branch: branch, history: history)
@@ -708,6 +707,9 @@ struct BranchMenuItems: View {
         Button("Copy Branch Name") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(branch.name, forType: .string)
+        }
+        if history.canRename(branch) {
+            Button("Rename Branch…") { history.pendingRename = branch }
         }
         if history.canDelete(branch) {
             Divider()
