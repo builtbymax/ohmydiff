@@ -3,7 +3,7 @@ import OhMyDiffCore
 import SwiftUI
 
 /// The right side of the Branches page, in both layouts: the branch's pull request with its checks, linked
-/// ticket and description, or what it takes to open one.
+/// ticket, commits and description, or what it takes to open one.
 struct BranchPanel: View {
     let model: AppModel
     let session: ProjectSession
@@ -37,6 +37,9 @@ struct BranchPanel: View {
                     }
                     if let ticket {
                         section("Linked ticket") { TicketRow(ticket: ticket) }
+                    }
+                    if !branch.commits.isEmpty {
+                        commits
                     }
                     description
                 }
@@ -150,11 +153,13 @@ struct BranchPanel: View {
             .lineLimit(1)
     }
 
-    /// `3 commits · builtbymax`.
+    /// `3 commits · builtbymax · not pushed`.
     private var byline: String {
         let count = detail?.commitCount ?? branch.commits.count
         var parts = ["\(count) \(count == 1 ? "commit" : "commits")"]
         if let author = detail?.author ?? branch.commits.first?.authorName { parts.append(author) }
+        let status = history.pushStatusTitle(of: branch)
+        if pullRequest == nil, !status.isEmpty { parts.append(status) }
         return parts.joined(separator: " · ")
     }
 
@@ -165,6 +170,22 @@ struct BranchPanel: View {
             VStack(spacing: 0) {
                 ForEach(detail.checks) { check in
                     CheckRow(check: check)
+                }
+            }
+        }
+    }
+
+    /// The branch's commits, newest first; the selected one opens to its message, author, date and SHA.
+    private var commits: some View {
+        let selected = history.selectedCommit?.sha
+        return section("Commits", trailing: branch.base.map { _ in "since \(branch.baseName ?? "main")" }) {
+            VStack(spacing: 0) {
+                ForEach(branch.commits, id: \.sha) { commit in
+                    BranchCommitRow(
+                        commit: commit, isLocal: session.isLocal(commit, in: branch), isSelected: commit.sha == selected
+                    ) {
+                        history.selection = commit.sha == selected ? .branch(branch.name) : .commit(sha: commit.sha, branch: branch.name)
+                    }
                 }
             }
         }
@@ -264,11 +285,12 @@ struct BranchPanel: View {
     private var mergeMethodTitle: String { MergeMethod.preferred.rawValue.capitalized }
 
     private var canReview: Bool {
-        guard history.selection == .branch(branch.name), case .loaded(let diffs) = history.files else { return false }
+        // The branch's whole diff, or that of the commit picked in its list.
+        guard history.selection?.branchName == branch.name, case .loaded(let diffs) = history.files else { return false }
         return !diffs.isEmpty
     }
 
-    /// The branch's whole diff in the review layout, beside the list of branches.
+    /// The branch's or selected commit's diff in the review layout, beside the list of branches.
     private func review() {
         guard canReview else { return }
         withAnimation(.snappy(duration: 0.2)) { layout = .review }
@@ -293,6 +315,93 @@ struct BranchPanel: View {
                 }
             }
         }
+    }
+}
+
+/// A commit in the branch panel: summary, `local` until pushed and age; selected, also its message body, author,
+/// date and SHA.
+private struct BranchCommitRow: View {
+    let commit: CommitInfo
+    let isLocal: Bool
+    let isSelected: Bool
+    let select: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "circle.and.line.horizontal")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(isLocal ? Theme.warnFg : Theme.textTertiary)
+                    .frame(width: 14, height: 14)
+                Text(commit.summary)
+                    .font(.control)
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(isSelected ? nil : 1)
+                    .fixedSize(horizontal: false, vertical: isSelected)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if commit.isConflicted {
+                    Chip("conflicted", tone: .danger)
+                }
+                if isLocal {
+                    Chip("local", tone: .warn)
+                }
+                Text(commit.date.map { RelativeAge.short($0) } ?? "")
+                    .font(.caption11)
+                    .foregroundStyle(Theme.textTertiary)
+                    .frame(minWidth: 22, alignment: .trailing)
+            }
+            if isSelected {
+                details
+                    .padding(.leading, 22)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .background(isSelected || isHovered ? Theme.hover : .clear, in: .rect(cornerRadius: 8))
+        .contentShape(.rect)
+        .onHover { isHovered = $0 }
+        .onTapGesture(perform: select)
+        .contextMenu {
+            Button("Copy Message") { copy(commit.message) }
+            Button("Copy SHA") { copy(commit.sha) }
+        }
+    }
+
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !commit.body.isEmpty {
+                Text(commit.body)
+                    .font(.detail)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            HStack(spacing: 6) {
+                Text([commit.authorName, commit.date.map { $0.formatted(date: .abbreviated, time: .shortened) }]
+                    .compactMap { $0?.isEmpty == false ? $0 : nil }
+                    .joined(separator: " · "))
+                    .font(.caption11)
+                    .foregroundStyle(Theme.textTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                Button { copy(commit.sha) } label: {
+                    Text(commit.shortSHA)
+                        .font(.code(11))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .glassTooltip("Copy SHA")
+            }
+        }
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
 
