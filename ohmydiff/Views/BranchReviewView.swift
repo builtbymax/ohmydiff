@@ -173,8 +173,9 @@ struct BranchReviewView: View {
         var filesWidth: CGFloat
     }
 
-    /// When the window is too narrow for every panel, the inspector makes way first, then the branch list, then
-    /// the files column narrows to its minimum. The panels' settings stay as they are.
+    /// When the window is too narrow for every panel, the branch list makes way first, then the files column
+    /// narrows to its minimum, and only then the inspector, which the user switched on to see. The panels'
+    /// settings stay as they are.
     private func fitting(_ scope: ChangeGroup.ID??, in width: CGFloat) -> Fit {
         let isUncommitted = scope != nil
         let range = isUncommitted ? AppSettings.listWidths : AppSettings.branchFilesWidths
@@ -182,17 +183,19 @@ struct BranchReviewView: View {
         var fit = Fit(
             showsList: !isListHidden, showsInspector: isInspectorShown, listWidth: listWidth,
             filesWidth: isFileListHidden ? 0 : isUncommitted ? changesWidth : filesWidth)
-        var room = width - Self.diffMinWidth - fit.filesWidth - fit.listWidth
-        if fit.showsInspector {
-            if room < sideWidth { fit.showsInspector = false } else { room -= sideWidth }
-        }
+        var room = width - Self.diffMinWidth - fit.filesWidth - fit.listWidth - (fit.showsInspector ? sideWidth : 0)
         if fit.showsList, room < 0 {
             fit.showsList = false
             room += fit.listWidth
             fit.listWidth = 0
         }
         if fit.filesWidth > 0, room < 0 {
-            fit.filesWidth = max(range.lowerBound, fit.filesWidth + room)
+            let narrowed = max(range.lowerBound, fit.filesWidth + room)
+            room += fit.filesWidth - narrowed
+            fit.filesWidth = narrowed
+        }
+        if fit.showsInspector, room < 0 {
+            fit.showsInspector = false
         }
         return fit
     }
