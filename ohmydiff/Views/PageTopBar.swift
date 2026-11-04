@@ -8,6 +8,10 @@ struct PageTopBar: View {
     let model: AppModel
     let mode: WorkspaceMode
 
+    /// Below this width the bar's switches and buttons show only their icons.
+    private static let compactWidth: CGFloat = 960
+    @State private var isNarrow = false
+
     var body: some View {
         HStack(spacing: 2) {
             if let session = model.selectedSession {
@@ -26,7 +30,10 @@ struct PageTopBar: View {
         .padding(.leading, 8)
         .padding(.trailing, 10)
         .frame(height: 46)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .background(dragArea)
+        .environment(\.isTopBarNarrow, isNarrow)
+        .onGeometryChange(for: Bool.self) { $0.size.width < Self.compactWidth } action: { isNarrow = $0 }
     }
 
     /// The bar's empty stretch moves the window, like a title bar.
@@ -36,6 +43,11 @@ struct PageTopBar: View {
             .contentShape(.rect)
             .gesture(WindowDragGesture())
     }
+}
+
+extension EnvironmentValues {
+    /// Whether the page's top bar is too narrow for every title: its switches and buttons show only their icons.
+    @Entry var isTopBarNarrow = false
 }
 
 /// Pushing and the pull request of the selected uncommitted file's branch; plain git names the checked-out
@@ -75,7 +87,8 @@ struct FileTabs: View {
     var body: some View {
         let files = session.tabFiles
         ViewThatFits(in: .horizontal) {
-            ForEach((1...max(files.count, 1)).reversed(), id: \.self) { shown in
+            // At the narrowest, only the overflow list.
+            ForEach((0...files.count).reversed(), id: \.self) { shown in
                 row(files, shown: shown)
             }
         }
@@ -102,6 +115,7 @@ struct FileTabs: View {
 
     private func visibleFiles(_ files: [ChangedFile], count: Int) -> [ChangedFile] {
         guard files.count > count else { return files }
+        guard count > 0 else { return [] }
         var picked = Array(files.suffix(count))
         if let selected = files.first(where: { $0.id == session.selectedFileID }), !picked.contains(where: { $0.id == selected.id }) {
             picked.removeFirst()
@@ -388,11 +402,12 @@ private struct HistoryTopBar: View {
     let session: ProjectSession
     @Bindable var log: CommitLogModel
     @AppStorage(AppSettings.isInspectorShownKey) private var isInspectorShown = true
+    @Environment(\.isTopBarNarrow) private var isNarrow
     @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         PageTitle(title: "History")
-        Segmented(selection: $log.filter, options: filters, systemImages: icons)
+        Segmented(selection: $log.filter, options: filters, systemImages: icons, isIconOnly: isNarrow)
         Spacer(minLength: 8)
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")

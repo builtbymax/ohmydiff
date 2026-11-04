@@ -44,16 +44,24 @@ struct BranchReviewView: View {
     private static let expandedWidth: CGFloat = 320
     private static let detailsWidth: CGFloat = 380
     private static let inspectorWidth: CGFloat = 320
+    /// The narrowest the diff gets before panels beside it make way: about its file header's controls.
+    private static let diffMinWidth: CGFloat = 460
 
     var body: some View {
+        GeometryReader { geometry in
+            content(fitting(uncommittedScope, in: geometry.size.width))
+        }
+    }
+
+    private func content(_ fit: Fit) -> some View {
         let cards = session.listedBranchCards(in: .review)
         let scope = uncommittedScope
-        ScrollViewReader { proxy in
+        return ScrollViewReader { proxy in
             HStack(spacing: 0) {
-                if !isListHidden {
+                if fit.showsList {
                     // Holds the compact width; the list draws over the files when it widens.
                     Color.clear
-                        .frame(width: listWidth)
+                        .frame(width: fit.listWidth)
                         .overlay(alignment: .leading) { list(cards) }
                         .zIndex(1)
                         .transition(.move(edge: .leading).combined(with: .opacity))
@@ -61,7 +69,7 @@ struct BranchReviewView: View {
                 if let scope {
                     if !isFileListHidden {
                         UncommittedFilesColumn(model: model, session: session, scope: scope)
-                            .frame(width: changesWidth)
+                            .frame(width: fit.filesWidth)
                             .overlay(alignment: .trailing) {
                                 Rectangle().fill(Theme.lineSubtle).frame(width: 1)
                             }
@@ -78,7 +86,7 @@ struct BranchReviewView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     BranchFilesColumn(history: history)
-                        .frame(width: filesWidth)
+                        .frame(width: fit.filesWidth)
                         .overlay(alignment: .trailing) {
                             Rectangle().fill(Theme.lineSubtle).frame(width: 1)
                         }
@@ -86,7 +94,7 @@ struct BranchReviewView: View {
                     BranchReviewDetail(model: model, session: session)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                if isInspectorShown {
+                if fit.showsInspector {
                     Rectangle().fill(Theme.lineSubtle).frame(width: 1)
                     Group {
                         if scope != nil {
@@ -107,7 +115,7 @@ struct BranchReviewView: View {
                             .onTapGesture { session.actionRequest = nil }
                         CommitTargetCard(session: session, request: request) { session.actionRequest = nil }
                             .id(request.id)
-                            .padding(.leading, listWidth + 12)
+                            .padding(.leading, fit.listWidth + 12)
                             .padding(.bottom, 168)
                             .popoverTransition(anchor: .bottomLeading)
                     }
@@ -139,6 +147,38 @@ struct BranchReviewView: View {
     }
 
     private var listWidth: CGFloat { isListHidden ? 0 : isListPinned ? Self.expandedWidth : Self.compactWidth }
+
+    /// The panels shown at the page's width, and the files column's width.
+    private struct Fit {
+        var showsList: Bool
+        var showsInspector: Bool
+        var listWidth: CGFloat
+        var filesWidth: CGFloat
+    }
+
+    /// When the window is too narrow for every panel, the inspector makes way first, then the branch list, then
+    /// the files column narrows to its minimum. The panels' settings stay as they are.
+    private func fitting(_ scope: ChangeGroup.ID??, in width: CGFloat) -> Fit {
+        let isUncommitted = scope != nil
+        let range = isUncommitted ? AppSettings.listWidths : AppSettings.branchFilesWidths
+        let sideWidth = (isUncommitted ? Self.inspectorWidth : Self.detailsWidth) + 1
+        var fit = Fit(
+            showsList: !isListHidden, showsInspector: isInspectorShown, listWidth: listWidth,
+            filesWidth: isUncommitted && isFileListHidden ? 0 : isUncommitted ? changesWidth : filesWidth)
+        var room = width - Self.diffMinWidth - fit.filesWidth - fit.listWidth
+        if fit.showsInspector {
+            if room < sideWidth { fit.showsInspector = false } else { room -= sideWidth }
+        }
+        if fit.showsList, room < 0 {
+            fit.showsList = false
+            room += fit.listWidth
+            fit.listWidth = 0
+        }
+        if fit.filesWidth > 0, room < 0 {
+            fit.filesWidth = max(range.lowerBound, fit.filesWidth + room)
+        }
+        return fit
+    }
 
     /// Whether the selected lane, or all uncommitted changes, list the file.
     private func isInScope(_ file: ChangedFile) -> Bool {

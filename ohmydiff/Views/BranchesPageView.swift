@@ -183,6 +183,7 @@ struct BranchesTopBar: View {
     let session: ProjectSession
     @Bindable var history: HistoryModel
     @AppStorage(AppSettings.branchesLayoutKey) private var layout = BranchesLayout.overview
+    @Environment(\.isTopBarNarrow) private var isNarrow
 
     var body: some View {
         // The controls of both layouts keep their places; what only the review layout needs comes after them.
@@ -194,7 +195,8 @@ struct BranchesTopBar: View {
                 withAnimation(.snappy(duration: 0.2)) { layout = value }
             }),
             options: [(.overview, "Overview"), (.review, "Review")],
-            systemImages: [.overview: "rectangle.grid.1x2", .review: "sidebar.left"])
+            systemImages: [.overview: "rectangle.grid.1x2", .review: "sidebar.left"],
+            isIconOnly: isNarrow)
             .padding(.trailing, 6)
         if layout == .overview {
             // The review layout lists the applied branches; the sidebar reaches the others.
@@ -202,7 +204,8 @@ struct BranchesTopBar: View {
                 selection: $history.branchFilter,
                 options: [(.applied, history.isGitButler ? "Applied" : "Current"), (.all, "All"), (.merged, "Merged")],
                 systemImages: [.applied: "square.3.layers.3d", .all: "arrow.triangle.branch", .merged: "arrow.triangle.merge"],
-                counts: counts)
+                counts: counts,
+                isIconOnly: isNarrow)
         }
         if isReviewingUncommitted {
             FileTabs(session: session)
@@ -221,11 +224,14 @@ struct BranchesTopBar: View {
         Button { model.isNewBranchPresented = true } label: {
             HStack(spacing: 6) {
                 Image(systemName: "plus").font(.system(size: 11, weight: .medium))
-                Text("New branch")
-                KeyCap("⌘B")
+                if !isNarrow {
+                    Text("New branch")
+                    KeyCap("⌘B")
+                }
             }
         }
         .buttonStyle(.pill())
+        .help(isNarrow ? "New Branch  ⌘B" : "")
         .popover(isPresented: $model.isNewBranchPresented, arrowEdge: .bottom) {
             NewBranchPopover(history: history, isGitButler: history.isGitButler) { model.isNewBranchPresented = false }
         }
