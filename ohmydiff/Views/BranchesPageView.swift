@@ -650,7 +650,14 @@ private struct BranchHead: View {
 
     private var statusText: String {
         if let below { return "on \(below)" }
-        if history.isMerged(branch) { return "merged" }
+        return history.pushStatusTitle(of: branch)
+    }
+}
+
+extension HistoryModel {
+    /// `not pushed`, `↑2 ahead`, `merged`: where the branch stands against its remote.
+    func pushStatusTitle(of branch: HistoryBranch) -> String {
+        if isMerged(branch) { return "merged" }
         switch branch.status {
         case .unpushed: return "not pushed"
         case .unpushedCommits: return "unpushed commits"
