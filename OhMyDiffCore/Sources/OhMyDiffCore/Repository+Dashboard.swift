@@ -103,7 +103,7 @@ extension Repository {
     /// The main line's last `days` days; the remote's copy of the default branch when there is one.
     public func dashboard(days: Int = 30, now: Date = Date()) async throws -> Dashboard {
         let mainLine = await mainLineRef()
-        let since = Calendar.current.startOfDay(for: now.addingTimeInterval(-Double(days - 1) * 86_400))
+        let since = Dashboard.start(days: days, now: now)
         var dashboard = Dashboard(days: days, mainLine: mainLine ?? "HEAD", commits: [], commitsPerDay: [], people: [], areas: [], releases: [], landed: [])
         if let mainLine {
             let output = try await toolchain.git(
@@ -193,6 +193,13 @@ extension Dashboard {
             if (a.path == nil) != (b.path == nil) { return b.path == nil }
             return a.id < b.id
         }
+    }
+
+    /// Midnight starting the first of the last `days` days, today included. Counted in calendar days, so a daylight
+    /// saving change in between doesn't shift it by a day.
+    static func start(days: Int, now: Date, calendar: Calendar = .current) -> Date {
+        let today = calendar.startOfDay(for: now)
+        return calendar.date(byAdding: .day, value: -(days - 1), to: today) ?? today
     }
 
     /// `src/features/a/b.ts` → `src/features`, `docs/a.md` → `docs`, `README.md` → `nil`.
