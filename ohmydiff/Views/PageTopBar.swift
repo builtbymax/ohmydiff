@@ -22,6 +22,8 @@ struct PageTopBar: View {
                     BranchesTopBar(model: model, session: session, history: session.history)
                 case .history:
                     HistoryTopBar(session: session, log: session.log)
+                case .dashboard:
+                    DashboardTopBar(session: session)
                 }
             } else {
                 dragArea
