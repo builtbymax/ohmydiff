@@ -406,6 +406,9 @@ private struct FileHeader: View {
     @Binding var isViewMenuShown: Bool
     @FocusedValue(\.diffFile) private var diffFile
     @Environment(\.openEditor) private var openEditor
+    /// Below this width the switches show only their icons, so the path keeps room.
+    private static let compactWidth: CGFloat = 680
+    @State private var isNarrow = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -446,12 +449,14 @@ private struct FileHeader: View {
             Spacer(minLength: 8)
             Segmented(
                 selection: $layout, options: [(.split, "Split"), (.unified, "Unified")],
-                systemImages: [.split: "rectangle.split.2x1", .unified: "rectangle"])
+                systemImages: [.split: "rectangle.split.2x1", .unified: "rectangle"],
+                isIconOnly: isNarrow)
             Segmented(
                 selection: Binding(get: { showsWholeFile?.wrappedValue ?? true }, set: { showsWholeFile?.wrappedValue = $0 }),
                 options: [(false, "Changes"), (true, "Full file")],
                 systemImages: [false: "arrow.down.and.line.horizontal.and.arrow.up", true: "arrow.up.and.line.horizontal.and.arrow.down"],
-                disabled: showsWholeFile == nil ? [false] : [])
+                disabled: showsWholeFile == nil ? [false] : [],
+                isIconOnly: isNarrow)
             if let diffFile {
                 IconButton("Open in Editor  ⌘O", systemImage: "arrow.up.forward.square") { openEditor(diffFile) }
                     .disabled(!diffFile.exists)
@@ -461,6 +466,8 @@ private struct FileHeader: View {
         .padding(.leading, 16)
         .padding(.trailing, 10)
         .frame(height: 46)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: Bool.self) { $0.size.width < Self.compactWidth } action: { isNarrow = $0 }
     }
 
     private var directory: String {

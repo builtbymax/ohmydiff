@@ -156,10 +156,11 @@ struct ContentView: View {
     /// The content panel: the page's top bar over its body.
     private var panel: some View {
         VStack(spacing: 0) {
+            // Content wider than the window is cut off on the right; it never pushes the sidebar out.
             PageTopBar(model: model, mode: model.mode)
             Rectangle().fill(Theme.lineSubtle).frame(height: 1)
             pageBody
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
         .overlay(alignment: .topTrailing) {
             ToastStack(toasts: .shared)

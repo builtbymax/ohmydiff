@@ -208,6 +208,8 @@ struct MagneticSegments<Value: Hashable, Pill: View>: View {
     /// Segments share the width, e.g. workspace tabs; otherwise each hugs its title.
     var isEqualWidth = false
     var disabled: Set<Value> = []
+    /// Segments with an image leave out their title, which shows on hover instead, e.g. in a narrow window.
+    var isIconOnly = false
     let font: Font
     let horizontalPadding: CGFloat
     let height: CGFloat
@@ -229,7 +231,9 @@ struct MagneticSegments<Value: Hashable, Pill: View>: View {
                                 .frame(width: 14, height: 14)
                         }
                         // One weight for all, so the segments keep their width as the selection moves.
-                        Text(option.title).font(font.weight(.medium))
+                        if !isIconOnly || systemImages[option.value] == nil {
+                            Text(option.title).font(font.weight(.medium))
+                        }
                         if let count = counts[option.value] {
                             Text(count)
                                 .font(.caption11)
@@ -246,6 +250,7 @@ struct MagneticSegments<Value: Hashable, Pill: View>: View {
                     .matchedGeometryEffect(id: option.value, in: namespace)
                 }
                 .buttonStyle(.plain)
+                .help(isIconOnly ? option.title : "")
                 .disabled(isDisabled)
                 .opacity(isDisabled ? 0.4 : 1)
                 .onHover { if $0, !isDisabled { hovered = option.value } }
@@ -269,11 +274,12 @@ struct Segmented<Value: Hashable>: View {
     var systemImages: [Value: String] = [:]
     var counts: [Value: String] = [:]
     var disabled: Set<Value> = []
+    var isIconOnly = false
 
     var body: some View {
         MagneticSegments(
             selection: $selection, options: options, systemImages: systemImages, counts: counts, disabled: disabled,
-            font: .detail, horizontalPadding: 8, height: 24
+            isIconOnly: isIconOnly, font: .detail, horizontalPadding: 8, height: 24
         ) {
             RoundedRectangle(cornerRadius: 7)
                 .fill(Theme.raised)
