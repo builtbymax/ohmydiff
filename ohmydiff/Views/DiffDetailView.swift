@@ -406,12 +406,17 @@ private struct FileHeader: View {
     @Binding var isViewMenuShown: Bool
     @FocusedValue(\.diffFile) private var diffFile
     @Environment(\.openEditor) private var openEditor
+    @Environment(\.fileListToggle) private var fileListToggle
     /// Below this width the switches show only their icons, so the path keeps room.
     private static let compactWidth: CGFloat = 680
     @State private var isNarrow = false
 
     var body: some View {
         HStack(spacing: 8) {
+            if let fileListToggle {
+                FileListToggleControl(toggle: fileListToggle)
+                    .padding(.leading, -8)
+            }
             Text(FileBadge(kind: diff.kind).letter)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Theme.changeColor(diff.kind))
