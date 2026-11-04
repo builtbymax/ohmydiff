@@ -35,6 +35,16 @@ import Testing
         #expect(dashboard.areas.map(\.commits) == [1, 1, 1])
     }
 
+    @Test func startsOnTheRightDayAcrossDaylightSaving() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Europe/Berlin"))
+        // 23:30 in Berlin, ten days after the clocks went back on 25 October.
+        let now = try Date("2026-11-04T22:30:00Z", strategy: .iso8601)
+        let start = Dashboard.start(days: 30, now: now, calendar: calendar)
+        #expect(calendar.dateComponents([.year, .month, .day, .hour], from: start)
+            == DateComponents(year: 2026, month: 10, day: 6, hour: 0))
+    }
+
     @Test func measuresLandedPullRequests() throws {
         let json = """
             [{"number":1,"title":"small","url":"https://github.com/o/r/pull/1","author":{"login":"ada"},
