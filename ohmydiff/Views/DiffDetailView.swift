@@ -415,6 +415,7 @@ private struct FileHeader: View {
             Text(FileBadge(kind: diff.kind).letter)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Theme.changeColor(diff.kind))
+            FileIcon(path: diff.path)
             HStack(spacing: 4) {
                 if !directory.isEmpty {
                     Text("\(directory) /")

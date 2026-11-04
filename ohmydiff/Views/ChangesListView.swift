@@ -389,7 +389,7 @@ private struct ChangeGroupHeader: View {
     }
 }
 
-/// A changed file: its change letter, name, folder, one bar per hunk sized by its lines, and `+24 −8`.
+/// A changed file: its change letter, icon, name, folder, one bar per hunk sized by its lines, and `+24 −8`.
 struct FileRow: View {
     let path: String
     /// Source path of a rename or copy.
@@ -407,6 +407,7 @@ struct FileRow: View {
                 .foregroundStyle(Theme.changeColor(kind))
                 .frame(width: 14, height: 14)
             HStack(spacing: 6) {
+                FileIcon(path: path)
                 Text(name)
                     .font(.row)
                     .foregroundStyle(Theme.textPrimary)
