@@ -97,7 +97,7 @@ struct Shortcut: Hashable, Codable {
 /// Everything with a key, in the groups of Settings → Shortcuts.
 enum ShortcutAction: String, CaseIterable, Identifiable {
     // Move around
-    case launcher, switchProject, nextHunk, previousHunk, branches, pullRequests, history, refresh
+    case launcher, switchProject, nextHunk, previousHunk, branches, pullRequests, history, dashboard, refresh
     // Review
     case stageHunk, unstageHunk, discardHunk, explainHunk, splitDiff, fullFile, whitespace, openInEditor, openDiffWindow,
          copyPath, copyPrompt, explainInClaude
@@ -117,7 +117,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
 
     var group: Group {
         switch self {
-        case .launcher, .switchProject, .nextHunk, .previousHunk, .branches, .pullRequests, .history, .refresh: .moveAround
+        case .launcher, .switchProject, .nextHunk, .previousHunk, .branches, .pullRequests, .history, .dashboard, .refresh: .moveAround
         case .stageHunk, .unstageHunk, .discardHunk, .explainHunk, .splitDiff, .fullFile, .whitespace, .openInEditor, .openDiffWindow,
              .copyPath, .copyPrompt, .explainInClaude: .review
         case .newBranch, .draftPullRequest, .mergeWhenGreen, .fetch, .updateWorkspace, .addProject: .branches
@@ -134,6 +134,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .branches: "Branches"
         case .pullRequests: "Pull requests"
         case .history: "History"
+        case .dashboard: "Dashboard"
         case .refresh: "Refresh"
         case .stageHunk: "Commit or stage hunk"
         case .unstageHunk: "Unstage hunk"
@@ -176,6 +177,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .branches: Shortcut("1", .command)
         case .pullRequests: Shortcut("2", .command)
         case .history: Shortcut("3", .command)
+        case .dashboard: Shortcut("4", .command)
         case .refresh: Shortcut("r", .command)
         case .stageHunk: Shortcut("s")
         case .unstageHunk: Shortcut("u")

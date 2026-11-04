@@ -92,7 +92,7 @@ struct SidebarView: View {
         case .pullRequests:
             // What needs the user once the inbox loaded, else the branches' open pull requests.
             return session.pullRequests.phase == .ready ? session.pullRequests.count(.reviewRequested) : session.history.openPullRequestCount
-        case .history: return nil
+        case .history, .dashboard: return nil
         }
     }
 }
@@ -271,7 +271,7 @@ private struct SidebarBranches: View {
             if case .uncommitted(let scope?)? = session.history.selection { return session.lane(containing: branch)?.id == scope }
             return session.history.selectedBranch?.name == branch
         case .history: return session.log.selectedCommit?.branches.contains(branch) == true
-        case .pullRequests: return false
+        case .pullRequests, .dashboard: return false
         }
     }
 
@@ -289,7 +289,7 @@ private struct SidebarBranches: View {
                 session.log.reveal(tip)
                 return
             }
-        case .branches, .pullRequests:
+        case .branches, .pullRequests, .dashboard:
             break
         }
         model.mode = .branches

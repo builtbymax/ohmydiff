@@ -80,6 +80,9 @@ final class ProjectSession {
     /// What the last fetch found on the remote; `nil` before the first fetch or without a tracked upstream.
     private(set) var upstream: UpstreamStatus?
     private(set) var lastFetched: Date?
+    /// The Dashboard page's summary of the main line, once the page loaded it.
+    private(set) var dashboard: Dashboard?
+    private(set) var dashboardError: String?
     private(set) var isFetching = false
     private(set) var fetchError: String?
     private(set) var isUpdatingFromUpstream = false
@@ -286,6 +289,16 @@ final class ProjectSession {
     func refreshPullRequests(force: Bool = false) async {
         guard let repository = await openedRepository() else { return }
         await pullRequests.refresh(repository, force: force)
+    }
+
+    func refreshDashboard() async {
+        guard let repository = await openedRepository() else { return }
+        do {
+            dashboard = try await repository.dashboard()
+            dashboardError = nil
+        } catch {
+            dashboardError = String(describing: error)
+        }
     }
 
     func refreshLog() async {

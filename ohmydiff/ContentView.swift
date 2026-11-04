@@ -9,27 +9,31 @@ enum WorkspaceMode: String, CaseIterable, Identifiable {
     case branches = "Branches"
     case pullRequests = "Pull requests"
     case history = "History"
+    /// What landed on the main line lately.
+    case dashboard = "Dashboard"
 
     var id: Self { self }
     var title: String { rawValue }
 
     /// The pages built so far, in sidebar order.
-    static let available: [WorkspaceMode] = [.branches, .pullRequests, .history]
+    static let available: [WorkspaceMode] = [.branches, .pullRequests, .history, .dashboard]
 
     var systemImage: String {
         switch self {
         case .branches: "arrow.triangle.branch"
         case .pullRequests: "arrow.triangle.pull"
         case .history: "clock.arrow.circlepath"
+        case .dashboard: "chart.bar.xaxis"
         }
     }
 
-    /// ⌘1–⌘3 unless changed in Settings → Shortcuts.
+    /// ⌘1–⌘4 unless changed in Settings → Shortcuts.
     var shortcutAction: ShortcutAction {
         switch self {
         case .branches: .branches
         case .pullRequests: .pullRequests
         case .history: .history
+        case .dashboard: .dashboard
         }
     }
 }
@@ -185,6 +189,8 @@ struct ContentView: View {
                     PullRequestsPageView(model: model, session: session)
                 case .history:
                     HistoryPageView(model: model, session: session)
+                case .dashboard:
+                    DashboardPageView(model: model, session: session)
                 }
             }
             // On every page, since the sidebar's branches have the branch menu too.
