@@ -15,16 +15,23 @@ extension View {
 
 private struct UpdateBar: View {
     let updater: Updater
+    /// Below this width the bar keeps only the main actions; What’s New and Skip stay in Settings.
+    private static let compactWidth: CGFloat = 760
+    @State private var isNarrow = false
 
     var body: some View {
         HStack(spacing: 10) {
             UpdateStatus(updater: updater, isCompact: true)
             Spacer(minLength: 8)
-            UpdateActions(updater: updater, height: 26)
+            // The buttons keep their size; the notes' summary truncates instead.
+            UpdateActions(updater: updater, height: 26, isCompact: isNarrow)
+                .fixedSize()
+                .layoutPriority(2)
         }
         .padding(.leading, 14)
         .padding(.trailing, 8)
         .frame(height: 44)
+        .onGeometryChange(for: Bool.self) { $0.size.width < Self.compactWidth } action: { isNarrow = $0 }
         .background(Theme.surface)
         .overlay(alignment: .top) { Rectangle().fill(Theme.lineSubtle).frame(height: 1) }
         .animation(Theme.popoverAnimation, value: updater.phase)
@@ -101,6 +108,7 @@ struct UpdateStatus: View {
     private func headline(_ title: String, update: Updater.Update, fallback: String?) -> some View {
         HStack(spacing: 10) {
             Text(title).fontWeight(.medium).foregroundStyle(Theme.textPrimary)
+                .layoutPriority(1)
             if let summary = Self.summary(of: update) ?? fallback {
                 Text("· \(summary)")
                     .font(.detail)
@@ -136,13 +144,15 @@ private struct ProgressBar: View {
 struct UpdateActions: View {
     let updater: Updater
     var height: CGFloat = 32
+    /// Only the actions that answer the update: no What’s New or Skip This Version.
+    var isCompact = false
 
     var body: some View {
         HStack(spacing: 6) {
             switch updater.phase {
             case .available(let update):
                 notesButton(update)
-                if !update.isInformational {
+                if !update.isInformational, !isCompact {
                     Button("Skip This Version") { updater.skip() }
                         .buttonStyle(.pill(height: height))
                 }
@@ -174,7 +184,7 @@ struct UpdateActions: View {
     }
 
     @ViewBuilder private func notesButton(_ update: Updater.Update) -> some View {
-        if let url = update.notesURL {
+        if !isCompact, let url = update.notesURL {
             Button("What’s New") { NSWorkspace.shared.open(url) }
                 .buttonStyle(.pill(height: height))
                 .modifier(NotesCard(notes: update.notes, version: update.version))
