@@ -121,6 +121,9 @@ final class PullRequestsModel {
             if selected == nil || !sections.contains(where: { $0.items.contains { $0.number == selectedNumber } }) {
                 selectedNumber = sections.first?.items.first?.number
             }
+        } catch is CancellationError {
+            // The page went away (or was opened again) mid-load: keep what shows, and load again next time.
+            loaded = nil
         } catch {
             phase = .failed(String(describing: error))
         }
