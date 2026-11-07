@@ -298,17 +298,30 @@ struct ModelPicker: View {
     /// `nil` while loading.
     let options: [ModelOption]?
     let selection: String
+    /// Offers Apple's on-device model first, with why it cannot run here if so; `nil` for tasks too large for it.
+    var onDevice: (isOffered: Bool, unavailableReason: String?) = (false, nil)
     let dismiss: () -> Void
     let choose: (String) -> Void
 
+    /// What `choose` gets for the on-device model.
+    static let onDeviceID = "apple-intelligence-on-device"
+
     @State private var highlighted = 0
 
-    /// The default as `""`, then the models.
-    private var ids: [String] { [""] + (options ?? []).map(\.id) }
+    /// The on-device model when offered, the default as `""`, then the models.
+    private var ids: [String] { (onDevice.isOffered ? [Self.onDeviceID] : []) + [""] + (options ?? []).map(\.id) }
+    private var first: Int { onDevice.isOffered ? 1 : 0 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            row(id: "", title: "Default", subtitle: "Whatever `\(provider.executable)` uses", index: 0)
+            if onDevice.isOffered {
+                row(
+                    id: Self.onDeviceID, title: "Apple Intelligence · On device",
+                    subtitle: onDevice.unavailableReason.map { "Not available: \($0)" } ?? "No CLI needed; the diff stays on this Mac. Small changes only",
+                    index: 0)
+                    .disabled(onDevice.unavailableReason != nil && selection != Self.onDeviceID)
+            }
+            row(id: "", title: "Default", subtitle: "Whatever `\(provider.executable)` uses", index: first)
             Divider().padding(.vertical, 4).padding(.horizontal, 10)
             if let options {
                 if options.isEmpty {
@@ -322,7 +335,7 @@ struct ModelPicker: View {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 2) {
                                 ForEach(Array(options.enumerated()), id: \.element.id) { offset, option in
-                                    row(id: option.id, title: option.name, subtitle: subtitle(for: option), index: offset + 1)
+                                    row(id: option.id, title: option.name, subtitle: subtitle(for: option), index: first + offset + 1)
                                         .id(option.id)
                                 }
                             }

@@ -30,6 +30,32 @@ struct Suggestions {
         return suggester
     }
 
+    /// Throws why `task` cannot run, before any work for it is done.
+    func checkReady(_ task: AITask) throws {
+        guard AppSettings.isEnabled(task) else { throw SuggestionUnavailable.turnedOff(task) }
+        if AppSettings.runsOnDevice(task) {
+            if OnDeviceModel.isAvailable { return }
+            if AppSettings.suggestionProvider() == nil, let reason = OnDeviceModel.unavailableReason { throw OnDeviceModel.Failure.unavailable(reason) }
+        }
+        _ = try suggester(for: task)
+    }
+
+    /// Runs `task` on Apple's on-device model when Settings → AI says so and it can, else with the CLI provider:
+    /// when the model is not available here, or the changes are too large for it and a provider is chosen.
+    private func run<Result>(
+        _ task: AITask, onDevice: () async throws -> Result, provider: (Suggester) async throws -> Result
+    ) async throws -> Result {
+        try checkReady(task)
+        if AppSettings.runsOnDevice(task), OnDeviceModel.isAvailable {
+            do {
+                return try await onDevice()
+            } catch OnDeviceModel.Failure.tooLarge(_, _) where AppSettings.suggestionProvider() != nil {
+                // The provider takes larger changes.
+            }
+        }
+        return try await provider(try suggester(for: task))
+    }
+
     /// Leaves out what Settings → AI → What gets sent turned off.
     static func filtered(_ context: TemplateContext) -> TemplateContext {
         var context = context
@@ -49,15 +75,33 @@ struct Suggestions {
             rules.append("End the title with the ticket id in parentheses, e.g. (HAL-128).")
         }
         let template = AppSettings.commitTemplate() + "\n\n" + rules.joined(separator: "\n")
-        return try await suggester(for: .commitMessage).commitMessage(template: template, context: Self.filtered(context))
+        let context = Self.filtered(context)
+        let style: CommitParts.Style = switch AppSettings.commitStyle() {
+        case .conventional: .conventional
+        case .gitmoji: .gitmoji
+        case .free: .free
+        }
+        return try await run(.commitMessage) {
+            try await OnDeviceModel.commitMessage(
+                context: context, style: style, titleLimit: AppSettings.titleLimit(),
+                ticketInTitle: AppSettings.isOn(AppSettings.addsTicketToTitleKey))
+        } provider: { suggester in
+            try await suggester.commitMessage(template: template, context: context)
+        }
     }
 
+    /// Both ways of asking throw rather than return no names.
     func branchName(_ context: TemplateContext) async throws -> String {
-        try await suggester(for: .branchName).branchName(context: Self.filtered(context))
+        try await branchNames(context)[0]
     }
 
     func branchNames(_ context: TemplateContext) async throws -> [String] {
-        try await suggester(for: .branchName).branchNames(context: Self.filtered(context))
+        let context = Self.filtered(context)
+        return try await run(.branchName) {
+            try await OnDeviceModel.branchNames(context: context)
+        } provider: { suggester in
+            try await suggester.branchNames(context: context)
+        }
     }
 
     func pullRequest(_ context: TemplateContext) async throws -> String {

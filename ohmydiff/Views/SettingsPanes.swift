@@ -678,6 +678,7 @@ private struct TaskRow: View {
     let provider: AIProvider
     @AppStorage private var model: String
     @AppStorage private var isEnabled: Bool
+    @AppStorage private var runsOnDevice: Bool
     @State private var isPicking = false
 
     init(task: AITask, provider: AIProvider) {
@@ -685,6 +686,7 @@ private struct TaskRow: View {
         self.provider = provider
         _model = AppStorage(wrappedValue: AppSettings.model(for: task), task.modelKey)
         _isEnabled = AppStorage(wrappedValue: true, task.enabledKey)
+        _runsOnDevice = AppStorage(wrappedValue: false, task.onDeviceKey)
     }
 
     var body: some View {
@@ -705,8 +707,15 @@ private struct TaskRow: View {
             .buttonStyle(.plain)
             .disabled(!isEnabled)
             .popover(isPresented: $isPicking, arrowEdge: .bottom) {
-                ModelPicker(provider: provider, options: SettingsLookups.models[provider], selection: model, dismiss: { isPicking = false }) {
-                    model = $0
+                ModelPicker(
+                    provider: provider, options: SettingsLookups.models[provider],
+                    selection: runsOnDevice ? ModelPicker.onDeviceID : model,
+                    onDevice: (task.supportsOnDevice, OnDeviceModel.unavailableReason), dismiss: { isPicking = false }
+                ) { id in
+                    // The keyboard can reach the row even when it is not available.
+                    if id == ModelPicker.onDeviceID, !OnDeviceModel.isAvailable, !runsOnDevice { return }
+                    runsOnDevice = id == ModelPicker.onDeviceID
+                    if !runsOnDevice { model = id }
                     isPicking = false
                 }
             }
@@ -722,6 +731,7 @@ private struct TaskRow: View {
     }
 
     private var modelTitle: String {
+        if task.supportsOnDevice, runsOnDevice { return "Apple Intelligence" }
         guard !model.isEmpty else { return "Default" }
         return SettingsLookups.models[provider]?.first { $0.id == model }?.name ?? model
     }
@@ -890,9 +900,7 @@ struct TemplateSettings: View {
     }
 
     private var providerTitle: String {
-        guard let provider = AppSettings.suggestionProvider() else { return "No provider" }
-        let model = AppSettings.model(for: kind == .commit ? .commitMessage : .pullRequest)
-        return model.isEmpty ? provider.displayName : "\(provider.displayName) · \(model)"
+        AppSettings.runnerTitle(for: kind == .commit ? .commitMessage : .pullRequest) ?? "No provider"
     }
 
     /// Inserts at the cursor, or at the end before the editor was used.
