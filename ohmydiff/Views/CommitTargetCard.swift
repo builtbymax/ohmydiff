@@ -230,9 +230,8 @@ struct CommitTargetCard: View {
             ? "From the \(request.targets.count == 1 ? "hunk" : "hunks") (\(lines) \(lines == 1 ? "line" : "lines"))"
             : "From the \(request.targets.count == 1 ? "file" : "files")"
         if let ticket { source += " and ticket \(ticket.id)" }
-        guard let provider = AppSettings.suggestionProvider() else { return source + " · choose an AI provider in Settings" }
-        let model = AppSettings.model(for: .branchName)
-        return source + " · " + (model.isEmpty ? provider.displayName : "\(provider.displayName) · \(model)")
+        guard let runner = AppSettings.runnerTitle(for: .branchName) else { return source + " · choose an AI provider in Settings" }
+        return source + " · " + runner
     }
 
     private func stackCard(_ dependency: (branch: String, anchor: String)) -> some View {

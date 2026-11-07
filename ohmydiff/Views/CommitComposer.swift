@@ -29,7 +29,7 @@ final class CommitDraft {
             defer { isGenerating = false }
             do {
                 guard let suggestions = await session.suggestions() else { throw SuggestionUnavailable.noToolchain }
-                _ = try suggestions.suggester()
+                try suggestions.checkReady(.commitMessage)
                 let diff = try await session.patch(for: targets)
                 let commits = isExistingBranch ? await session.commitLog(ofBranch: branch) : ""
                 var ticket = ticket

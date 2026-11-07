@@ -118,6 +118,19 @@ enum AppSettings {
     static func isEnabled(_ task: AITask, _ defaults: UserDefaults = .standard) -> Bool {
         isOn(task.enabledKey, defaults)
     }
+
+    /// Whether a task runs on Apple's on-device model rather than the CLI provider; off unless chosen.
+    static func runsOnDevice(_ task: AITask, _ defaults: UserDefaults = .standard) -> Bool {
+        task.supportsOnDevice && defaults.bool(forKey: task.onDeviceKey)
+    }
+
+    /// What a task runs with, e.g. `Apple Intelligence` or `Claude Code · haiku`; `nil` when nothing is chosen.
+    static func runnerTitle(for task: AITask, _ defaults: UserDefaults = .standard) -> String? {
+        if runsOnDevice(task, defaults) { return "Apple Intelligence" }
+        guard let provider = suggestionProvider(defaults) else { return nil }
+        let model = model(for: task, defaults)
+        return model.isEmpty ? provider.displayName : "\(provider.displayName) · \(model)"
+    }
     static let fontSizes: ClosedRange<Double> = 9...20
 
     /// The chosen terminal, else the first installed of Ghostty, iTerm and Terminal.
@@ -337,6 +350,10 @@ nonisolated enum AITask: String, CaseIterable, Identifiable, Sendable {
     var id: Self { self }
     var modelKey: String { "aiModel.\(rawValue)" }
     var enabledKey: String { "aiEnabled.\(rawValue)" }
+    var onDeviceKey: String { "aiOnDevice.\(rawValue)" }
+
+    /// Small enough for Apple's on-device model.
+    var supportsOnDevice: Bool { self == .commitMessage || self == .branchName }
 
     var title: String {
         switch self {
