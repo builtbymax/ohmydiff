@@ -53,8 +53,12 @@ struct DiffTableView: NSViewRepresentable {
     var currentHunk: Int?
     /// Explains a hunk, from its header's ✦ button; `nil` leaves the button out.
     var onExplainHunk: ((Int) -> Void)?
-    /// Shows the unchanged lines between hunks, from a header's `N unchanged lines` row.
-    var onExpand: (() -> Void)?
+    /// Shows more unchanged lines of a gap (see `ContextExpansion`), from its row; `nil` disables the rows.
+    var onExpandGap: ((Int, ContextExpansion.Direction) -> Void)?
+    /// Switches to the whole file, from a gap row.
+    var onShowFullFile: (() -> Void)?
+    /// Unchanged lines below the last hunk, shown as a gap row; `nil` when the file has not been read yet.
+    var linesBelow: Int? = 0
     /// Cards under lines of the diff, e.g. a hunk's inline explanation or review findings.
     var cards: [DiffCard] = []
 
@@ -102,11 +106,12 @@ struct DiffTableView: NSViewRepresentable {
         context.coordinator.onSelectLines = onSelectLines
         context.coordinator.onAskClaude = onAskClaude
         context.coordinator.onExplainHunk = onExplainHunk
-        context.coordinator.onExpand = onExpand
+        context.coordinator.onExpandGap = onExpandGap
+        context.coordinator.onShowFullFile = onShowFullFile
         context.coordinator.currentHunk = currentHunk
         context.coordinator.show(
             diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize, lineSpacing: lineSpacing, theme: theme,
-            isWholeFile: isWholeFile, showsLineNumbers: showsLineNumbers, wrapsLines: wrapsLines)
+            isWholeFile: isWholeFile, showsLineNumbers: showsLineNumbers, wrapsLines: wrapsLines, linesBelow: linesBelow)
         context.coordinator.targetedHunk = targetedHunk
         context.coordinator.setCards(cards)
         if let reveal { context.coordinator.reveal(reveal) }
@@ -144,7 +149,11 @@ struct DiffTableView: NSViewRepresentable {
         var onSelectLines: ([DiffPosition]) -> Void = { _ in }
         var onAskClaude: ((ClaudeRequest) -> Void)?
         var onExplainHunk: ((Int) -> Void)?
-        var onExpand: (() -> Void)?
+        var onExpandGap: ((Int, ContextExpansion.Direction) -> Void)?
+        var onShowFullFile: (() -> Void)?
+        /// Unchanged lines above each hunk, and below the last one (`nil` until known).
+        private var gapsAbove: [Int] = []
+        private var linesBelow: Int? = 0
         /// Re-renders the header rows when the current hunk moves, so its quick actions follow.
         var currentHunk: Int? {
             didSet { if currentHunk != oldValue { reloadHeaders() } }
@@ -214,12 +223,12 @@ struct DiffTableView: NSViewRepresentable {
 
         func show(
             _ diff: FileDiff, highlights: SyntaxHighlights?, fileID: ChangedFile.ID, mode: DiffLayoutMode, fontSize: CGFloat,
-            lineSpacing: CGFloat, theme: SyntaxTheme, isWholeFile: Bool, showsLineNumbers: Bool, wrapsLines: Bool
+            lineSpacing: CGFloat, theme: SyntaxTheme, isWholeFile: Bool, showsLineNumbers: Bool, wrapsLines: Bool, linesBelow: Int?
         ) {
             guard let tableView,
                   diff != self.diff || highlights != self.highlights || fileID != self.fileID || mode != self.mode
                     || fontSize != self.fontSize || lineSpacing != self.lineSpacing || theme != self.theme || isWholeFile != self.isWholeFile
-                    || showsLineNumbers != self.showsLineNumbers || wrapsLines != self.wrapsLines
+                    || showsLineNumbers != self.showsLineNumbers || wrapsLines != self.wrapsLines || linesBelow != self.linesBelow
             else { return }
             // Rows of the other layout do not line up with the current ones, so start over at the top.
             let isNewFile = fileID != self.fileID || mode != self.mode
@@ -230,7 +239,9 @@ struct DiffTableView: NSViewRepresentable {
             // Syntax colors arrive after the diff, and font and theme changes keep the rows; only a new diff or
             // layout lays the rows out again.
             let needsLayout = diff != self.diff || mode != self.mode || isWholeFile != self.isWholeFile
-                || showsLineNumbers != self.showsLineNumbers || wrapsLines != self.wrapsLines
+                || showsLineNumbers != self.showsLineNumbers || wrapsLines != self.wrapsLines || linesBelow != self.linesBelow
+            // Rows move when lines are added or taken away; the same lines stay selected.
+            let selection = !isNewFile && needsLayout ? selectedLineNumbers() : []
             self.showsLineNumbers = showsLineNumbers
             self.wrapsLines = wrapsLines
             splitColumnWidth = needsLayout ? 0 : splitColumnWidth
@@ -242,6 +253,9 @@ struct DiffTableView: NSViewRepresentable {
             self.lineSpacing = lineSpacing
             self.theme = theme
             self.isWholeFile = isWholeFile
+            self.linesBelow = linesBelow
+            gapsAbove = isWholeFile ? [] : diff.unchangedLinesAbove
+            let trailingGap = !isWholeFile && linesBelow != 0
             // Word highlights only depend on the diff, so they are kept when just the colors, theme or font change.
             let words = diff == self.diff ? formatter.words : WordHighlights(diff: diff)
             self.diff = diff
@@ -253,7 +267,7 @@ struct DiffTableView: NSViewRepresentable {
             if needsLayout {
                 switch mode {
                 case .unified:
-                    unifiedRows = DiffLayout.unified(diff, hunkHeaders: !isWholeFile)
+                    unifiedRows = DiffLayout.unified(diff, hunkHeaders: !isWholeFile, trailingGap: trailingGap)
                     unifiedCharacters = formatter.unifiedCharacters(unifiedRows)
                     splitRows = []
                     // Wrapped unified rows reuse the split bookkeeping, with the line on both sides.
@@ -263,7 +277,7 @@ struct DiffTableView: NSViewRepresentable {
                         return (length, length)
                     } : []
                 case .split:
-                    splitRows = DiffLayout.split(diff, hunkHeaders: !isWholeFile)
+                    splitRows = DiffLayout.split(diff, hunkHeaders: !isWholeFile, trailingGap: trailingGap)
                     splitLengths = splitRows.map { row in
                         guard case .pair(let h, let old, let new) = row else { return (0, 0) }
                         return (old.map { formatter.splitLength(hunk: h, line: $0) } ?? 0, new.map { formatter.splitLength(hunk: h, line: $0) } ?? 0)
@@ -276,6 +290,7 @@ struct DiffTableView: NSViewRepresentable {
 
             sizeColumns()
             tableView.reloadData()
+            if !selection.isEmpty { select(lineNumbers: selection) }
             layoutCard()
             if isNewFile {
                 tableView.deselectAll(nil)
@@ -411,7 +426,7 @@ struct DiffTableView: NSViewRepresentable {
                 return unifiedRows.lastIndex { row in
                     switch row {
                     case .line(let h, _), .noNewlineAtEnd(let h, _): h == hunk
-                    case .hunkHeader: false
+                    case .hunkHeader, .trailingGap: false
                     }
                 }
             case .split:
@@ -451,7 +466,7 @@ struct DiffTableView: NSViewRepresentable {
         // MARK: Hunk actions
 
         func menu(forRow row: Int) -> NSMenu? {
-            guard let hunk = hunkIndex(atRow: row) else { return nil }
+            guard !isTrailingGap(row), let hunk = hunkIndex(atRow: row) else { return nil }
             let menu = NSMenu()
             menu.delegate = self
             for action in hunkActions {
@@ -489,7 +504,7 @@ struct DiffTableView: NSViewRepresentable {
         /// The highlight of a row: the context menu's hunk first, else the targeted one.
         private func targetColor(forRow row: Int) -> NSColor? {
             let target = menuHunk.map { HunkTarget(index: $0, isDestructive: false) } ?? targetedHunk
-            guard let target, hunkIndex(atRow: row) == target.index else { return nil }
+            guard let target, !isTrailingGap(row), hunkIndex(atRow: row) == target.index else { return nil }
             return target.isDestructive ? Theme.delFgColor : Theme.textSecondaryColor
         }
 
@@ -524,12 +539,12 @@ struct DiffTableView: NSViewRepresentable {
             case .unified:
                 guard unifiedRows.indices.contains(row) else { return nil }
                 switch unifiedRows[row] {
-                case .hunkHeader(let h), .line(let h, _), .noNewlineAtEnd(let h, _): return h
+                case .hunkHeader(let h), .line(let h, _), .noNewlineAtEnd(let h, _), .trailingGap(let h): return h
                 }
             case .split:
                 guard splitRows.indices.contains(row) else { return nil }
                 switch splitRows[row] {
-                case .hunkHeader(let h), .pair(let h, _, _): return h
+                case .hunkHeader(let h), .pair(let h, _, _), .trailingGap(let h): return h
                 }
             case nil:
                 return nil
@@ -579,12 +594,14 @@ struct DiffTableView: NSViewRepresentable {
                 switch unifiedRows[row] {
                 case .hunkHeader(let h): return diff.hunks[h].newStart
                 case .line(let h, let l), .noNewlineAtEnd(let h, let l): position = (h, l)
+                case .trailingGap: return nil
                 }
             case .split:
                 guard splitRows.indices.contains(row) else { return nil }
                 switch splitRows[row] {
                 case .hunkHeader(let h): return diff.hunks[h].newStart
                 case .pair(let h, let old, let new): position = (new ?? old).map { (h, $0) }
+                case .trailingGap: return nil
                 }
             case nil:
                 return nil
@@ -777,7 +794,7 @@ struct DiffTableView: NSViewRepresentable {
                     switch unifiedRows[row] {
                     case .hunkHeader(let h): return diff.hunks[h].header
                     case .line(let h, let l): return diff.hunks[h].lines[l].text
-                    case .noNewlineAtEnd: return nil
+                    case .noNewlineAtEnd, .trailingGap: return nil
                     }
                 case .split:
                     guard splitRows.indices.contains(row) else { return nil }
@@ -785,6 +802,7 @@ struct DiffTableView: NSViewRepresentable {
                     case .hunkHeader(let h): return diff.hunks[h].header
                     // The new side is what the file contains now; deletions alone copy the old text.
                     case .pair(let h, let old, let new): return (new ?? old).map { diff.hunks[h].lines[$0].text }
+                    case .trailingGap: return nil
                     }
                 case nil:
                     return nil
@@ -806,8 +824,9 @@ struct DiffTableView: NSViewRepresentable {
         /// A row's height without the card below it.
         private func baseHeight(ofRow row: Int) -> CGFloat {
             if let hunk = hunkIndex(ofHeaderRow: row) {
-                return HunkHeaderRow.height + (gap(before: hunk) > 0 ? HunkHeaderRow.gapHeight : 0)
+                return HunkHeaderRow.height + (gap(before: hunk) > 0 ? GapRow.height : 0)
             }
+            if isTrailingGap(row) { return GapRow.height }
             guard wrapsLines, splitLengths.indices.contains(row), splitColumnWidth > 0 else { return formatter.metrics.rowHeight }
             return formatter.metrics.rowHeight + CGFloat(wrappedLines(row: row, width: splitColumnWidth) - 1) * formatter.metrics.lineHeight
         }
@@ -822,7 +841,7 @@ struct DiffTableView: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
-            hunkIndex(ofHeaderRow: row) != nil
+            hunkIndex(ofHeaderRow: row) != nil || isTrailingGap(row)
         }
 
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -830,6 +849,11 @@ struct DiffTableView: NSViewRepresentable {
                 let header = tableView.makeView(withIdentifier: HunkHeaderCell.reuseIdentifier, owner: nil) as? HunkHeaderCell ?? HunkHeaderCell()
                 header.hosting.rootView = headerRow(hunk)
                 return header
+            }
+            if isTrailingGap(row) {
+                let gap = tableView.makeView(withIdentifier: GapCell.reuseIdentifier, owner: nil) as? GapCell ?? GapCell()
+                gap.hosting.rootView = trailingGapRow()
+                return gap
             }
 
             let cell = tableView.makeView(withIdentifier: DiffCellView.reuseIdentifier, owner: nil) as? DiffCellView ?? DiffCellView()
@@ -850,7 +874,7 @@ struct DiffTableView: NSViewRepresentable {
                     cell.gutterWidth = formatter.gutterWidth(mode: .unified)
                 case .noNewlineAtEnd:
                     cell.label.attributedStringValue = formatter.noNewlineAtEnd(mode: .unified)
-                case .hunkHeader:
+                case .hunkHeader, .trailingGap:
                     break
                 }
             case .split:
@@ -878,7 +902,7 @@ struct DiffTableView: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
             let rowView = tableView.makeView(withIdentifier: DiffRowView.reuseIdentifier, owner: nil) as? DiffRowView ?? DiffRowView()
-            if hunkIndex(ofHeaderRow: row) != nil {
+            if hunkIndex(ofHeaderRow: row) != nil || isTrailingGap(row) {
                 rowView.tint = nil
             } else if mode == .unified, case .line(let h, let l) = unifiedRows[row] {
                 rowView.tint = DiffRowFormatter.tint(for: diff.hunks[h].lines[l].kind)
@@ -889,11 +913,46 @@ struct DiffTableView: NSViewRepresentable {
             return rowView
         }
 
-        /// Unchanged lines between the previous hunk and this one; none above the first or in the whole file.
+        /// Unchanged lines left out above a hunk; none in the whole file.
         private func gap(before hunk: Int) -> Int {
-            guard !isWholeFile, hunk > 0, diff.hunks.indices.contains(hunk) else { return 0 }
-            let previous = diff.hunks[hunk - 1]
-            return max(diff.hunks[hunk].oldStart - (previous.oldStart + previous.oldCount), 0)
+            gapsAbove.indices.contains(hunk) ? gapsAbove[hunk] : 0
+        }
+
+        private func isTrailingGap(_ row: Int) -> Bool {
+            switch mode {
+            case .unified: if unifiedRows.indices.contains(row), case .trailingGap = unifiedRows[row] { return true }
+            case .split: if splitRows.indices.contains(row), case .trailingGap = splitRows[row] { return true }
+            case nil: break
+            }
+            return false
+        }
+
+        private func trailingGapRow() -> GapRow {
+            let gap = diff.hunks.count
+            return GapRow(
+                count: linesBelow, edge: .bottom,
+                onExpand: onExpandGap.map { expand in { direction in expand(gap, direction) } },
+                onShowFullFile: onShowFullFile)
+        }
+
+        /// The old and new line numbers of the selected rows' lines.
+        private func selectedLineNumbers() -> Set<LineNumbers> {
+            Set((tableView?.selectedRowIndexes ?? []).compactMap { row in
+                line(atRow: row).map { LineNumbers(old: $0.oldLineNumber, new: $0.newLineNumber) }
+            })
+        }
+
+        private func select(lineNumbers: Set<LineNumbers>) {
+            guard let tableView else { return }
+            let rows = IndexSet((0..<rowCount).filter { row in
+                line(atRow: row).map { lineNumbers.contains(LineNumbers(old: $0.oldLineNumber, new: $0.newLineNumber)) } ?? false
+            })
+            tableView.selectRowIndexes(rows, byExtendingSelection: false)
+        }
+
+        private struct LineNumbers: Hashable {
+            var old: Int?
+            var new: Int?
         }
 
         private func headerRow(_ hunk: Int) -> HunkHeaderRow {
@@ -906,7 +965,8 @@ struct DiffTableView: NSViewRepresentable {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(self.diff.hunks[hunk].patchBody, forType: .string)
                 },
-                onExpand: onExpand)
+                onExpandGap: onExpandGap.map { expand in { direction in expand(hunk, direction) } },
+                onShowFullFile: onShowFullFile)
         }
 
         private func reloadHeaders() {
@@ -1172,6 +1232,7 @@ struct DiffRowFormatter {
             case .hunkHeader(let h): longest = max(longest, diff.hunks[h].header.count)
             case .line(let h, let l): longest = max(longest, Self.expandedLength(diff.hunks[h].lines[l].text))
             case .noNewlineAtEnd: longest = max(longest, 25)
+            case .trailingGap: break
             }
         }
         return unifiedPrefix + longest
@@ -1540,11 +1601,10 @@ private final class HunkHeaderCell: NSTableCellView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
-/// `@@ -118,3 +120,3 @@ func discard(_ hunk: Hunk)  ◉ 1-line change` with the hunk's quick actions, and above it,
-/// from the second hunk on, how many unchanged lines lie between it and the one before.
+/// `@@ -118,3 +120,3 @@ func discard(_ hunk: Hunk)  ◉ 1-line change` with the hunk's quick actions, and above it
+/// the unchanged lines left out between it and the hunk before, or the top of the file.
 struct HunkHeaderRow: View {
     static let height: CGFloat = 30
-    static let gapHeight: CGFloat = 28
 
     let hunk: Hunk
     let index: Int
@@ -1554,7 +1614,8 @@ struct HunkHeaderRow: View {
     var onAction: (ChangeAction) -> Void = { _ in }
     var onExplain: (() -> Void)?
     var onCopy: () -> Void = {}
-    var onExpand: (() -> Void)?
+    var onExpandGap: ((ContextExpansion.Direction) -> Void)?
+    var onShowFullFile: (() -> Void)?
 
     @State private var isHovered = false
 
@@ -1563,23 +1624,7 @@ struct HunkHeaderRow: View {
     var body: some View {
         VStack(spacing: 0) {
             if gap > 0 {
-                Button { onExpand?() } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.up.and.down")
-                            .font(.system(size: 10))
-                            .frame(width: 13, height: 13)
-                        Text(gap == 1 ? "1 unchanged line" : "\(gap) unchanged lines")
-                            .font(.caption11)
-                        Spacer(minLength: 0)
-                    }
-                    .foregroundStyle(Theme.textTertiary)
-                    .padding(.horizontal, 14)
-                    .frame(height: Self.gapHeight)
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .disabled(onExpand == nil)
-                .glassTooltip("Show Full File  ⌥⌘F")
+                GapRow(count: gap, edge: index == 0 ? .top : nil, onExpand: onExpandGap, onShowFullFile: onShowFullFile)
             }
             HStack(spacing: 10) {
                 Text("@@ -\(hunk.oldStart),\(hunk.oldCount) +\(hunk.newStart),\(hunk.newCount) @@")
@@ -1625,6 +1670,97 @@ struct HunkHeaderRow: View {
             IconButton("Copy Hunk", systemImage: "doc.on.doc", size: 24, action: onCopy)
         }
     }
+}
+
+/// `↓ ↑  42 unchanged lines`: shows more of a gap, `GapRow.step` lines at a time from the hunk above (↓) or
+/// below (↑), or all of it from its label. Gaps at the top or bottom of the file grow from their one hunk.
+struct GapRow: View {
+    static let height: CGFloat = 28
+    /// Lines one arrow click shows.
+    static let step = 20
+
+    /// The unchanged lines in the gap; `nil` below the last hunk until the file has been read.
+    let count: Int?
+    /// `.top` for the gap above the first hunk, `.bottom` for the one below the last.
+    var edge: VerticalEdge?
+    var onExpand: ((ContextExpansion.Direction) -> Void)?
+    var onShowFullFile: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 2) {
+            if let count, count <= Self.step {
+                arrow("arrow.up.and.down", count == 1 ? "Show Line" : "Show \(count) Lines", .all)
+            } else {
+                if edge != .top { arrow("arrow.down", "Show \(Self.step) More Lines Below", .down) }
+                if edge != .bottom { arrow("arrow.up", "Show \(Self.step) More Lines Above", .up) }
+            }
+            Button { onExpand?(.all) } label: {
+                Text(title)
+                    .font(.caption11)
+                    .padding(.horizontal, 6)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .glassTooltip(count.map { $0 == 1 ? "Show Line" : "Show All \($0) Lines" } ?? "Show All Lines Below")
+            if let onShowFullFile {
+                Button(action: onShowFullFile) {
+                    Text("Full File")
+                        .font(.caption11)
+                        .padding(.horizontal, 6)
+                        .frame(maxHeight: .infinity)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .glassTooltip("Show Full File  ⌥⌘F")
+            }
+        }
+        .foregroundStyle(Theme.textTertiary)
+        .padding(.leading, 9)
+        .padding(.trailing, 8)
+        .frame(height: Self.height)
+        .disabled(onExpand == nil)
+    }
+
+    private var title: String {
+        guard let count else { return "Unchanged lines below" }
+        return count == 1 ? "1 unchanged line" : "\(count) unchanged lines"
+    }
+
+    private func arrow(_ systemImage: String, _ help: String, _ direction: ContextExpansion.Direction) -> some View {
+        Button { onExpand?(direction) } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 10))
+                .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.hover(cornerRadius: 6))
+        .focusEffectDisabled()
+        .glassTooltip(help)
+    }
+}
+
+/// Hosts the gap below the last hunk across the full width of its group row.
+private final class GapCell: NSTableCellView {
+    static let reuseIdentifier = NSUserInterfaceItemIdentifier("Gap")
+
+    let hosting = NSHostingView(rootView: GapRow(count: 0))
+
+    init() {
+        super.init(frame: .zero)
+        identifier = Self.reuseIdentifier
+        hosting.translatesAutoresizingMaskIntoConstraints = false
+        hosting.sizingOptions = []
+        addSubview(hosting)
+        NSLayoutConstraint.activate([
+            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
+            hosting.topAnchor.constraint(equalTo: topAnchor),
+            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
 extension Hunk {
