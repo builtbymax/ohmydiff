@@ -107,6 +107,23 @@ public enum ClaudePrompt {
         return sections.joined(separator: "\n\n") + "\n"
     }
 
+    /// Asks an agent to check a review finding and fix it if it holds; the finding's lines go along as context.
+    public static func apply(_ finding: ReviewFinding, context: PromptContext, diff: FileDiff) -> String {
+        let side = finding.side == .new ? "new" : "old"
+        var sections = [
+            "A review of this change found a \(finding.severity.rawValue)-severity problem at line \(finding.line) of the \(side) "
+                + "file `\(finding.path)`:\n\n" + quoted(finding.message),
+        ]
+        if !finding.suggestion.isEmpty { sections.append("Suggested fix:\n\n" + quoted(finding.suggestion)) }
+        sections.append(
+            "Check whether it holds. If it does, fix it with the smallest change and say what you changed; "
+                + "if it does not, explain why and change nothing.")
+        let positions = finding.position(in: diff).map { [$0] } ?? []
+        sections.append(make(question: .none, context: context, diff: diff, positions: positions).trimmingCharacters(in: .newlines))
+        sections.append("Read the surrounding code in the repository as needed.")
+        return sections.joined(separator: "\n\n") + "\n"
+    }
+
     /// The parts of the hunks the positions fall in: from the first to the last selected line, with up
     /// to `contextLines` lines around them, and headers matching the cut.
     public static func excerpt(of diff: FileDiff, positions: [DiffPosition], contextLines: Int = contextLines) -> [Hunk] {

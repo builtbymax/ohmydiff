@@ -35,7 +35,10 @@ public struct Suggester: Sendable {
     /// The provider runs in a fresh, empty directory rather than the repository, so it never finds the
     /// repository's settings, hooks, plugins, MCP servers or instructions, and with its tools turned off
     /// where the CLI allows. The prompt itself carries everything the answer needs.
-    public func complete(_ prompt: String, timeout: Duration = .seconds(180)) async throws -> String {
+    ///
+    /// With a JSON `schema`, Claude Code and Codex are held to it and the answer is the JSON object; other CLIs
+    /// only get the prompt's own instructions.
+    public func complete(_ prompt: String, schema: String? = nil, timeout: Duration = .seconds(180)) async throws -> String {
         guard let executable = ClaudeCodeLauncher.locate(provider, environment: toolchain.environment) else {
             throw SuggestionError.notInstalled(provider)
         }
@@ -45,16 +48,22 @@ public struct Suggester: Sendable {
         defer { try? FileManager.default.removeItem(at: directory) }
         // Codex prints progress on stdout; its final answer goes to a file instead.
         let answerFile = directory.appending(path: "answer.txt")
+        let schemaFile = directory.appending(path: "schema.json")
+        if let schema { try Data(schema.utf8).write(to: schemaFile) }
 
         let output = try await toolchain.runner.run(
-            executable, arguments: provider.completionArguments(prompt: prompt, model: model, answerFile: answerFile.path),
+            executable,
+            arguments: provider.completionArguments(prompt: prompt, model: model, answerFile: answerFile.path, schema: schema.map { ($0, schemaFile.path) }),
             currentDirectory: directory, environment: provider.completionEnvironment(toolchain.environment, directory: directory),
             timeout: timeout)
         guard output.exitCode == 0 else {
-            let message = Self.stripANSI(output.stderrString.isEmpty ? output.stdoutString : output.stderrString)
+            // Claude Code's JSON result carries its error; its tail alone is unreadable.
+            let message = (schema != nil && provider == .claude ? Self.claudeError(output.stdoutString) : nil)
+                ?? Self.stripANSI(output.stderrString.isEmpty ? output.stdoutString : output.stderrString)
             throw SuggestionError.failed(provider, String(message.trimmingCharacters(in: .whitespacesAndNewlines).suffix(600)))
         }
-        let raw = provider == .codex ? (try? String(contentsOf: answerFile, encoding: .utf8)) ?? output.stdoutString : output.stdoutString
+        var raw = provider == .codex ? (try? String(contentsOf: answerFile, encoding: .utf8)) ?? output.stdoutString : output.stdoutString
+        if schema != nil, provider == .claude { raw = Self.structuredOutput(fromClaude: raw) }
         let answer = Self.clean(raw)
         guard !answer.isEmpty else { throw SuggestionError.emptyAnswer(provider) }
         return answer
@@ -93,6 +102,31 @@ public struct Suggester: Sendable {
             if let name = branchName(from: cleaned), !names.contains(name) { names.append(name) }
         }
         return Array(names.prefix(count))
+    }
+
+    /// Findings about `diffs`; `description` says what they are, e.g. "These are the uncommitted changes.".
+    public func review(_ diffs: [FileDiff], description: String) async throws -> (findings: [ReviewFinding], isCut: Bool) {
+        let (prompt, isCut) = ReviewPrompt.make(diffs: diffs, description: description)
+        let answer = try await complete(prompt, schema: ReviewPrompt.schema, timeout: .seconds(600))
+        return (try ReviewPrompt.findings(in: answer), isCut)
+    }
+
+    /// The error in Claude Code's JSON result, e.g. `Not logged in · Please run /login`; `nil` when there is none.
+    static func claudeError(_ output: String) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any] else { return nil }
+        if let result = object["result"] as? String, !result.isEmpty { return result }
+        if let errors = object["errors"] as? [String], !errors.isEmpty { return errors.joined(separator: "\n") }
+        return (object["subtype"] as? String).map { $0.replacing("_", with: " ") }
+    }
+
+    /// The checked object of Claude Code's JSON result, else its text result.
+    static func structuredOutput(fromClaude output: String) -> String {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any] else { return output }
+        if let structured = object["structured_output"], JSONSerialization.isValidJSONObject(structured),
+           let data = try? JSONSerialization.data(withJSONObject: structured) {
+            return String(decoding: data, as: UTF8.self)
+        }
+        return object["result"] as? String ?? output
     }
 
     static func prompt(_ template: String, _ context: TemplateContext) -> String {
@@ -157,15 +191,17 @@ public struct Suggester: Sendable {
 extension AIProvider {
     /// Arguments that answer `prompt` once and exit, printing only the answer, with as few tools as the CLI
     /// allows. A CLI too old for these flags fails rather than running unrestricted.
-    func completionArguments(prompt: String, model: String, answerFile: String) -> [String] {
+    /// With a `schema` (its JSON and the file it is written to), the CLIs that support it check the answer against it.
+    func completionArguments(prompt: String, model: String, answerFile: String, schema: (json: String, file: String)? = nil) -> [String] {
         let modelFlag = model.isEmpty ? [] : ["--model", model]
         return switch self {
         // `--tools` takes a list, so another flag must follow it before the prompt.
         case .claude:
-            ["-p", "--tools", "", "--output-format", "text", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"]
-                + modelFlag + [prompt]
+            ["-p", "--tools", ""] + (schema.map { ["--output-format", "json", "--json-schema", $0.json] } ?? ["--output-format", "text"])
+                + ["--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"] + modelFlag + [prompt]
         case .codex:
-            ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--output-last-message", answerFile] + modelFlag + [prompt]
+            ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--output-last-message", answerFile]
+                + (schema.map { ["--output-schema", $0.file] } ?? []) + modelFlag + [prompt]
         // Headless Gemini refuses tools that need approval; this keeps a configured `yolo` default from applying.
         case .gemini: ["--approval-mode", "default"] + modelFlag + ["--prompt", prompt]
         case .opencode: ["run"] + modelFlag + [prompt]

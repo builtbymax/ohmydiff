@@ -121,6 +121,7 @@ struct FileDiffView: View {
     @AppStorage(AppSettings.explainsInTerminalKey) private var explainsInTerminal = false
     /// The open inline explanation, under its hunk.
     @State private var explanation: HunkExplanation?
+    @Environment(\.reviewFindings) private var reviews
 
     var body: some View {
         VStack(spacing: 0) {
@@ -219,6 +220,25 @@ struct FileDiffView: View {
                 close: { self.explanation?.cancel(); self.explanation = nil },
                 openSettings: { SettingsWindow.open(.ai, with: openSettings) },
                 onHeight: onHeight))
+        }
+    }
+
+    /// The review findings of this file that still match a line of the shown diff, under those lines.
+    private func findingCards(in shown: FileDiff) -> [DiffCard] {
+        guard let reviews, let promptContext else { return [] }
+        let root = root
+        return reviews.findings(for: ReviewScope(promptContext.source), path: diff.path).compactMap { finding in
+            guard let position = finding.position(in: shown) else { return nil }
+            return DiffCard(id: finding.id.uuidString, anchor: .line(position), scrollsIntoView: false) { onHeight in
+                AnyView(FindingCard(
+                    finding: finding, isApplied: reviews.applied.contains(finding.id),
+                    apply: {
+                        claudeCode.open(ClaudePrompt.apply(finding, context: promptContext, diff: shown), root)
+                        reviews.markApplied(finding.id)
+                    },
+                    dismiss: { reviews.dismiss(finding.id) },
+                    onHeight: onHeight))
+            }
         }
     }
 
@@ -327,7 +347,7 @@ struct FileDiffView: View {
                     currentHunk: visibleHunk,
                     onExplainHunk: promptContext == nil || wholeFile != nil ? nil : { explain($0) },
                     onExpand: DiffSettings.canShowWholeFile(diff) ? { prefersWholeFile = true } : nil,
-                    card: wholeFile == nil ? explanationCard : nil)
+                    cards: (wholeFile == nil ? explanationCard.map { [$0] } ?? [] : []) + findingCards(in: wholeFile?.diff ?? shown))
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if isTruncated {

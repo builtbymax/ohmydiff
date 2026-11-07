@@ -55,8 +55,8 @@ struct DiffTableView: NSViewRepresentable {
     var onExplainHunk: ((Int) -> Void)?
     /// Shows the unchanged lines between hunks, from a header's `N unchanged lines` row.
     var onExpand: (() -> Void)?
-    /// A card under a hunk's last line, e.g. its inline explanation.
-    var card: DiffCard?
+    /// Cards under lines of the diff, e.g. a hunk's inline explanation or review findings.
+    var cards: [DiffCard] = []
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -108,7 +108,7 @@ struct DiffTableView: NSViewRepresentable {
             diff, highlights: highlights, fileID: fileID, mode: mode, fontSize: fontSize, lineSpacing: lineSpacing, theme: theme,
             isWholeFile: isWholeFile, showsLineNumbers: showsLineNumbers, wrapsLines: wrapsLines)
         context.coordinator.targetedHunk = targetedHunk
-        context.coordinator.setCard(card)
+        context.coordinator.setCards(cards)
         if let reveal { context.coordinator.reveal(reveal) }
     }
 
@@ -158,11 +158,21 @@ struct DiffTableView: NSViewRepresentable {
             didSet { if menuHunk != oldValue { updateTargetedRows() } }
         }
         private var observers: [NSObjectProtocol] = []
-        /// The card under a hunk: its hosting view, height and the row it sits below.
-        private var cardHost: NSHostingView<AnyView>?
-        private var cardHunk: Int?
-        private var cardHeight: CGFloat = 0
-        private var cardRow: Int?
+        /// A card's hosting view, height and the row it sits below.
+        private final class CardSlot {
+            let host: NSHostingView<AnyView>
+            var anchor: DiffCard.Anchor
+            var row: Int?
+            var height: CGFloat = 0
+
+            init(host: NSHostingView<AnyView>, anchor: DiffCard.Anchor) {
+                self.host = host
+                self.anchor = anchor
+            }
+        }
+
+        /// Cards by ID, in the order they stack below a shared row.
+        private var cardSlots: [(id: String, slot: CardSlot)] = []
 
         private static let oldColumn = NSUserInterfaceItemIdentifier("old")
         private static let newColumn = NSUserInterfaceItemIdentifier("new")
@@ -261,7 +271,7 @@ struct DiffTableView: NSViewRepresentable {
                     unifiedRows = []
                 }
                 hunkRows = jumpRows()
-                cardRow = lastRow(ofHunk: cardHunk)
+                for card in cardSlots { card.slot.row = row(of: card.slot.anchor) }
             }
 
             sizeColumns()
@@ -306,51 +316,94 @@ struct DiffTableView: NSViewRepresentable {
 
         // MARK: Card
 
-        func setCard(_ card: DiffCard?) {
+        func setCards(_ cards: [DiffCard]) {
             guard let tableView else { return }
-            guard let card else {
-                guard cardHunk != nil else { return }
-                let old = cardRow
-                cardHunk = nil
-                cardRow = nil
-                cardHeight = 0
-                cardHost?.removeFromSuperview()
-                cardHost = nil
-                if let old { tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: old)) }
-                return
+            var changedRows = IndexSet()
+            var revealRow: Int?
+            let ids = Set(cards.map(\.id))
+            for card in cardSlots where !ids.contains(card.id) {
+                card.slot.host.removeFromSuperview()
+                if let row = card.slot.row { changedRows.insert(row) }
             }
-            let view = card.makeView { [weak self] height in self?.cardHeightChanged(height) }
-            if let cardHost {
-                cardHost.rootView = view
-            } else {
-                let host = NSHostingView(rootView: view)
-                host.sizingOptions = []
-                tableView.addSubview(host)
-                cardHost = host
+            var slots: [(id: String, slot: CardSlot)] = []
+            for card in cards {
+                let view = card.makeView { [weak self] height in self?.cardHeightChanged(card.id, height) }
+                if let slot = cardSlots.first(where: { $0.id == card.id })?.slot {
+                    slot.host.rootView = view
+                    if slot.anchor != card.anchor {
+                        if let row = slot.row { changedRows.insert(row) }
+                        slot.anchor = card.anchor
+                        slot.row = row(of: card.anchor)
+                        if let row = slot.row { changedRows.insert(row) }
+                        if card.scrollsIntoView { revealRow = slot.row }
+                    }
+                    slots.append((card.id, slot))
+                } else {
+                    let host = NSHostingView(rootView: view)
+                    host.sizingOptions = []
+                    tableView.addSubview(host)
+                    let slot = CardSlot(host: host, anchor: card.anchor)
+                    slot.row = row(of: card.anchor)
+                    if let row = slot.row { changedRows.insert(row) }
+                    if card.scrollsIntoView { revealRow = slot.row }
+                    slots.append((card.id, slot))
+                }
             }
-            if card.hunk != cardHunk {
-                let old = cardRow
-                cardHunk = card.hunk
-                cardRow = lastRow(ofHunk: card.hunk)
-                let changed = IndexSet([old, cardRow].compactMap(\.self))
-                tableView.noteHeightOfRows(withIndexesChanged: changed)
-                tableView.reloadData(forRowIndexes: changed, columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
-                if let row = cardRow { tableView.scrollRowToVisible(row) }
+            cardSlots = slots
+            if !changedRows.isEmpty {
+                tableView.noteHeightOfRows(withIndexesChanged: changedRows)
+                tableView.reloadData(forRowIndexes: changedRows, columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
+            }
+            if let revealRow { tableView.scrollRowToVisible(revealRow) }
+            layoutCard()
+        }
+
+        private func cardHeightChanged(_ id: String, _ height: CGFloat) {
+            guard let slot = cardSlots.first(where: { $0.id == id })?.slot, abs(height - slot.height) > 0.5, let tableView else { return }
+            slot.height = height
+            if let row = slot.row {
+                tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+                tableView.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
             }
             layoutCard()
         }
 
-        private func cardHeightChanged(_ height: CGFloat) {
-            guard abs(height - cardHeight) > 0.5, let tableView else { return }
-            cardHeight = height
-            if let cardRow {
-                tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: cardRow))
-                tableView.reloadData(forRowIndexes: IndexSet(integer: cardRow), columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
-            }
-            layoutCard()
+        /// The height of the cards below a row.
+        private func cardsHeight(belowRow row: Int) -> CGFloat {
+            cardSlots.reduce(0) { $0 + ($1.slot.row == row ? $1.slot.height : 0) }
         }
 
-        /// The last row of a hunk's lines, which the card sits below.
+        private func hasCards(belowRow row: Int) -> Bool {
+            cardSlots.contains { $0.slot.row == row }
+        }
+
+        /// The row a card sits below: its line's, or its hunk's last.
+        private func row(of anchor: DiffCard.Anchor) -> Int? {
+            switch anchor {
+            case .hunk(let hunk): lastRow(ofHunk: hunk)
+            case .line(let position): row(ofPosition: position)
+            }
+        }
+
+        /// The row showing a line, on either side in split mode.
+        private func row(ofPosition position: DiffPosition) -> Int? {
+            switch mode {
+            case .unified:
+                return unifiedRows.firstIndex { row in
+                    if case .line(let h, let l) = row { return h == position.hunk && l == position.line }
+                    return false
+                }
+            case .split:
+                return splitRows.firstIndex { row in
+                    if case .pair(let h, let old, let new) = row { return h == position.hunk && (old == position.line || new == position.line) }
+                    return false
+                }
+            case nil:
+                return nil
+            }
+        }
+
+        /// The last row of a hunk's lines, which its card sits below.
         private func lastRow(ofHunk hunk: Int?) -> Int? {
             guard let hunk else { return nil }
             switch mode {
@@ -371,19 +424,27 @@ struct DiffTableView: NSViewRepresentable {
             }
         }
 
-        /// Places the card in the space below its row, across the visible width, above the rows.
+        /// Places the cards in the space below their rows, stacked in order, across the visible width, above the rows.
         private func layoutCard() {
-            guard let cardHost, let tableView, let scrollView else { return }
-            guard let cardRow, cardRow < rowCount else {
-                cardHost.isHidden = true
-                return
+            guard let tableView, let scrollView else { return }
+            // Row views are added as the table scrolls; the cards stay on top of them.
+            let hosts = cardSlots.map(\.slot.host)
+            if !tableView.subviews.suffix(hosts.count).elementsEqual(hosts, by: ===) {
+                for host in hosts { tableView.addSubview(host, positioned: .above, relativeTo: nil) }
             }
-            cardHost.isHidden = false
-            let rect = tableView.rect(ofRow: cardRow)
             let visible = scrollView.contentView.bounds
-            cardHost.frame = NSRect(x: visible.minX, y: rect.maxY - cardHeight, width: visible.width, height: max(cardHeight, 1))
-            if tableView.subviews.last !== cardHost {
-                tableView.addSubview(cardHost, positioned: .above, relativeTo: nil)
+            var offsets: [Int: CGFloat] = [:]
+            for card in cardSlots {
+                let host = card.slot.host
+                guard let row = card.slot.row, row < rowCount else {
+                    host.isHidden = true
+                    continue
+                }
+                host.isHidden = false
+                let rect = tableView.rect(ofRow: row)
+                let top = offsets[row] ?? rect.maxY - cardsHeight(belowRow: row)
+                host.frame = NSRect(x: visible.minX, y: top, width: visible.width, height: max(card.slot.height, 1))
+                offsets[row] = top + card.slot.height
             }
         }
 
@@ -739,7 +800,7 @@ struct DiffTableView: NSViewRepresentable {
         private var rowCount: Int { mode == .split ? splitRows.count : unifiedRows.count }
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-            baseHeight(ofRow: row) + (row == cardRow ? cardHeight : 0)
+            baseHeight(ofRow: row) + cardsHeight(belowRow: row)
         }
 
         /// A row's height without the card below it.
@@ -777,7 +838,7 @@ struct DiffTableView: NSViewRepresentable {
             cell.drawsTrailingSeparator = false
             cell.wraps = false
             cell.truncates = false
-            cell.contentHeight = row == cardRow ? baseHeight(ofRow: row) : nil
+            cell.contentHeight = hasCards(belowRow: row) ? baseHeight(ofRow: row) : nil
 
             switch mode {
             case .unified:
@@ -1611,8 +1672,29 @@ extension ChangeAction {
 }
 
 
-/// A view shown under a hunk's last line; it reports its height so the row makes room for it.
+/// A view shown under a line of the diff; it reports its height so the row makes room for it.
 struct DiffCard {
-    var hunk: Int
+    enum Anchor: Equatable {
+        /// Below the hunk's last line.
+        case hunk(Int)
+        case line(DiffPosition)
+    }
+
+    var id: String
+    var anchor: Anchor
+    /// Scrolls its row into view when it appears or moves, e.g. for a card the user just opened.
+    var scrollsIntoView = true
     var makeView: (_ onHeight: @escaping (CGFloat) -> Void) -> AnyView
+
+    init(id: String, anchor: Anchor, scrollsIntoView: Bool = true, makeView: @escaping (_ onHeight: @escaping (CGFloat) -> Void) -> AnyView) {
+        self.id = id
+        self.anchor = anchor
+        self.scrollsIntoView = scrollsIntoView
+        self.makeView = makeView
+    }
+
+    /// A card under a hunk's last line, e.g. its inline explanation.
+    init(hunk: Int, makeView: @escaping (_ onHeight: @escaping (CGFloat) -> Void) -> AnyView) {
+        self.init(id: "hunk", anchor: .hunk(hunk), makeView: makeView)
+    }
 }

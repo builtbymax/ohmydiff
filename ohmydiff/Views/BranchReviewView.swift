@@ -91,7 +91,7 @@ struct BranchReviewView: View {
                     .fileListPeek(fileList(scope), isPeeking: isPeeking && isFileListHidden, toggle: fileListToggle(scope)) { isPeekHovered = $0 }
                 } else {
                     if !isFileListHidden {
-                        BranchFilesColumn(history: history)
+                        BranchFilesColumn(session: session)
                             .frame(width: fit.filesWidth)
                             .overlay(alignment: .trailing) {
                                 Rectangle().fill(Theme.lineSubtle).frame(width: 1)
@@ -131,6 +131,7 @@ struct BranchReviewView: View {
                 }
             }
             .animation(Theme.popoverAnimation, value: session.actionRequest?.id)
+            .environment(\.reviewFindings, session.reviews)
             .focusable()
             .focusEffectDisabled()
             .onKeyPress(.downArrow) { move(1, in: cards, proxy: proxy) }
@@ -667,21 +668,29 @@ private struct ReviewCommitRow: View {
 
 /// The selected branch's or commit's files under a head naming it.
 private struct BranchFilesColumn: View {
-    let history: HistoryModel
+    let session: ProjectSession
+    private var history: HistoryModel { session.history }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .font(.control.weight(.medium))
-                    .foregroundStyle(Theme.textPrimary)
-                Text(subtitle)
-                    .font(.caption11)
-                    .foregroundStyle(Theme.textTertiary)
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.control.weight(.medium))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text(subtitle)
+                        .font(.caption11)
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                .lineLimit(1)
+                .truncationMode(.middle)
+                Spacer(minLength: 0)
+                if case .loaded(let diffs) = history.files, !diffs.isEmpty, let context = history.promptContext(root: session.rootURL) {
+                    ReviewButton(reviews: session.reviews, scope: ReviewScope(context.source), start: session.startHistorySelectionReview)
+                }
             }
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .padding(.horizontal, 16)
+            .padding(.leading, 16)
+            .padding(.trailing, 10)
             .padding(.top, 12)
             .padding(.bottom, 8)
             ScrollView {
@@ -750,17 +759,25 @@ private struct UncommittedFilesColumn: View {
     var body: some View {
         let files = session.uncommittedGroups(scope).allFiles
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(scope.flatMap { id in session.groups.first { $0.id == id }?.title } ?? "Uncommitted changes")
-                    .font(.control.weight(.medium))
-                    .foregroundStyle(Theme.textPrimary)
-                Text(["uncommitted", files.count == 1 ? "1 file" : "\(files.count) files"].joined(separator: " · "))
-                    .font(.caption11)
-                    .foregroundStyle(Theme.textTertiary)
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(scope.flatMap { id in session.groups.first { $0.id == id }?.title } ?? "Uncommitted changes")
+                        .font(.control.weight(.medium))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text(["uncommitted", files.count == 1 ? "1 file" : "\(files.count) files"].joined(separator: " · "))
+                        .font(.caption11)
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                .lineLimit(1)
+                .truncationMode(.middle)
+                Spacer(minLength: 0)
+                // Reviews every uncommitted change, so findings stay put when switching lanes.
+                if !session.groups.allFiles.isEmpty {
+                    ReviewButton(reviews: session.reviews, scope: .uncommitted, start: session.startUncommittedReview)
+                }
             }
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .padding(.horizontal, 16)
+            .padding(.leading, 16)
+            .padding(.trailing, 10)
             .padding(.top, 12)
             ChangesListView(model: model, session: session, scope: scope)
         }
