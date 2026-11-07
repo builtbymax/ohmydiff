@@ -140,3 +140,28 @@ import Testing
         #expect(prompt.contains("change nothing"))
     }
 }
+
+@Suite struct FindingURLTests {
+    @Test func roundTripsThroughTheURL() throws {
+        let finding = ReviewFinding(
+            path: "src/a b.swift", line: 12, side: .old, severity: .high, message: "Uses `&` and = signs + #tags?",
+            suggestion: "Use ÷ instead.", origin: .agent("claude-code"))
+        for scope in [ReviewScope.uncommitted, .commit(sha: "abc123"), .branch(name: "feat/x")] {
+            let url = CLIRequest.finding(path: "/repo", scope: scope, finding: finding).url
+            guard case .finding(let path, let parsedScope, let parsed)? = CLIRequest(url: url) else {
+                Issue.record("did not parse \(url)")
+                continue
+            }
+            #expect(path == "/repo")
+            #expect(parsedScope == scope)
+            #expect(parsed.path == finding.path)
+            #expect(parsed.line == 12)
+            #expect(parsed.side == .old)
+            #expect(parsed.severity == .high)
+            #expect(parsed.message == finding.message)
+            #expect(parsed.suggestion == finding.suggestion)
+            #expect(parsed.origin == .agent("claude-code"))
+        }
+        #expect(CLIRequest(url: URL(string: "ohmydiff://finding?path=/r&file=a&line=0&message=m")!) == nil)
+    }
+}

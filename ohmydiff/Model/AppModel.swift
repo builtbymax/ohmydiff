@@ -369,6 +369,11 @@ final class AppModel {
     /// adding it if it is new, and shows the file, branch or commit asked for.
     func handle(_ url: URL) {
         guard let request = CLIRequest(url: url) else { return }
+        // An agent adds findings while the user reads on; they show where the diff is, without taking the focus.
+        if case .finding(_, let scope, let finding) = request, let project = Project.containing(request.folder, in: projects) {
+            session(for: project.id).reviews.add(finding, to: scope)
+            return
+        }
         NSApp.activate()
         isSwitcherPresented = false
         isProjectMenuPresented = false
@@ -412,6 +417,9 @@ final class AppModel {
             session.log.filter = .all
             session.log.reveal(sha)
             await session.refreshLog()
+        case .finding(let path, let scope, let finding):
+            guard let session = await focusProject(containing: URL(fileURLWithPath: path, isDirectory: true)) else { return }
+            session.reviews.add(finding, to: scope)
         }
     }
 

@@ -10,6 +10,8 @@ public enum CLIRequest: Sendable, Hashable {
     case branch(path: String, name: String)
     /// A commit of the repository containing `path`, in History mode; `sha` may be abbreviated.
     case commit(path: String, sha: String)
+    /// A review finding an agent adds to the repository at `path`, shown under its line of the reviewed diff.
+    case finding(path: String, scope: ReviewScope, finding: ReviewFinding)
 
     /// Parses `ohmydiff://open?path=…`, `show?path=…&line=…`, `branch?path=…&name=…` and `commit?path=…&sha=…`.
     public init?(url: URL) {
@@ -31,6 +33,19 @@ public enum CLIRequest: Sendable, Hashable {
         case "commit":
             guard let sha = value("sha") else { return nil }
             self = .commit(path: path, sha: sha)
+        case "finding":
+            guard let file = value("file"), let line = value("line").flatMap(Int.init), line > 0, let message = value("message") else { return nil }
+            let scope: ReviewScope = if let sha = value("commit") {
+                .commit(sha: sha)
+            } else if let name = value("branch") {
+                .branch(name: name)
+            } else {
+                .uncommitted
+            }
+            self = .finding(path: path, scope: scope, finding: ReviewFinding(
+                path: file, line: line, side: value("side") == "old" ? .old : .new,
+                severity: ReviewSeverity(loose: value("severity") ?? ""), message: message, suggestion: value("suggestion") ?? "",
+                origin: .agent(value("agent") ?? "")))
         default:
             return nil
         }
@@ -39,7 +54,7 @@ public enum CLIRequest: Sendable, Hashable {
     /// The folder whose repository the request is about: the file's folder for `show`.
     public var folder: URL {
         switch self {
-        case .open(let path), .branch(let path, _), .commit(let path, _): URL(fileURLWithPath: path, isDirectory: true)
+        case .open(let path), .branch(let path, _), .commit(let path, _), .finding(let path, _, _): URL(fileURLWithPath: path, isDirectory: true)
         case .show(let path, _): URL(fileURLWithPath: path).deletingLastPathComponent()
         }
     }
@@ -61,6 +76,21 @@ public enum CLIRequest: Sendable, Hashable {
         case .commit(let path, let sha):
             components.host = "commit"
             items = [URLQueryItem(name: "path", value: path), URLQueryItem(name: "sha", value: sha)]
+        case .finding(let path, let scope, let finding):
+            components.host = "finding"
+            var list = [
+                URLQueryItem(name: "path", value: path), URLQueryItem(name: "file", value: finding.path),
+                URLQueryItem(name: "line", value: String(finding.line)), URLQueryItem(name: "side", value: finding.side.rawValue),
+                URLQueryItem(name: "severity", value: finding.severity.rawValue), URLQueryItem(name: "message", value: finding.message),
+            ]
+            if !finding.suggestion.isEmpty { list.append(URLQueryItem(name: "suggestion", value: finding.suggestion)) }
+            switch scope {
+            case .uncommitted: break
+            case .commit(let sha): list.append(URLQueryItem(name: "commit", value: sha))
+            case .branch(let name): list.append(URLQueryItem(name: "branch", value: name))
+            }
+            if case .agent(let name) = finding.origin, !name.isEmpty { list.append(URLQueryItem(name: "agent", value: name)) }
+            items = list
         }
         // Plain `queryItems` leave `&`, `=` and `+` alone, which would split or change the values.
         components.percentEncodedQueryItems = items.map {
