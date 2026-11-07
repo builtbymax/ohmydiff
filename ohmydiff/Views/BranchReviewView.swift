@@ -716,6 +716,9 @@ private struct BranchFilesColumn: View {
     @ViewBuilder
     private var files: some View {
         switch history.files {
+        case nil where history.selection == nil:
+            // An update that leaves no branches clears the selection; there is nothing to load.
+            EmptyView()
         case .loading, nil:
             DelayedProgress()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -797,6 +800,8 @@ private struct BranchReviewDetail: View {
 
     var body: some View {
         switch history.files {
+        case nil where history.selection == nil:
+            EmptyState("No Selection", systemImage: "arrow.triangle.branch")
         case .loading, nil:
             DelayedProgress()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
