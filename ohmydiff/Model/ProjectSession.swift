@@ -74,6 +74,8 @@ final class ProjectSession {
     let commitDraft = CommitDraft()
     /// The Pull requests page.
     let pullRequests = PullRequestsModel()
+    /// AI review findings, by what was reviewed.
+    let reviews = ReviewFindings()
     /// Hunk sizes of listed files, in changed lines, for the file list's hunk bars; filled as diffs load.
     private(set) var hunkSizes: [ChangedFile.ID: [Int]] = [:]
 
@@ -651,6 +653,35 @@ final class ProjectSession {
             patches.append(diff.patch)
         }
         return patches.joined(separator: "\n")
+    }
+
+    /// Reviews every uncommitted change with the Review task.
+    func startUncommittedReview() {
+        let files = groups.allFiles
+        reviews.review(
+            .uncommitted, description: "These are the uncommitted changes in the working tree.",
+            suggestions: { [weak self] in await self?.suggestions() }
+        ) { [weak self] in
+            guard let repository = self?.repository else { return [] }
+            var diffs: [FileDiff] = []
+            for file in files {
+                if let diff = try await repository.diff(for: file) { diffs.append(diff) }
+            }
+            return diffs
+        }
+    }
+
+    /// Reviews the Branches page's selected branch or commit with the Review task.
+    func startHistorySelectionReview() {
+        guard case .loaded(let diffs) = history.files, let context = history.promptContext(root: rootURL) else { return }
+        let description = switch context.source {
+        case .commit(let sha, let message): "This is commit \(sha.prefix(7)): \(message.prefix { $0 != "\n" })"
+        case .branch(let name, let base): "This is branch `\(name)` compared with `\(base ?? "its base")`."
+        case .uncommitted: "These are the uncommitted changes."
+        }
+        reviews.review(ReviewScope(context.source), description: description, suggestions: { [weak self] in await self?.suggestions() }) {
+            diffs
+        }
     }
 
     /// The commits already on `branch`, for `{{commits}}`; empty for a new branch.

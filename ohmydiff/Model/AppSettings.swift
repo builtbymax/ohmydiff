@@ -332,7 +332,7 @@ nonisolated enum CommitStyle: String, CaseIterable, Identifiable, Sendable {
 
 /// The AI's jobs, each with its own model and switch in Settings.
 nonisolated enum AITask: String, CaseIterable, Identifiable, Sendable {
-    case commitMessage, branchName, pullRequest, explain
+    case commitMessage, branchName, pullRequest, explain, review
 
     var id: Self { self }
     var modelKey: String { "aiModel.\(rawValue)" }
@@ -344,6 +344,7 @@ nonisolated enum AITask: String, CaseIterable, Identifiable, Sendable {
         case .branchName: "Branch names"
         case .pullRequest: "Pull request drafts"
         case .explain: "Explain & ask about hunks"
+        case .review: "Review for bugs"
         }
     }
 
@@ -353,6 +354,7 @@ nonisolated enum AITask: String, CaseIterable, Identifiable, Sendable {
         case .branchName: "Suggested when you commit to a new branch"
         case .pullRequest: "From commits, diff, linked ticket and your PR template"
         case .explain: "Answers inline under the hunk; follow-ups stay in that card"
+        case .review: "Findings show on their lines; advisory, nothing is changed"
         }
     }
 
@@ -362,6 +364,7 @@ nonisolated enum AITask: String, CaseIterable, Identifiable, Sendable {
         case .branchName: "arrow.triangle.branch"
         case .pullRequest: "arrow.triangle.pull"
         case .explain: "bubble.left"
+        case .review: "checklist"
         }
     }
 }
@@ -398,6 +401,8 @@ extension EnvironmentValues {
     @Entry var openEditor: (DiffFileTarget) -> Void = { _ in }
     /// Asks the AI provider for a one-off answer for a task, with its model from Settings.
     @Entry var askAI: (AITask, String) async throws -> String = { _, _ in throw SuggestionUnavailable.noProvider }
+    /// The project's review findings, shown under their lines; `nil` where diffs show none, e.g. a diff window.
+    @Entry var reviewFindings: ReviewFindings?
 }
 
 
