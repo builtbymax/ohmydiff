@@ -106,6 +106,8 @@ struct FileDiffView: View {
     @AppStorage(AppSettings.darkCodeThemeKey) private var darkTheme = CodeTheme.default.rawValue
     /// The diff expanded to the whole file, once loaded; `source` is the diff it was expanded from.
     @State private var wholeFile: (source: FileDiff, diff: FileDiff, highlights: SyntaxHighlights?)?
+    /// Unchanged lines shown from the gaps of `source`, and the diff with them filled in.
+    @State private var revealed: (source: FileDiff, expansion: ContextExpansion, diff: FileDiff, highlights: SyntaxHighlights?)?
     /// Large diffs the user chose to show anyway.
     @State private var revealedFiles: Set<String> = []
     @State private var focusLine: Int?
@@ -173,21 +175,56 @@ struct FileDiffView: View {
             // Hunk numbers belong to the diff they were asked about.
             explanation?.cancel()
             explanation = nil
+            // So are gaps.
+            revealed = nil
         }
         .task(id: prefersWholeFile && DiffSettings.canShowWholeFile(diff) ? diff : nil) {
-            guard prefersWholeFile, DiffSettings.canShowWholeFile(diff), wholeFile?.source != diff else { return }
-            if let cached = WholeFileCache.expansion(of: diff) {
-                wholeFile = (diff, cached.diff, cached.highlights)
-                return
-            }
-            let oldData = await contents(.old)
-            let newData = await contents(.new)
-            guard !Task.isCancelled, let expanded = await DiffHighlighting.wholeFile(for: diff, old: oldData, new: newData),
-                  !Task.isCancelled
-            else { return }
-            WholeFileCache.store(expanded, for: diff)
-            wholeFile = (diff, expanded.diff, expanded.highlights)
+            guard prefersWholeFile, DiffSettings.canShowWholeFile(diff) else { return }
+            _ = await loadWholeFile()
         }
+    }
+
+    /// The current diff expanded to the whole file, read once and kept for Full file and gap rows alike.
+    private func loadWholeFile() async -> (diff: FileDiff, highlights: SyntaxHighlights?)? {
+        let diff = diff
+        if let wholeFile, wholeFile.source == diff { return (wholeFile.diff, wholeFile.highlights) }
+        if let cached = WholeFileCache.expansion(of: diff) {
+            wholeFile = (diff, cached.diff, cached.highlights)
+            return cached
+        }
+        let oldData = await contents(.old)
+        let newData = await contents(.new)
+        guard !Task.isCancelled, let expanded = await DiffHighlighting.wholeFile(for: diff, old: oldData, new: newData),
+              !Task.isCancelled
+        else { return nil }
+        WholeFileCache.store(expanded, for: diff)
+        wholeFile = (diff, expanded.diff, expanded.highlights)
+        return expanded
+    }
+
+    /// Shows more unchanged lines of a gap, reading the file the first time.
+    private func expandGap(_ gap: Int, _ direction: ContextExpansion.Direction) {
+        let diff = diff
+        Task {
+            guard let whole = await loadWholeFile() else { return }
+            // Rows only show an expansion of the diff it was made for, so one finishing late is harmless.
+            var expansion = revealed?.source == diff ? revealed?.expansion ?? ContextExpansion() : ContextExpansion()
+            expansion.expand(gap: gap, direction, by: GapRow.step)
+            guard let expanded = diff.revealing(expansion, from: whole.diff) else { return }
+            revealed = (diff, expansion, expanded, whole.highlights)
+        }
+    }
+
+    /// Unchanged lines below the last hunk for its gap row: counted once the file is read, else guessed from
+    /// the context Git printed, which is cut short only at the end of the file.
+    private var linesBelow: Int? {
+        guard DiffSettings.canShowWholeFile(diff), !isTruncated, let last = shown.hunks.last else { return 0 }
+        if let whole = wholeFile, whole.source == diff {
+            let shown = revealed.flatMap { $0.source == diff ? $0.diff : nil } ?? diff
+            return shown.unchangedLinesBelow(in: whole.diff) ?? 0
+        }
+        let trailingContext = last.lines.reversed().prefix { $0.kind == .context }.count
+        return trailingContext >= Repository.contextLines ? nil : 0
     }
 
     private var hunkContext: DiffHunkContext? {
@@ -207,7 +244,8 @@ struct FileDiffView: View {
             explanation = explanation?.hunk == hunk ? nil : HunkExplanation(hunk: hunk, diff: shown, ask: askAI)
             return
         }
-        let positions = shown.hunks[hunk].lines.indices.map { DiffPosition(hunk: hunk, line: $0) }
+        let lines = (displayed?.diff ?? shown).hunks[hunk].lines
+        let positions = lines.indices.map { DiffPosition(hunk: hunk, line: $0) }
         askClaude(ClaudeRequest(kind: .open, question: .explain, positions: positions))
         _ = promptContext
     }
@@ -251,7 +289,7 @@ struct FileDiffView: View {
     /// Asks Claude Code about the selected lines, else about the hunk at the top of the diff.
     private var promptTarget: DiffPromptTarget? {
         guard let promptContext, showsTable else { return nil }
-        let shown = shownWholeFile?.diff ?? self.shown
+        let shown = displayed?.diff ?? self.shown
         return DiffPromptTarget(
             root: root, context: promptContext, diff: shown, selection: selectedLines,
             hunk: min(visibleHunk ?? 0, shown.hunks.count - 1))
@@ -264,7 +302,7 @@ struct FileDiffView: View {
     private func askClaude(_ request: ClaudeRequest) {
         guard let promptContext else { return }
         let prompt = ClaudePrompt.make(
-            question: request.question, context: promptContext, diff: shownWholeFile?.diff ?? shown, positions: request.positions)
+            question: request.question, context: promptContext, diff: displayed?.diff ?? shown, positions: request.positions)
         switch request.kind {
         case .open: claudeCode.open(prompt, root)
         case .copy: claudeCode.copy(prompt)
@@ -277,6 +315,13 @@ struct FileDiffView: View {
         if let wholeFile, wholeFile.source == diff { return (wholeFile.diff, wholeFile.highlights) }
         // Seen lately: show the expansion in the same frame as the diff, without a changes-only flash.
         return WholeFileCache.expansion(of: diff)
+    }
+
+    /// The diff as the rows show it: the whole file, or the diff with lines shown from its gaps.
+    private var displayed: (diff: FileDiff, highlights: SyntaxHighlights?)? {
+        if let shownWholeFile { return shownWholeFile }
+        guard !isTruncated, let revealed, revealed.source == diff else { return nil }
+        return (revealed.diff, revealed.highlights)
     }
 
     /// Whether the diff rows are shown, rather than a placeholder.
@@ -321,9 +366,10 @@ struct FileDiffView: View {
                 // Side by side needs room for two readable columns.
                 let mode: DiffLayoutMode = preferredLayout == .split && proxy.size.width >= DiffSettings.minimumSplitWidth ? .split : .unified
                 let wholeFile = shownWholeFile
+                let displayed = displayed
                 DiffTableView(
-                    fileID: fileID, diff: wholeFile?.diff ?? shown,
-                    highlights: showsSyntaxColors ? wholeFile.map(\.highlights) ?? highlights : nil, mode: mode,
+                    fileID: fileID, diff: displayed?.diff ?? shown,
+                    highlights: showsSyntaxColors ? displayed.map(\.highlights) ?? highlights : nil, mode: mode,
                     fontSize: CGFloat(fontSize.clamped(to: AppSettings.fontSizes)),
                     lineSpacing: lineHeight.spacing,
                     theme: SyntaxTheme(light: CodeTheme.resolved(lightTheme, isDark: false), dark: CodeTheme.resolved(darkTheme, isDark: true)),
@@ -346,8 +392,10 @@ struct FileDiffView: View {
                     reveal: reveal,
                     currentHunk: visibleHunk,
                     onExplainHunk: promptContext == nil || wholeFile != nil ? nil : { explain($0) },
-                    onExpand: DiffSettings.canShowWholeFile(diff) ? { prefersWholeFile = true } : nil,
-                    cards: (wholeFile == nil ? explanationCard.map { [$0] } ?? [] : []) + findingCards(in: wholeFile?.diff ?? shown))
+                    onExpandGap: DiffSettings.canShowWholeFile(diff) && !isTruncated ? { expandGap($0, $1) } : nil,
+                    onShowFullFile: DiffSettings.canShowWholeFile(diff) ? { prefersWholeFile = true } : nil,
+                    linesBelow: wholeFile == nil ? linesBelow : 0,
+                    cards: (wholeFile == nil ? explanationCard.map { [$0] } ?? [] : []) + findingCards(in: displayed?.diff ?? shown))
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if isTruncated {

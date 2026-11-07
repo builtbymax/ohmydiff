@@ -297,7 +297,12 @@ public struct Repository: Sendable {
 
     /// Context is pinned, so `diff.context` / `diff.interHunkContext` in the user's config cannot make hunks differ
     /// from the ones `but` reports, which GitButler hunk actions are matched against.
-    static let diffOptions = ["--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-M", "-U3", "--inter-hunk-context=0"]
+    static let diffOptions = [
+        "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-M", "-U\(contextLines)", "--inter-hunk-context=0",
+    ]
+
+    /// Unchanged lines Git prints around each change; fewer below the last hunk only at the end of the file.
+    public static let contextLines = 3
 
     /// The parsed diff of one uncommitted file, or `nil` if it no longer differs.
     /// `ignoringWhitespace` leaves out changes that only touch whitespace (`git diff -w`); such a diff is for
