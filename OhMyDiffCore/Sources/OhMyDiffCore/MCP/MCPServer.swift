@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// A Model Context Protocol server on stdin and stdout, run by `ohmydiff mcp`, so coding agents can read a
 /// repository's changes and point the app at a file, branch or commit.
@@ -35,9 +36,19 @@ public struct MCPServer: Sendable {
         self.openURL = openURL
     }
 
-    /// Opens a URL with `/usr/bin/open`, which brings the app to the front.
+    /// The connected client's name, e.g. `claude-code`, which findings it adds are marked with.
+    private let client = Client()
+
+    private final class Client: Sendable {
+        let name = Mutex("")
+    }
+
+    /// Opens a URL with `/usr/bin/open`, which brings the app to the front; findings are added in the background,
+    /// so an agent adding several does not take the focus each time.
     public static let openWithLaunchServices: URLOpener = { url in
-        let output = try await ProcessRunner().run(URL(fileURLWithPath: "/usr/bin/open"), arguments: [url.absoluteString], timeout: .seconds(15))
+        let background = CLIRequest(url: url).map { if case .finding = $0 { true } else { false } } ?? false
+        let output = try await ProcessRunner().run(
+            URL(fileURLWithPath: "/usr/bin/open"), arguments: (background ? ["-g"] : []) + [url.absoluteString], timeout: .seconds(15))
         guard output.exitCode == 0 else {
             throw MCPToolError("Could not open ohmydiff: \(output.stderrString.trimmingCharacters(in: .whitespacesAndNewlines))")
         }
@@ -80,7 +91,9 @@ public struct MCPServer: Sendable {
         let result: JSONValue
         switch method {
         case "initialize":
-            onConnect(params?["clientInfo"]?["name"]?.stringValue ?? "")
+            let name = params?["clientInfo"]?["name"]?.stringValue ?? ""
+            client.name.withLock { $0 = name }
+            onConnect(name)
             let requested = params?["protocolVersion"]?.stringValue
             result = [
                 "protocolVersion": .string(requested.flatMap { Self.protocolVersions.contains($0) ? $0 : nil } ?? Self.protocolVersions[0]),
@@ -107,6 +120,7 @@ public struct MCPServer: Sendable {
         ohmydiff is a macOS diff viewer for git and GitButler repositories. Read uncommitted changes, branches \
         and commits with list_changes, get_diff and list_branches. To have the user look at something, call \
         show_file, show_branch or show_commit: they bring the app to the front at that file, line, branch or commit. \
+        When you review changes, record each problem with add_finding: it shows under its line in the diff. \
         `repository` defaults to the folder the server was started in.
         """
 
@@ -217,6 +231,68 @@ public struct MCPServer: Sendable {
             }
             try await openURL(CLIRequest.commit(path: repository.root.path, sha: sha).url)
             return "Showing commit \(sha.prefix(12)) in ohmydiff."
+
+        case .addFinding:
+            return try await addFinding(arguments)
+        }
+    }
+
+    /// Checks a finding against the diff it is about, so it is never placed on a line that diff does not show,
+    /// then hands it to the app.
+    private func addFinding(_ arguments: JSONValue) async throws -> String {
+        let repository = try await repository(arguments)
+        guard let argument = arguments["path"]?.stringValue else { throw MCPToolError("`path` is required.") }
+        let path = try relativePath(argument, in: repository)
+        guard let line = arguments["line"]?.intValue, line > 0 else { throw MCPToolError("`line` is required: a line number of the file.") }
+        guard let message = arguments["message"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !message.isEmpty else {
+            throw MCPToolError("`message` is required: what is wrong and why.")
+        }
+        let scope: ReviewScope
+        let diffs: [FileDiff]
+        if let commit = arguments["commit"]?.stringValue {
+            let sha = try await resolveCommit(commit, in: repository)
+            scope = .commit(sha: sha)
+            diffs = try await repository.diff(commit: sha)
+        } else if let name = arguments["branch"]?.stringValue {
+            let branches = try await repository.history().flatMap(\.branches)
+            guard let branch = branches.first(where: { $0.name == name }) else {
+                throw MCPToolError("No branch named \(name). Branches: \(branches.map(\.name).joined(separator: ", ")).")
+            }
+            guard let base = branch.base else { throw MCPToolError("\(name) has no base to compare against.") }
+            scope = .branch(name: name)
+            diffs = try await repository.diff(from: base, to: branch.tip)
+        } else {
+            scope = .uncommitted
+            var uncommitted: [FileDiff] = []
+            for file in try await repository.changeGroups().allFiles where file.path == path || file.previousPath == path {
+                if let diff = try await repository.diff(for: file) { uncommitted.append(diff) }
+            }
+            diffs = uncommitted
+        }
+        let finding = ReviewFinding(
+            path: path, line: line, side: arguments["side"]?.stringValue == "old" ? .old : .new,
+            severity: ReviewSeverity(loose: arguments["severity"]?.stringValue ?? ""), message: message,
+            suggestion: arguments["suggestion"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            origin: .agent(client.name.withLock { $0 }))
+        let files = diffs.filter { $0.path == path || $0.oldPath == path }
+        guard !files.isEmpty else {
+            throw MCPToolError("\(path) is not changed in \(Self.describe(scope)). Use get_diff to see which files are.")
+        }
+        guard files.contains(where: { finding.position(in: $0) != nil }) else {
+            let side = finding.side == .new ? "new" : "old"
+            throw MCPToolError(
+                "Line \(line) of the \(side) file is not shown in the diff of \(path). Point at an added or unchanged line "
+                    + "(side \"new\") or a removed line (side \"old\") that get_diff shows.")
+        }
+        try await openURL(CLIRequest.finding(path: repository.root.path, scope: scope, finding: finding).url)
+        return "Added the finding at \(path):\(line) to ohmydiff."
+    }
+
+    private static func describe(_ scope: ReviewScope) -> String {
+        switch scope {
+        case .uncommitted: "the uncommitted changes"
+        case .commit(let sha): "commit \(sha.prefix(12))"
+        case .branch(let name): "branch \(name)"
         }
     }
 
@@ -375,11 +451,12 @@ enum MCPTool: String, CaseIterable {
     case showFile = "show_file"
     case showBranch = "show_branch"
     case showCommit = "show_commit"
+    case addFinding = "add_finding"
 
     var isReadOnly: Bool {
         switch self {
         case .listProjects, .listChanges, .getDiff, .listBranches: true
-        case .openProject, .showFile, .showBranch, .showCommit: false
+        case .openProject, .showFile, .showBranch, .showCommit, .addFinding: false
         }
     }
 
@@ -393,6 +470,7 @@ enum MCPTool: String, CaseIterable {
         case .showFile: "Show file"
         case .showBranch: "Show branch"
         case .showCommit: "Show commit"
+        case .addFinding: "Add review finding"
         }
     }
 
@@ -418,6 +496,9 @@ enum MCPTool: String, CaseIterable {
             "Brings ohmydiff to the front showing a branch's whole diff in History mode."
         case .showCommit:
             "Brings ohmydiff to the front showing a commit's diff in History mode."
+        case .addFinding:
+            "Records a review finding at a line of a diff; ohmydiff shows it under that line. Without `commit` or `branch` "
+                + "it is about the uncommitted changes. The line must be one get_diff shows. Advisory only: nothing is changed."
         }
     }
 
@@ -444,6 +525,22 @@ enum MCPTool: String, CaseIterable {
         case .showCommit:
             properties["sha"] = ["type": "string", "description": "A commit SHA, full or abbreviated, on a branch list_branches reports."]
             required = ["sha"]
+        case .addFinding:
+            properties["path"] = ["type": "string", "description": "The changed file, relative to the repository or absolute."]
+            properties["line"] = ["type": "integer", "minimum": 1, "description": "The line number the finding is about."]
+            properties["side"] = [
+                "type": "string", "enum": ["new", "old"],
+                "description": "`new` (default) for added or unchanged lines, numbered as in the changed file; `old` for removed lines.",
+            ]
+            properties["severity"] = [
+                "type": "string", "enum": ["high", "medium", "low"],
+                "description": "`high` for bugs and data loss, `medium` for edge cases and risky behavior, `low` for minor issues.",
+            ]
+            properties["message"] = ["type": "string", "description": "What is wrong and why, in a sentence or two."]
+            properties["suggestion"] = ["type": "string", "description": "The change to make, if there is a specific one."]
+            properties["commit"] = ["type": "string", "description": "The reviewed commit's SHA or revision."]
+            properties["branch"] = ["type": "string", "description": "The reviewed branch, as list_branches reports it, for its whole diff."]
+            required = ["path", "line", "severity", "message"]
         case .listProjects, .listChanges, .listBranches, .openProject:
             break
         }

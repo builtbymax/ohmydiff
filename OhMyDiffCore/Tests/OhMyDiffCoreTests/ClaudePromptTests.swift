@@ -61,6 +61,10 @@ import Testing
         #expect(prompt.contains("- Lines: 14 in the new file"))
         #expect(prompt.contains("```diff\n@@ -12,6 +12,6 @@ func run()\n three\n four\n-five\n+FIVE\n six\n"))
         #expect(prompt.contains("Read the surrounding code"))
+        #expect(prompt.contains("add_finding tool, so it shows"))
+        let commit = PromptContext(repositoryPath: "/repo", isGitButler: false, source: .commit(sha: "abc123", message: "m"))
+        #expect(ClaudePrompt.make(question: .review, context: commit, diff: try diff, positions: []).contains("add_finding tool with `commit` abc123"))
+        #expect(!ClaudePrompt.make(question: .explain, context: context, diff: try diff, positions: []).contains("add_finding"))
     }
 
     @Test func contextOnlyPromptAndCommitMessage() throws {

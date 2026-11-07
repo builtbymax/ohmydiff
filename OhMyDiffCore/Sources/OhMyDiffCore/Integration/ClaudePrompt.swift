@@ -104,6 +104,16 @@ public enum ClaudePrompt {
         if question != .none {
             sections.append("Read the surrounding code in the repository as needed.")
         }
+        if question == .review {
+            let scope = switch context.source {
+            case .uncommitted: ""
+            case .commit(let sha, _): " with `commit` \(sha)"
+            case .branch(let name, _): " with `branch` \(name)"
+            }
+            sections.append(
+                "If ohmydiff's MCP tools are available, also record each problem with its add_finding tool\(scope), "
+                    + "so it shows under its line in ohmydiff.")
+        }
         return sections.joined(separator: "\n\n") + "\n"
     }
 

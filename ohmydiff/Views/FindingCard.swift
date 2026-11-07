@@ -22,18 +22,19 @@ struct FindingCard: View {
                 Text(finding.side == .new ? "Line \(finding.line)" : "Removed line \(finding.line)")
                     .font(.row.weight(.medium))
                     .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+                    .fixedSize()
                 Chip(finding.severity.title, tone: tone)
-                Chip(origin, systemImage: "checklist")
-                if isApplied { Chip("Sent to agent", systemImage: "apple.terminal", tone: .info) }
+                // The Review task's provider shows at the Review button; an agent's name only here.
+                if let agent { Chip(agent, systemImage: "apple.terminal", truncates: true) }
+                if isApplied { Chip("Sent to agent", systemImage: "apple.terminal", tone: .info, truncates: true) }
                 Spacer(minLength: 8)
                 IconButton("Copy", systemImage: "doc.on.doc", size: 24) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                 }
                 if let apply {
-                    Button(action: apply) { Label("Apply", systemImage: "wand.and.sparkles") }
-                        .buttonStyle(.pill(.ghost))
-                        .help("Start \(AppSettings.aiProvider().displayName) with this finding; ohmydiff changes nothing itself.")
+                    IconButton("Apply: start \(AppSettings.aiProvider().displayName) with this finding", systemImage: "wand.and.sparkles", size: 24, action: apply)
                 }
                 IconButton("Dismiss", systemImage: "xmark", size: 24, action: dismiss)
             }
@@ -89,11 +90,9 @@ struct FindingCard: View {
         }
     }
 
-    private var origin: String {
-        switch finding.origin {
-        case .task: AppSettings.suggestionProvider()?.displayName ?? "Review"
-        case .agent(let name): name.isEmpty ? "Agent" : name
-        }
+    private var agent: String? {
+        guard case .agent(let name) = finding.origin else { return nil }
+        return name.isEmpty ? "Agent" : name
     }
 
     private var text: String {
@@ -117,36 +116,44 @@ struct ReviewButton: View {
     @AppStorage(AITask.review.enabledKey) private var isEnabled = true
 
     var body: some View {
-        if isEnabled || reviews.states[scope] != nil { content }
+        if isEnabled || reviews.states[scope] != nil || reviews.count(for: scope) > 0 { content }
     }
 
     private var content: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 2) {
+            let count = reviews.count(for: scope)
             switch reviews.states[scope] {
             case .reviewing?:
-                ProgressView().controlSize(.mini)
-                Text("Reviewing…").font(.detail).foregroundStyle(Theme.textTertiary)
-                IconButton("Stop", systemImage: "xmark", size: 22) { reviews.cancel(scope) }
+                ProgressView().controlSize(.mini).frame(width: 22, height: 22)
+                    .help("Reviewing with \(AppSettings.runnerTitle(for: .review) ?? "the AI provider")…")
+                IconButton("Stop reviewing", systemImage: "xmark", size: 22) { reviews.cancel(scope) }
             case .failed(let message)?:
-                Button(action: start) { Label("Review failed · Retry", systemImage: "exclamationmark.triangle") }
-                    .buttonStyle(.pill(.ghost))
-                    .help(message)
+                IconButton("Review failed: \(message)\nClick to retry", systemImage: "exclamationmark.triangle", size: 22, action: start)
                 IconButton("AI settings", systemImage: "slider.horizontal.3", size: 22) { SettingsWindow.open(.ai, with: openSettings) }
             case .done(let isCut)?:
-                let count = reviews.count(for: scope)
-                Button(action: start) {
-                    Label(count == 0 ? "No findings" : count == 1 ? "1 finding" : "\(count) findings", systemImage: "checklist")
-                }
-                .buttonStyle(.pill(.ghost))
-                .help((isCut ? "Some files were left out to keep the prompt short. " : "") + "Review again")
-                if count > 0 {
-                    IconButton("Clear findings", systemImage: "xmark", size: 22) { reviews.clear(scope) }
-                }
+                findings(count, help: (isCut ? "Some files were left out to keep the prompt short. " : "") + "Review again")
+            case nil where count > 0:
+                // Added by an agent, without a review here.
+                findings(count, help: "Review")
             case nil:
-                Button(action: start) { Label("Review", systemImage: "checklist") }
-                    .buttonStyle(.pill(.ghost))
-                    .help("Ask \(AppSettings.suggestionProvider()?.displayName ?? "the AI provider") to review these changes for bugs")
+                // An icon only, so the column title keeps its room in narrow windows.
+                IconButton(
+                    "Review: ask \(AppSettings.runnerTitle(for: .review) ?? "the AI provider") to review these changes for bugs",
+                    systemImage: "checklist", size: 22, action: start)
             }
+        }
+        .lineLimit(1)
+        .fixedSize()
+    }
+
+    /// `☰ 4` to review again, and a button that clears them.
+    @ViewBuilder
+    private func findings(_ count: Int, help: String) -> some View {
+        Button(action: start) { Label("\(count)", systemImage: "checklist").labelStyle(.titleAndIcon) }
+            .buttonStyle(.pill(.ghost))
+            .help((count == 1 ? "1 finding. " : "\(count) findings. ") + help)
+        if count > 0 {
+            IconButton("Clear findings", systemImage: "xmark", size: 22) { reviews.clear(scope) }
         }
     }
 }

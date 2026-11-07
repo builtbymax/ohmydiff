@@ -168,6 +168,77 @@ import Testing
         #expect(harness.lastRequest == .open(path: repo.root.path))
     }
 
+    @Test func addsFindingsOnlyToLinesTheDiffShows() async throws {
+        let repo = try await TestRepo()
+        try repo.write("a.txt", "one\ntwo\nthree\n")
+        try repo.write("b.txt", "b\n")
+        try await repo.commitAll("init")
+        try repo.write("a.txt", "one\n2\nthree\n")
+        let harness = Harness(repo: repo)
+        _ = try await harness.send([
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": ["protocolVersion": "2025-03-26", "capabilities": [:], "clientInfo": ["name": "claude-code", "version": "1"]],
+        ])
+
+        let added = try await harness.call("add_finding", [
+            "path": "a.txt", "line": 2, "severity": "high", "message": "Spelled as a digit.", "suggestion": "Write `two`.",
+        ])
+        #expect(!added.isError)
+        guard case .finding(let path, let scope, let finding)? = harness.lastRequest else {
+            Issue.record("no finding request")
+            return
+        }
+        #expect(path == repo.root.path)
+        #expect(scope == .uncommitted)
+        #expect(finding.path == "a.txt")
+        #expect(finding.line == 2)
+        #expect(finding.side == .new)
+        #expect(finding.severity == .high)
+        #expect(finding.message == "Spelled as a digit.")
+        #expect(finding.suggestion == "Write `two`.")
+        #expect(finding.origin == .agent("claude-code"))
+
+        let removed = try await harness.call("add_finding", ["path": "a.txt", "line": 2, "side": "old", "severity": "low", "message": "m"])
+        #expect(!removed.isError)
+
+        let count = harness.opened.urls.withLock { $0.count }
+        let farAway = try await harness.call("add_finding", ["path": "a.txt", "line": 40, "severity": "low", "message": "m"])
+        #expect(farAway.isError)
+        #expect(farAway.text.contains("not shown in the diff"))
+        let unchanged = try await harness.call("add_finding", ["path": "b.txt", "line": 1, "severity": "low", "message": "m"])
+        #expect(unchanged.isError)
+        #expect(unchanged.text.contains("not changed"))
+        #expect(try await harness.call("add_finding", ["path": "a.txt", "line": 2, "severity": "low"]).isError)
+        #expect(harness.opened.urls.withLock { $0.count } == count)
+    }
+
+    @Test func addsFindingsToCommitsAndBranches() async throws {
+        let repo = try await TestRepo()
+        try repo.write("a.txt", "one\n")
+        try await repo.commitAll("init")
+        try await repo.git("checkout", "-q", "-b", "feat/x")
+        try repo.write("a.txt", "one\ntwo\n")
+        try await repo.commitAll("add two")
+        let sha = try await repo.git("rev-parse", "HEAD").trimmingCharacters(in: .whitespacesAndNewlines)
+        let harness = Harness(repo: repo)
+
+        #expect(try await harness.call("add_finding", [
+            "path": "a.txt", "line": 2, "severity": "medium", "message": "m", "commit": .string(String(sha.prefix(8))),
+        ]).isError == false)
+        guard case .finding(_, let scope, _)? = harness.lastRequest else {
+            Issue.record("no finding request")
+            return
+        }
+        #expect(scope == .commit(sha: sha))
+
+        #expect(try await harness.call("add_finding", ["path": "a.txt", "line": 2, "severity": "medium", "message": "m", "branch": "feat/x"]).isError == false)
+        guard case .finding(_, let branchScope, _)? = harness.lastRequest else { return }
+        #expect(branchScope == .branch(name: "feat/x"))
+        #expect(try await harness.call("add_finding", ["path": "a.txt", "line": 2, "severity": "medium", "message": "m", "branch": "nope"]).isError)
+        // Uncommitted is the default, and there are none.
+        #expect(try await harness.call("add_finding", ["path": "a.txt", "line": 2, "severity": "medium", "message": "m"]).isError)
+    }
+
     @Test func listsProjects() async throws {
         let harness = Harness(repo: try await TestRepo())
         let workspace = Workspace(name: "Work", color: .emerald)

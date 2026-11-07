@@ -184,6 +184,7 @@ extension CLIRequest {
         case .show(let path, let line): .show(path: strip(path), line: line)
         case .branch(let path, let name): .branch(path: strip(path), name: name)
         case .commit(let path, let sha): .commit(path: strip(path), sha: sha)
+        case .finding(let path, let scope, let finding): .finding(path: strip(path), scope: scope, finding: finding)
         }
     }
 }
