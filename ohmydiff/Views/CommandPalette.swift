@@ -101,7 +101,10 @@ struct CommandPalette: View {
                 .shadow(color: Theme.popoverShadowNear, radius: 3, y: 2)
                 .shadow(color: Theme.popoverShadowFar, radius: 24, y: 16)
         }
-        .onAppear { isSearchFocused = true }
+        .onAppear {
+            // The field is not in the window yet while the launcher appears, so focusing it now is dropped.
+            DispatchQueue.main.async { isSearchFocused = true }
+        }
         .paletteKeys(
             up: { move(-1, count: items.count) }, down: { move(1, count: items.count) },
             choose: { current.map { run($0, keepOpen: false) } },
