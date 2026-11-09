@@ -844,7 +844,7 @@ private struct ImageDiffView: View {
                 }
                 .padding(24)
             } else {
-                ProgressView().controlSize(.small)
+                Spinner().controlSize(.small)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

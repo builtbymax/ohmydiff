@@ -464,7 +464,7 @@ struct DelayedProgress: View {
     @State private var isShown = false
 
     var body: some View {
-        ProgressView()
+        Spinner()
             .controlSize(.small)
             .opacity(isShown ? 1 : 0)
             .animation(Theme.popoverAnimation, value: isShown)

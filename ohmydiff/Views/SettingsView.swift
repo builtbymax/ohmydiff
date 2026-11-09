@@ -349,7 +349,7 @@ struct ModelPicker: View {
                 }
             } else {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    Spinner().controlSize(.small)
                     Text("Looking up \(provider.displayName) models…")
                         .font(.caption)
                         .foregroundStyle(.secondary)

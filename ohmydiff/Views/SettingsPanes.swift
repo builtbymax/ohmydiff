@@ -1436,7 +1436,7 @@ struct UpdateSettings: View {
                         if updater.pendingVersion == nil {
                             Button { updater.checkForUpdates() } label: {
                                 if updater.phase == .checking {
-                                    Label { Text("Checking…") } icon: { ProgressView().controlSize(.mini) }
+                                    Label { Text("Checking…") } icon: { Spinner().controlSize(.mini) }
                                 } else {
                                     Label("Check now", systemImage: "arrow.clockwise")
                                 }

@@ -109,7 +109,7 @@ struct PullRequestSheet: View {
                 .disabled(text.isEmpty)
                 Button { create() } label: {
                     if history.branchActivity != nil {
-                        ProgressView().controlSize(.small).tint(.black)
+                        Spinner(color: .black).controlSize(.small)
                     } else {
                         Text("Create Pull Request")
                     }

@@ -11,7 +11,7 @@ struct SuggestButton: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 if isRunning {
-                    ProgressView().controlSize(.mini)
+                    Spinner().controlSize(.mini)
                 } else {
                     Image(systemName: "sparkles")
                 }
@@ -129,7 +129,7 @@ private struct TicketSearch: View {
                 .focused($isFocused)
             Group {
                 if isLoading {
-                    ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+                    Spinner().controlSize(.small).frame(maxWidth: .infinity)
                 } else if let error {
                     Text(error).font(.caption).foregroundStyle(Theme.delFg)
                 } else if results.isEmpty {

@@ -51,7 +51,7 @@ struct SidebarUpstream: View {
 
     @ViewBuilder private var icon: some View {
         if isBusy {
-            ProgressView().controlSize(.mini)
+            Spinner().controlSize(.mini)
         } else if session.fetchError != nil {
             Image(systemName: "exclamationmark.triangle").font(.system(size: 12)).foregroundStyle(Theme.warnFg)
         } else {
@@ -210,7 +210,7 @@ struct UpstreamUpdateSheet: View {
                     .buttonStyle(.pill(height: 32))
                 Button { update() } label: {
                     if session.isUpdatingFromUpstream {
-                        ProgressView().controlSize(.small).tint(.black)
+                        Spinner(color: .black).controlSize(.small)
                     } else {
                         Text(isGitButler ? "Update Workspace" : "Update Branches")
                     }
