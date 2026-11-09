@@ -280,7 +280,7 @@ private struct LiveDiff: View {
                 } else if isLoaded {
                     EmptyState("No Changes", systemImage: "checkmark.circle", description: "\(path) no longer differs from the last commit.")
                 } else {
-                    ProgressView().controlSize(.small)
+                    Spinner().controlSize(.small)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

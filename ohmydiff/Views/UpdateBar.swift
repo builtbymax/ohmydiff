@@ -62,7 +62,7 @@ struct UpdateStatus: View {
         case .available, .ready:
             Image(systemName: "arrow.trianglehead.2.clockwise").foregroundStyle(Theme.infoFg)
         case .checking, .installing:
-            ProgressView().controlSize(.mini)
+            Spinner().controlSize(.mini)
         case .downloading, .extracting:
             Image(systemName: "arrow.down.circle").foregroundStyle(Theme.textTertiary)
         case .upToDate:

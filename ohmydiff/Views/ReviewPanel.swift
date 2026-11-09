@@ -105,7 +105,7 @@ struct ReviewPanel: View {
                 }
             }
         } else {
-            ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+            Spinner().controlSize(.small).frame(maxWidth: .infinity)
         }
     }
 
@@ -123,7 +123,7 @@ struct ReviewPanel: View {
             Button { open(path: nil, hunk: nil) } label: {
                 HStack(spacing: 6) {
                     if isOpening {
-                        ProgressView().controlSize(.mini).tint(Theme.textInverse)
+                        Spinner(color: Theme.textInverse).controlSize(.mini)
                     } else {
                         Image(systemName: "doc.text").font(.system(size: 11.5))
                     }
@@ -250,7 +250,7 @@ private struct FocusCard: View {
                     .buttonStyle(.pill(.prominent))
             case .loading:
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.mini)
+                    Spinner().controlSize(.mini)
                     Text("Reading the diff…").font(.detail).foregroundStyle(Theme.textTertiary)
                 }
             case .failed(let message):

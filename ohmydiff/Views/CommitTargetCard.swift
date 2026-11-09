@@ -166,7 +166,7 @@ struct CommitTargetCard: View {
                     .onChange(of: newBranch) { _, _ in if focus == .branchName { isNameSuggested = false } }
                     .onSubmit { focus = .message }
                 if generating == .branch {
-                    ProgressView().controlSize(.mini)
+                    Spinner().controlSize(.mini)
                 } else if isNameSuggested {
                     Chip("✦ suggested", tone: .info)
                 }
@@ -294,7 +294,7 @@ struct CommitTargetCard: View {
                 Spacer()
                 Button { suggest(.message) } label: {
                     HStack(spacing: 5) {
-                        if generating == .message { ProgressView().controlSize(.mini) } else { Image(systemName: "sparkles").font(.system(size: 10.5)) }
+                        if generating == .message { Spinner().controlSize(.mini) } else { Image(systemName: "sparkles").font(.system(size: 10.5)) }
                         Text(message.isEmpty ? "Generate" : "Regenerate")
                     }
                 }
@@ -354,7 +354,7 @@ struct CommitTargetCard: View {
                 Button { commit() } label: {
                     HStack(spacing: 6) {
                         if session.isPerformingAction {
-                            ProgressView().controlSize(.mini).tint(Theme.textInverse)
+                            Spinner(color: Theme.textInverse).controlSize(.mini)
                         }
                         Text(isNewBranch ? "Create branch & commit" : "Commit")
                         KeyCap("⌘↩", onInverse: true)

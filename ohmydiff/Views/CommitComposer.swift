@@ -292,7 +292,7 @@ struct CommitComposer: View {
                     Text(draft.isGenerating ? "Generating…" : draft.hasMessage ? "Regenerate" : "Generate")
                 } icon: {
                     if draft.isGenerating {
-                        ProgressView().controlSize(.mini)
+                        Spinner().controlSize(.mini)
                     } else {
                         Image(systemName: "sparkles").foregroundStyle(Theme.infoFg)
                     }
@@ -311,7 +311,7 @@ struct CommitComposer: View {
             Button { commit() } label: {
                 HStack(spacing: 6) {
                     if session.isPerformingAction {
-                        ProgressView().controlSize(.mini)
+                        Spinner().controlSize(.mini)
                     } else {
                         Text("Commit")
                     }

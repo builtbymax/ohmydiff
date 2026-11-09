@@ -541,7 +541,7 @@ private struct ActivityRow: View {
 
     @ViewBuilder private var icon: some View {
         switch item.kind {
-        case .running: ProgressView().controlSize(.mini).tint(Theme.warnFg)
+        case .running: Spinner(color: Theme.warnFg).controlSize(.mini)
         case .ai: Image(systemName: "sparkles").font(.system(size: 11)).foregroundStyle(Theme.infoFg)
         case .done: Image(systemName: "checkmark").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.okFg)
         case .failed: Image(systemName: "xmark").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.delFg)

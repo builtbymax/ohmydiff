@@ -428,7 +428,7 @@ private struct CheckRow: View {
         switch check.state {
         case .passed: Image(systemName: "checkmark.circle").font(.system(size: 12)).foregroundStyle(Theme.okFg)
         case .failed: Image(systemName: "xmark.circle").font(.system(size: 12)).foregroundStyle(Theme.delFg)
-        case .running: ProgressView().controlSize(.mini).tint(Theme.warnFg)
+        case .running: Spinner(color: Theme.warnFg).controlSize(.mini)
         case .queued: Image(systemName: "circle").font(.system(size: 12)).foregroundStyle(Theme.textTertiary)
         case .skipped: Image(systemName: "minus.circle").font(.system(size: 12)).foregroundStyle(Theme.textTertiary)
         }
@@ -524,7 +524,7 @@ private struct DraftCard: View {
             }
             if isDrafting {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.mini)
+                    Spinner().controlSize(.mini)
                     Text("Drafting from the commits, diff and ticket…")
                         .font(.detail)
                         .foregroundStyle(Theme.textTertiary)

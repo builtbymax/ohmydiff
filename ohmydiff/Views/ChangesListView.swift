@@ -14,7 +14,7 @@ struct ProjectPhaseGate<Content: View>: View {
         Group {
             switch session.phase {
             case .idle:
-                ProgressView()
+                Spinner()
                     .controlSize(.small)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .missing:

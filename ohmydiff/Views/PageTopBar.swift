@@ -333,7 +333,7 @@ private struct PushButton: View {
         Button { history.requestPush(branch) } label: {
             HStack(spacing: 6) {
                 if history.branchActivity == "Pushing…" {
-                    ProgressView().controlSize(.mini).frame(width: 14, height: 14)
+                    Spinner().controlSize(.mini).frame(width: 14, height: 14)
                 } else {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 12))

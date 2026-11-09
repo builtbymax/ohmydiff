@@ -155,7 +155,7 @@ struct ExplainCard: View {
                     }
                 } else {
                     HStack(spacing: 8) {
-                        ProgressView().controlSize(.mini)
+                        Spinner().controlSize(.mini)
                         Text("Reading the hunk…").font(.detail).foregroundStyle(Theme.textTertiary)
                     }
                 }
