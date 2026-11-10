@@ -141,6 +141,11 @@ struct BranchReviewView: View {
             .onKeyPress("n") { jumpToHunk(1) }
             .onKeyPress("p") { jumpToHunk(-1) }
             .onKeyPress(.escape) {
+                // The commit card's `esc` reaches this handler before its exit command; it closes the card only.
+                if scope != nil, session.actionRequest?.action == .commit {
+                    session.actionRequest = nil
+                    return .handled
+                }
                 history.picksLayout = false
                 withAnimation(.snappy(duration: 0.2)) { layout = .overview }
                 return .handled
