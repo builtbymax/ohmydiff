@@ -22,6 +22,13 @@ public enum ButContract {
 
         mutating func status(_ value: Any) {
             guard let object = self.object(value, at: "$") else { return }
+            // Resolution mode lists the conflicted files instead of the workspace.
+            if object["conflicted_files"] != nil {
+                array(object, "conflicted_files", at: "$") { checker, value, path in
+                    if !(value is String) { checker.report(path, "expected a string") }
+                }
+                return
+            }
             array(object, "uncommittedChanges", at: "$") { $0.change($1, at: $2) }
             array(object, "stacks", at: "$") { $0.stack($1, at: $2) }
             if let mergeBase = field(object, "mergeBase", at: "$") { commit(mergeBase, at: "mergeBase") }

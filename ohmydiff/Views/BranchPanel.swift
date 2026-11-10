@@ -31,6 +31,8 @@ struct BranchPanel: View {
                 VStack(alignment: .leading, spacing: 16) {
                     if let status, status.isMergeable == false, let pullRequest {
                         ConflictSteps(session: session, branch: branch, pullRequest: pullRequest)
+                    } else if branch.isConflicted, session.resolution == nil {
+                        ConflictedBranchCard(session: session, branch: branch)
                     }
                     if let detail, !detail.checks.isEmpty {
                         checks(detail)
@@ -769,8 +771,12 @@ private struct ConflictSteps: View {
                 Button("Update…") { NotificationCenter.default.post(name: .showUpstreamUpdate, object: nil) }
                     .buttonStyle(.pill(height: 26))
             }
-            step(2, title: "Resolve the conflicts in your editor", command: isGitButler ? "but resolve" : "git status", isDone: false) {
-                EmptyView()
+            step(2, title: "Resolve the conflicts", command: isGitButler ? "but resolve" : "git status", isDone: false) {
+                // The editor needs the conflicts in the worktree: GitButler checks out a conflicted commit for it,
+                // plain git only has them while a merge or rebase is stopped.
+                ConflictActions(
+                    session: session, branch: branch, pullRequest: pullRequest,
+                    canOpenEditor: session.hasWorktreeConflicts || (isGitButler && branch.isConflicted))
             }
             step(3, title: "Mark resolved and push", command: isGitButler ? "but resolve finish · but push" : "git commit · git push", isDone: false) {
                 if session.history.canPush(branch) {

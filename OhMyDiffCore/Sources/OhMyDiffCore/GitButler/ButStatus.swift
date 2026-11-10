@@ -9,16 +9,23 @@ public struct ButStatus: Sendable, Hashable, Decodable {
     public var stacks: [ButStack]
     public var mergeBase: ButCommit?
     public var upstreamState: ButUpstreamState?
+    /// Set in resolution mode, where `but status` lists the conflicted files instead of the workspace.
+    public var resolution: ConflictResolution?
 
-    public init(unassignedChanges: [ButChange] = [], stacks: [ButStack] = [], mergeBase: ButCommit? = nil, upstreamState: ButUpstreamState? = nil) {
+    public init(
+        unassignedChanges: [ButChange] = [], stacks: [ButStack] = [], mergeBase: ButCommit? = nil, upstreamState: ButUpstreamState? = nil,
+        resolution: ConflictResolution? = nil
+    ) {
         self.unassignedChanges = unassignedChanges
         self.stacks = stacks
         self.mergeBase = mergeBase
         self.upstreamState = upstreamState
+        self.resolution = resolution
     }
 
     enum CodingKeys: String, CodingKey {
         case uncommittedChanges, stacks, mergeBase, upstreamState
+        case conflictedFiles = "conflicted_files", resolvedFiles = "resolved_files"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -27,6 +34,9 @@ public struct ButStatus: Sendable, Hashable, Decodable {
         stacks = c.lossyArray(.stacks)
         mergeBase = c.lossy(.mergeBase)
         upstreamState = c.lossy(.upstreamState)
+        if c.contains(.conflictedFiles) {
+            resolution = ConflictResolution(conflictedFiles: c.lossyArray(.conflictedFiles), resolvedFiles: c.lossyArray(.resolvedFiles))
+        }
     }
 
     public static func decode(_ data: Data) throws -> ButStatus {

@@ -217,10 +217,13 @@ enum AppSettings {
         "Copy Prompt for \(aiProvider(defaults).displayName)"
     }
 
+    static func editor(_ defaults: UserDefaults = .standard) -> EditorPreset {
+        defaults.string(forKey: editorKey).flatMap(EditorPreset.init(rawValue:)) ?? defaultEditor
+    }
+
     /// The command template for the chosen editor; `nil` when a custom command is chosen but empty.
     static func editorTemplate(_ defaults: UserDefaults = .standard) -> String? {
-        let preset = defaults.string(forKey: editorKey).flatMap(EditorPreset.init(rawValue:)) ?? defaultEditor
-        if let template = preset.template { return template }
+        if let template = editor(defaults).template { return template }
         let custom = defaults.string(forKey: customEditorCommandKey)?.trimmingCharacters(in: .whitespaces) ?? ""
         return custom.isEmpty ? nil : custom
     }
