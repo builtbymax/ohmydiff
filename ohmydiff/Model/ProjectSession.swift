@@ -90,6 +90,11 @@ final class ProjectSession {
     private(set) var isUpdatingFromUpstream = false
     /// Plain git: the checked-out branch, which commits go to; `nil` on a detached HEAD or for GitButler.
     private(set) var currentBranch: String?
+    /// GitButler's resolution mode, while a conflicted commit is checked out for resolving.
+    private(set) var resolution: ConflictResolution?
+    /// The commit resolution mode was entered for from here; `nil` when it was entered elsewhere, e.g. in a terminal.
+    private(set) var resolvingCommit: CommitInfo?
+    private(set) var isOpeningConflicts = false
     @ObservationIgnored private var fetchLoop: Task<Void, Never>?
     /// What `refreshHistory` last loaded for.
     @ObservationIgnored private var historyFingerprint: String?
@@ -343,7 +348,10 @@ final class ProjectSession {
         }
         do {
             let repository = try await openRepository(toolchain)
-            apply(try await repository.changeGroups())
+            let changes = try await repository.changes()
+            apply(changes.groups)
+            if changes.resolution != resolution { resolution = changes.resolution }
+            if changes.resolution == nil, resolvingCommit != nil { resolvingCommit = nil }
             let branch = repository.kind == .git ? try await repository.currentBranch() : nil
             if branch != currentBranch { currentBranch = branch }
             phase = .ready
@@ -624,6 +632,95 @@ final class ProjectSession {
     }
 
     @ObservationIgnored private var lastCommitBranch: String?
+
+    // MARK: - Conflicts
+
+    /// Whether the worktree holds conflicts an editor can open: a plain-git merge or rebase that stopped, or
+    /// GitButler's resolution mode.
+    var hasWorktreeConflicts: Bool {
+        resolution != nil || groups.contains { $0.kind == .conflicted }
+    }
+
+    /// A prompt that asks a coding agent to resolve the conflicts of `branch`, or of the worktree without one.
+    func conflictPrompt(branch: HistoryBranch?, pullRequest: PullRequest?) async -> String? {
+        guard let repository = await openedRepository() else { return nil }
+        let target = upstream?.target ?? branch?.baseName
+        do {
+            let report = try await repository.conflictReport(
+                branch: branch, target: pullRequest == nil ? target : nil,
+                pullRequest: pullRequest.map { ($0.number, $0.baseRefName) }, isResolving: resolution != nil)
+            return ClaudePrompt.resolveConflicts(report)
+        } catch {
+            actionError = String(describing: error)
+            return nil
+        }
+    }
+
+    /// Opens the conflicted files in the editor chosen in Settings: its merge view where it has one, else each file
+    /// at its first conflict. A GitButler branch's oldest conflicted commit is checked out for resolving first.
+    func openConflictsInEditor(branch: HistoryBranch?) async {
+        guard !isOpeningConflicts, let repository = await openedRepository(), let toolchain = await toolchain() else { return }
+        guard let template = AppSettings.editorTemplate() else {
+            actionError = EditorError.emptyCommand.description
+            return
+        }
+        isOpeningConflicts = true
+        defer { isOpeningConflicts = false }
+        do {
+            if repository.kind == .gitButler, resolution == nil, let branch,
+               let commit = branch.commits.last(where: \.isConflicted) {
+                try await repository.enterResolution(commit.sha)
+                resolvingCommit = commit
+                refresh()
+            }
+            let files = try await repository.worktreeConflicts()
+            guard !files.isEmpty else {
+                actionError = "There are no conflicted files to open."
+                return
+            }
+            let mergeTemplate = AppSettings.editor().mergeTemplate
+            for file in files.prefix(Self.conflictFileLimit) {
+                let path = rootURL.appending(path: file.path).path
+                if let mergeTemplate, let sides = try await repository.mergeSides(of: file.path) {
+                    try await EditorCommand.openMerge(
+                        template: mergeTemplate, file: path, ours: sides.ours.path, theirs: sides.theirs.path, base: sides.base.path,
+                        toolchain: toolchain)
+                } else {
+                    try await EditorCommand.open(template: template, file: path, line: file.firstLine, toolchain: toolchain)
+                }
+            }
+            if files.count > Self.conflictFileLimit {
+                Toasts.shared.show(
+                    "Opened \(Self.conflictFileLimit) of \(files.count) conflicted files", systemImage: "exclamationmark.triangle")
+            }
+        } catch {
+            actionError = String(describing: error)
+        }
+    }
+
+    /// Conflicted files opened in the editor at once; the rest are in the Changes list.
+    static let conflictFileLimit = 8
+
+    /// Ends GitButler's resolution mode: `finish` writes the resolved commit, else the commit stays conflicted.
+    func endResolution(finish: Bool) async {
+        guard let repository, !isPerformingAction else { return }
+        isPerformingAction = true
+        defer {
+            isPerformingAction = false
+            refresh()
+        }
+        do {
+            if finish {
+                try await repository.finishResolution()
+                Toasts.shared.show("Resolved the conflicts", systemImage: "checkmark", tint: Theme.okFg)
+            } else {
+                try await repository.cancelResolution()
+            }
+            resolvingCommit = nil
+        } catch {
+            actionError = String(describing: error)
+        }
+    }
 
     // MARK: - Suggestions
 

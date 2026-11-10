@@ -615,7 +615,7 @@ struct EditorApp {
         }
     }
 
-    private static func bundleIDs(_ preset: EditorPreset) -> [String] {
+    static func bundleIDs(_ preset: EditorPreset) -> [String] {
         switch preset {
         case .cursor: ["com.todesktop.230313mzl4w4u92"]
         case .vscode: ["com.microsoft.VSCode"]

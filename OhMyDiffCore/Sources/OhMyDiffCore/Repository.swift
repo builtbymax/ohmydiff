@@ -99,7 +99,14 @@ public struct Repository: Sendable {
 
     /// Uncommitted changes grouped the way the project's kind presents them.
     public func changeGroups() async throws -> [ChangeGroup] {
+        try await changes().groups
+    }
+
+    /// Uncommitted changes, and GitButler's resolution mode when it is on. In resolution mode the worktree holds
+    /// the commit being resolved, so its files are grouped the way plain git does, the conflicted ones first.
+    public func changes() async throws -> (groups: [ChangeGroup], resolution: ConflictResolution?) {
         let groups: [ChangeGroup]
+        var resolution: ConflictResolution?
         switch kind {
         case .git:
             groups = Self.gitChangeGroups(try await gitStatus())
@@ -108,9 +115,13 @@ public struct Repository: Sendable {
             async let butStatus = butStatus()
             async let gitStatus = gitStatus()
             let status = try await gitStatus
-            groups = try await addingWorktreeRenames(to: Self.butChangeGroups(try await butStatus, gitStatus: status), gitStatus: status)
+            let but = try await butStatus
+            resolution = but.resolution
+            groups = resolution != nil
+                ? Self.gitChangeGroups(status)
+                : try await addingWorktreeRenames(to: Self.butChangeGroups(but, gitStatus: status), gitStatus: status)
         }
-        return try await addingStats(to: groups)
+        return (try await addingStats(to: groups), resolution)
     }
 
     /// GitButler: fills in the source path and line counts of files moved but not staged, which `but` reports as

@@ -33,6 +33,16 @@ public enum EditorPreset: String, Sendable, Hashable, CaseIterable, Identifiable
         case .custom: nil
         }
     }
+
+    /// The command that opens the editor's three-way merge view, with `{ours}`, `{theirs}`, `{base}` and `{file}`
+    /// placeholders; `nil` for editors without one, which open the conflicted file at its first conflict instead.
+    public var mergeTemplate: String? {
+        switch self {
+        case .cursor: "cursor --merge {ours} {theirs} {base} {file}"
+        case .vscode: "code --merge {ours} {theirs} {base} {file}"
+        default: nil
+        }
+    }
 }
 
 public enum EditorError: Error, Sendable, CustomStringConvertible {
@@ -60,6 +70,15 @@ public enum EditorCommand {
             .replacing("{file}", with: shellQuoted(file))
     }
 
+    /// Fills in a merge template; every path is shell-quoted.
+    public static func mergeCommandLine(template: String, file: String, ours: String, theirs: String, base: String) -> String {
+        template
+            .replacing("{ours}", with: shellQuoted(ours))
+            .replacing("{theirs}", with: shellQuoted(theirs))
+            .replacing("{base}", with: shellQuoted(base))
+            .replacing("{file}", with: shellQuoted(file))
+    }
+
     static func shellQuoted(_ value: String) -> String {
         "'" + value.replacing("'", with: "'\\''") + "'"
     }
@@ -68,7 +87,15 @@ public enum EditorCommand {
     /// installed in e.g. `/opt/homebrew/bin` or `~/.local/bin` are found.
     public static func open(template: String, file: String, line: Int, toolchain: Toolchain) async throws {
         guard !template.trimmingCharacters(in: .whitespaces).isEmpty else { throw EditorError.emptyCommand }
-        let command = commandLine(template: template, file: file, line: line)
+        try await run(commandLine(template: template, file: file, line: line), toolchain: toolchain)
+    }
+
+    /// Opens a conflicted file in the editor's merge view, with its sides in the files `ours`, `theirs` and `base`.
+    public static func openMerge(template: String, file: String, ours: String, theirs: String, base: String, toolchain: Toolchain) async throws {
+        try await run(mergeCommandLine(template: template, file: file, ours: ours, theirs: theirs, base: base), toolchain: toolchain)
+    }
+
+    private static func run(_ command: String, toolchain: Toolchain) async throws {
         // An editor CLI may start the editor itself, which would inherit and hold open our pipes. Only
         // the shell keeps them; the command's output goes to /dev/null and its errors to a file.
         let errorFile = FileManager.default.temporaryDirectory.appending(path: "ohmydiff-editor-\(UUID().uuidString).log")

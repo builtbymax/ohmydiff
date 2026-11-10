@@ -22,6 +22,7 @@ struct BranchesPageView: View {
             }
         }
         .butCompatibilityBanner(session)
+        .conflictBanner(session)
         .changeActionPresentation(session)
         // The Merged filter lists the user's merged pull requests from the Pull requests page's inbox.
         .task(id: session.lastRefreshed) { await session.refreshPullRequests() }
