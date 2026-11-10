@@ -641,12 +641,15 @@ struct DiffTableView: NSViewRepresentable {
             defer { layoutCard() }
             guard let tableView, let scrollView else { return }
             let visible = scrollView.contentView.bounds.width
+            // Before `show` reloads the table, it still counts the old rows and would lay them out from the new
+            // ones; the reload measures every row anyway.
+            let isLoaded = tableView.numberOfRows == rowCount
             switch mode {
             case .unified where wrapsLines:
                 tableView.tableColumns.first?.width = visible
                 if visible != splitColumnWidth {
                     splitColumnWidth = visible
-                    tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<unifiedRows.count))
+                    if isLoaded { tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<unifiedRows.count)) }
                 }
             case .unified:
                 tableView.tableColumns.first?.width = formatter.width(characters: unifiedCharacters)
@@ -663,7 +666,7 @@ struct DiffTableView: NSViewRepresentable {
                             wrappedLines(row: $0, width: splitColumnWidth) != wrappedLines(row: $0, width: old)
                         })
                     splitColumnWidth = old
-                    if !changed.isEmpty { tableView.noteHeightOfRows(withIndexesChanged: changed) }
+                    if isLoaded, !changed.isEmpty { tableView.noteHeightOfRows(withIndexesChanged: changed) }
                 }
             case nil:
                 break
@@ -866,6 +869,7 @@ struct DiffTableView: NSViewRepresentable {
 
             switch mode {
             case .unified:
+                guard unifiedRows.indices.contains(row) else { break }
                 switch unifiedRows[row] {
                 case .line(let h, let l):
                     cell.label.attributedStringValue = formatter.unifiedLine(hunk: h, line: l, wraps: wrapsLines)
@@ -878,7 +882,7 @@ struct DiffTableView: NSViewRepresentable {
                     break
                 }
             case .split:
-                guard case .pair(let h, let old, let new) = splitRows[row] else { break }
+                guard splitRows.indices.contains(row), case .pair(let h, let old, let new) = splitRows[row] else { break }
                 let isOld = tableColumn?.identifier == Self.oldColumn
                 let line = isOld ? old : new
                 cell.label.attributedStringValue = line.map { formatter.splitLine(hunk: h, line: $0, side: isOld ? .old : .new) }
@@ -904,7 +908,7 @@ struct DiffTableView: NSViewRepresentable {
             let rowView = tableView.makeView(withIdentifier: DiffRowView.reuseIdentifier, owner: nil) as? DiffRowView ?? DiffRowView()
             if hunkIndex(ofHeaderRow: row) != nil || isTrailingGap(row) {
                 rowView.tint = nil
-            } else if mode == .unified, case .line(let h, let l) = unifiedRows[row] {
+            } else if mode == .unified, unifiedRows.indices.contains(row), case .line(let h, let l) = unifiedRows[row] {
                 rowView.tint = DiffRowFormatter.tint(for: diff.hunks[h].lines[l].kind)
             } else {
                 rowView.tint = nil
