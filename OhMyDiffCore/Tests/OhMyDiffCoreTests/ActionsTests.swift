@@ -129,10 +129,10 @@ extension TestRepo {
         let untracked = ChangedFile(path: "b", kind: .untracked, source: .untracked)
         let staged = ChangedFile(path: "c", kind: .added, source: .staged)
 
-        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: unstaged)) } == [.stage, .commit, .discard])
-        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: unstaged, hunk: hunk)) } == [.stage, .commit, .discard])
-        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: untracked)) } == [.stage, .commit, .discard])
-        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: staged)) } == [.unstage, .commit])
+        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: unstaged)) } == [.stage, .commit, .amend, .discard])
+        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: unstaged, hunk: hunk)) } == [.stage, .commit, .amend, .discard])
+        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: untracked)) } == [.stage, .commit, .amend, .discard])
+        #expect(ChangeAction.allCases.filter { repository.supports($0, on: ChangeTarget(file: staged)) } == [.unstage, .commit, .amend])
         // Hunks of added files would need a full new-file patch.
         #expect(!repository.supports(.unstage, on: ChangeTarget(file: staged, hunk: hunk)))
         #expect(!repository.supports(.commit, on: ChangeTarget(file: staged, hunk: hunk)))
@@ -209,6 +209,33 @@ extension TestRepo {
         #expect(try await committedFiles(repo) == ["b.txt", "new.txt"])
         #expect(try await repository.changeGroups().map(\.kind) == [.untracked])
         #expect(try await repo.paths(in: .untracked, of: repository) == ["other.txt"])
+    }
+
+    @Test func amendsTheLatestCommitKeepingItsMessage() async throws {
+        let repo = try await setUp()
+        try repo.write("b.txt", "changed b\n")
+        try repo.write("new.txt", "new\n")
+        let repository = try await repo.open()
+        let head = try #require(await repository.headSHA())
+
+        try await repository.amend([ChangeTarget(file: repo.file("new.txt", in: .untracked, of: repository))], into: head)
+        #expect(try await committedFiles(repo) == ["a.txt", "b.txt", "new.txt"])
+        #expect(try await repo.git("log", "--format=%s") == "init\n")
+        #expect(try await repo.paths(in: .unstaged, of: repository) == ["b.txt"])
+    }
+
+    @Test func refusesToAmendAnOlderCommit() async throws {
+        let repo = try await setUp()
+        try repo.write("b.txt", "second\n")
+        try await repo.commitAll("second")
+        let first = try await repo.git("rev-parse", "HEAD^").trimmingCharacters(in: .whitespacesAndNewlines)
+        try repo.write("new.txt", "new\n")
+        let repository = try await repo.open()
+
+        await #expect(throws: ChangeActionError.self) {
+            try await repository.amend([ChangeTarget(file: repo.file("new.txt", in: .untracked, of: repository))], into: first)
+        }
+        #expect(try await repo.paths(in: .untracked, of: repository) == ["new.txt"])
     }
 
     @Test func commitsOneHunk() async throws {
@@ -445,6 +472,33 @@ struct GitButlerActionTests {
         await #expect(throws: ChangeActionError.self) {
             try await repository.commit([], toBranch: "feature/a", message: "x")
         }
+    }
+
+    @Test func amendsFilesAndHunksIntoAnOlderCommit() async throws {
+        let repo = try await TestRepo(gitButler: true)
+        try repo.write("notes.txt", twentyLines)
+        try await repo.but("commit", "-b", "feature/base", "-m", "add notes")
+        try repo.write("b.txt", "b\n")
+        try await repo.but("commit", "-b", "feature/base", "-m", "add b")
+        let repository = try await repo.open()
+        let older = try #require(try await repository.butStatus().stacks.first?.branches.first?.commits.last?.commitId)
+
+        try repo.write("a.txt", "a\n")
+        try repo.write("notes.txt", edited([1: "first", 20: "last"]))
+        let notes = try await repo.file("notes.txt", in: .unassigned, of: repository)
+        let diff = try #require(try await repository.diff(for: notes))
+        try await repository.amend([
+            ChangeTarget(file: repo.file("a.txt", in: .unassigned, of: repository)),
+            ChangeTarget(file: notes, hunk: diff.hunks[1]),
+        ], into: older)
+
+        let status = try await repository.butStatus(includeFiles: true)
+        let commits = try #require(status.stacks.first?.branches.first?.commits)
+        #expect(commits.map(\.summary) == ["add b", "add notes"])
+        #expect(Set(commits[1].changes?.map(\.filePath) ?? []) == ["a.txt", "notes.txt"])
+        #expect(status.unassignedChanges.map(\.filePath) == ["notes.txt"])
+        let left = try #require(try await repository.diff(for: notes))
+        #expect(left.hunks.flatMap(\.lines).filter { $0.kind == .addition }.map(\.text) == ["first"])
     }
 
     @Test func stacksAndUnstacksBranches() async throws {

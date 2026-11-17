@@ -728,6 +728,7 @@ private struct HunkBar: View {
         case .stage: "Stage"
         case .unstage: "Unstage"
         case .commit: "Commit"
+        case .amend: "Amend"
         case .discard: "Discard"
         }
     }

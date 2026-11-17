@@ -19,6 +19,9 @@ struct ChangeActionMenu: View {
         if session.supports(.commit, on: targets) {
             Button(session.project.kind == .gitButler ? "Commit\(suffix) to Branch…" : "Commit\(suffix)…") { session.request(.commit, on: targets) }
         }
+        if session.supports(.amend, on: targets) {
+            Button("Amend\(suffix) into Commit…") { session.request(.amend, on: targets) }
+        }
         if !isGroup, session.supports(.discard, on: targets) {
             Divider()
             Button("Discard Changes…", role: .destructive) { session.request(.discard, on: targets) }
