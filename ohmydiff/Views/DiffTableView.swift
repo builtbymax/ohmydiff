@@ -529,6 +529,7 @@ struct DiffTableView: NSViewRepresentable {
             case .stage: "Stage Hunk"
             case .unstage: "Unstage Hunk"
             case .commit: "Commit Hunk to Branch…"
+            case .amend: "Amend Hunk into Commit…"
             case .discard: "Discard Hunk…"
             }
         }
@@ -1797,6 +1798,7 @@ extension ChangeAction {
         case .stage: "Stage Hunk  S"
         case .unstage: "Unstage Hunk"
         case .commit: "Commit Hunk…  S"
+        case .amend: "Amend Hunk into Commit…"
         case .discard: "Discard Hunk…  ⌫"
         }
     }
@@ -1806,6 +1808,7 @@ extension ChangeAction {
         case .stage: "plus"
         case .unstage: "minus"
         case .commit: "circle.and.line.horizontal"
+        case .amend: "arrow.down.to.line"
         case .discard: "arrow.uturn.backward"
         }
     }

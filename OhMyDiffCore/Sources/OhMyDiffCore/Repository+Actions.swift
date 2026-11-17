@@ -20,6 +20,8 @@ public enum ChangeAction: Sendable, Hashable, CaseIterable {
     case unstage
     /// GitButler: commit to a branch the user picked.
     case commit
+    /// Add to an existing commit: any of an applied GitButler branch, the latest one in plain git.
+    case amend
     /// Throw the change away: untracked files go to the Trash, GitButler discards are in the oplog.
     case discard
 }
@@ -38,6 +40,8 @@ public enum ChangeActionError: Error, Sendable, CustomStringConvertible {
     case overlapsStaged(String)
     /// GitButler: the changes build on commits of this branch, so they go to a branch stacked on top of it.
     case dependsOn(String)
+    /// Plain git amends only the latest commit; an older one would need a rebase.
+    case notLatestCommit
 
     public var description: String {
         switch self {
@@ -50,6 +54,7 @@ public enum ChangeActionError: Error, Sendable, CustomStringConvertible {
         case .deletingCheckedOut(let name): "\(name) is checked out. Switch to another branch before deleting it."
         case .dependsOn(let branch): "These changes build on commits in \(branch). Commit them to a branch stacked on top of it."
         case .overlapsStaged(let path): "The selected change of \(path) overlaps its staged changes. Commit or unstage those first."
+        case .notLatestCommit: "Only the latest commit can be amended here. Commit the changes instead."
         }
     }
 }
@@ -65,11 +70,11 @@ extension Repository {
             return true
         case (.git, .stage, .untracked), (.git, .discard, .untracked):
             return target.hunk == nil
-        case (.git, .commit, .unstaged):
+        case (.git, .commit, .unstaged), (.git, .amend, .unstaged):
             return true
-        case (.git, .commit, .staged), (.git, .commit, .untracked):
+        case (.git, .commit, .staged), (.git, .commit, .untracked), (.git, .amend, .staged), (.git, .amend, .untracked):
             return target.hunk == nil
-        case (.gitButler, .commit, .workspace), (.gitButler, .discard, .workspace):
+        case (.gitButler, .commit, .workspace), (.gitButler, .amend, .workspace), (.gitButler, .discard, .workspace):
             return true
         default:
             return false
@@ -156,7 +161,8 @@ extension Repository {
     /// of HEAD (or of the staged version when the whole staged file is selected too), so a file's other staged
     /// hunks stay out. `git commit` then runs with that index, so hooks still run, and the real index is
     /// brought in line for the committed paths afterwards, keeping staged hunks that were not committed.
-    private func gitCommit(_ targets: [ChangeTarget], message: String) async throws {
+    /// A `nil` message amends HEAD instead, keeping its message.
+    private func gitCommit(_ targets: [ChangeTarget], message: String?) async throws {
         let index = FileManager.default.temporaryDirectory.appending(path: "ohmydiff-index-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: index) }
         let temporary = ["GIT_INDEX_FILE": index.path]
@@ -194,7 +200,11 @@ extension Repository {
             }
         }
 
-        _ = try await toolchain.git(["commit", "--quiet", "--file=-"], in: root, input: Data(message.utf8), environment: temporary, timeout: .seconds(120))
+        if let message {
+            _ = try await toolchain.git(["commit", "--quiet", "--file=-"], in: root, input: Data(message.utf8), environment: temporary, timeout: .seconds(120))
+        } else {
+            _ = try await toolchain.git(["commit", "--quiet", "--amend", "--no-edit"], in: root, environment: temporary, timeout: .seconds(120))
+        }
         // The committed paths now match HEAD in the real index too, so they do not show as staged in reverse.
         // Paths committed only by hunk get those hunks in the real index instead, which keeps the rest staged.
         let filePaths = Set(files.flatMap(Self.paths))
@@ -260,6 +270,21 @@ extension Repository {
                 _ = try await toolchain.git(["switch", "--quiet", "--create", branch], in: root)
             }
             try await gitCommit(targets, message: message)
+        }
+    }
+
+    /// Adds files or hunks to the existing commit `commit`, keeping its message. GitButler: any commit of an
+    /// applied branch, with `but amend`, which rebases the commits above it. Plain git: only the latest commit,
+    /// built like `gitCommit`, since an older one would need a rebase that can stop on conflicts.
+    public func amend(_ targets: [ChangeTarget], into commit: String) async throws {
+        try check(.amend, targets)
+        switch kind {
+        case .gitButler:
+            let ids = try await butIDs(for: targets)
+            _ = try await toolchain.but(["amend", "-t", commit] + ids, in: root, timeout: .seconds(60))
+        case .git:
+            guard await headSHA() == commit else { throw ChangeActionError.notLatestCommit }
+            try await gitCommit(targets, message: nil)
         }
     }
 

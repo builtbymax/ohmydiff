@@ -117,12 +117,18 @@ struct BranchReviewView: View {
                 }
             }
             .overlay(alignment: .bottomLeading) {
-                if scope != nil, let request = session.actionRequest, request.action == .commit {
+                if scope != nil, let request = session.actionRequest, request.action == .commit || request.action == .amend {
                     ZStack(alignment: .bottomLeading) {
                         // Clicking outside the card closes it, like a popover.
                         Color.black.opacity(0.001)
                             .onTapGesture { session.actionRequest = nil }
-                        CommitTargetCard(session: session, request: request) { session.actionRequest = nil }
+                        Group {
+                            if request.action == .amend {
+                                AmendTargetCard(session: session, request: request) { session.actionRequest = nil }
+                            } else {
+                                CommitTargetCard(session: session, request: request) { session.actionRequest = nil }
+                            }
+                        }
                             .id(request.id)
                             .padding(.leading, fit.listWidth + 12)
                             .padding(.bottom, 168)
@@ -141,8 +147,8 @@ struct BranchReviewView: View {
             .onKeyPress("n") { jumpToHunk(1) }
             .onKeyPress("p") { jumpToHunk(-1) }
             .onKeyPress(.escape) {
-                // The commit card's `esc` reaches this handler before its exit command; it closes the card only.
-                if scope != nil, session.actionRequest?.action == .commit {
+                // The commit and amend cards' `esc` reaches this handler before their exit command; it closes the card only.
+                if scope != nil, let action = session.actionRequest?.action, action == .commit || action == .amend {
                     session.actionRequest = nil
                     return .handled
                 }
@@ -463,7 +469,8 @@ private struct BranchReviewList: View {
                     let selection = HistoryModel.Selection.commit(sha: commit.sha, branch: branch.name)
                     ReviewCommitRow(
                         commit: commit, isLocal: session.isLocal(commit, in: branch), indent: 22,
-                        isCompact: isCompact, isSelected: history.selection == selection
+                        isCompact: isCompact, isSelected: history.selection == selection,
+                        amend: canAmend(commit, of: branch) ? { ids in session.amend(droppedFiles: ids, into: commit) } : nil
                     ) { history.selection = selection }
                     .modifier(rail(selection))
                     .id(selection)
@@ -544,6 +551,11 @@ private struct ReviewUncommittedRow: View {
 }
 
 extension BranchReviewList {
+    /// Whether uncommitted files dropped on `commit` can be amended into it.
+    fileprivate func canAmend(_ commit: CommitInfo, of branch: HistoryBranch) -> Bool {
+        session.amendableCommits.contains { $0.branch == branch.name && $0.commits.contains(commit) }
+    }
+
     /// Folds or unfolds a branch's commits; a selected commit that folds away hands the selection to its branch.
     fileprivate func toggle(_ branch: String) {
         withAnimation(.snappy(duration: 0.18)) {
@@ -627,12 +639,16 @@ private struct ReviewCommitRow: View {
     let indent: CGFloat
     let isCompact: Bool
     let isSelected: Bool
+    /// Amends uncommitted files dropped on the row, by ID; `nil` when the commit can't be amended.
+    var amend: (([ChangedFile.ID]) -> Bool)?
     let select: () -> Void
+
+    @State private var isDropTarget = false
 
     var body: some View {
         Button(action: select) {
             HStack(spacing: 8) {
-                Image(systemName: "circle.and.line.horizontal")
+                Image(systemName: isDropTarget ? "arrow.down.to.line" : "circle.and.line.horizontal")
                     .font(.system(size: 10))
                     .foregroundStyle(isLocal ? Theme.warnFg : Theme.textTertiary)
                     .frame(width: 14, height: 14)
@@ -659,7 +675,17 @@ private struct ReviewCommitRow: View {
         }
         .buttonStyle(.row(isSelected: isSelected))
         .focusEffectDisabled()
-        .help(commit.summary)
+        .overlay {
+            if isDropTarget {
+                RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.textPrimary.opacity(0.7), lineWidth: 1.5)
+            }
+        }
+        .help(isDropTarget ? "Amend into \(commit.summary)" : commit.summary)
+        .dropDestination(for: String.self) { ids, _ in
+            amend?(ids) ?? false
+        } isTargeted: { isTargeted in
+            isDropTarget = isTargeted && amend != nil
+        }
         .contextMenu {
             Button("Copy SHA") {
                 NSPasteboard.general.clearContents()

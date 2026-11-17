@@ -485,9 +485,26 @@ final class ProjectSession {
     }
 
     /// Whether every target supports `action`; `false` until the repository is open or while another action runs.
+    /// Amending also needs a commit to amend.
     func supports(_ action: ChangeAction, on targets: [ChangeTarget]) -> Bool {
         guard let repository, !targets.isEmpty, !isPerformingAction else { return false }
+        if action == .amend, amendableCommits.isEmpty { return false }
         return targets.allSatisfy { repository.supports(action, on: $0) }
+    }
+
+    /// The commits changes can be amended into, by branch: those of applied GitButler branches that are not merged
+    /// or conflicted, or the latest commit of the checked-out plain-git branch.
+    var amendableCommits: [(branch: String, commits: [CommitInfo])] {
+        let branches = history.groups.flatMap(\.branches)
+        if project.kind == .gitButler {
+            return branchNames.compactMap { name in
+                guard let branch = branches.first(where: { $0.name == name }), !history.isMerged(branch) else { return nil }
+                let commits = branch.commits.filter { !$0.isConflicted }
+                return commits.isEmpty ? nil : (name, commits)
+            }
+        }
+        guard let current = branches.first(where: \.isCurrent), let latest = current.commits.first else { return [] }
+        return [(current.name, [latest])]
     }
 
     /// Stages and unstages right away; discards ask for confirmation and commits for a message first.
@@ -498,7 +515,7 @@ final class ProjectSession {
             Task { await perform(action, on: targets) }
         case .discard where !Self.confirmsDiscard(of: targets):
             Task { await perform(action, on: targets) }
-        case .commit, .discard:
+        case .commit, .amend, .discard:
             actionRequest = ActionRequest(action: action, targets: targets)
         }
     }
@@ -522,7 +539,10 @@ final class ProjectSession {
     }
 
     /// Runs an action and refreshes, throwing failures to the caller, e.g. to show them in the commit sheet.
-    func run(_ action: ChangeAction, on targets: [ChangeTarget], branch: String = "", stackedOn anchor: String? = nil, message: String = "") async throws {
+    func run(
+        _ action: ChangeAction, on targets: [ChangeTarget], branch: String = "", stackedOn anchor: String? = nil, message: String = "",
+        into commit: CommitInfo? = nil
+    ) async throws {
         guard let repository, !isPerformingAction else { return }
         isPerformingAction = true
         defer {
@@ -544,7 +564,28 @@ final class ProjectSession {
             Toasts.shared.show(
                 "Committed \(toastSubject(targets)) to \(branch)", systemImage: "circle.and.line.horizontal", tint: Theme.okFg,
                 action: Toasts.undo { [weak self] in self?.undoCommit(head: head) })
+        case .amend:
+            guard let commit else { return }
+            try await repository.amend(targets, into: commit.sha)
+            // `but undo` takes it back; plain git has nothing as safe, the old commit is only in the reflog.
+            Toasts.shared.show(
+                "Amended \(toastSubject(targets)) into \(commit.summary)", systemImage: "circle.and.line.horizontal", tint: Theme.okFg,
+                action: repository.kind == .gitButler ? Toasts.undo { [weak self] in self?.undoLastOperation() } : nil)
         }
+    }
+
+    /// Amends files dragged from the uncommitted list, by ID, into `commit`; the whole selection when a dragged file
+    /// is part of it. Returns whether it started.
+    func amend(droppedFiles ids: [ChangedFile.ID], into commit: CommitInfo) -> Bool {
+        let selected = selectedFiles
+        let files = ids.contains(where: { id in selected.contains { $0.id == id } }) && selected.count > 1
+            ? selected : groups.allFiles.filter { ids.contains($0.id) }
+        let targets = files.map { ChangeTarget(file: $0) }
+        guard supports(.amend, on: targets), amendableCommits.contains(where: { $0.commits.contains(commit) }) else { return false }
+        Task {
+            do { try await run(.amend, on: targets, into: commit) } catch { actionError = String(describing: error) }
+        }
+        return true
     }
 
     /// e.g. `hunk 2 of notes.txt`, `notes.txt` or `3 files`, for toasts.

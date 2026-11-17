@@ -275,6 +275,15 @@ private struct ChangeFileRow: View {
         .focusEffectDisabled()
         .id(file.id)
         .contextMenu { ChangeActionMenu(session: session, targets: menuTargets(isSelected: isSelected), isGroup: false) }
+        // Dropped on a commit in the branch list, it is amended into it, with the rest of the selection.
+        .draggable(file.id) {
+            let count = isSelected ? max(session.selectedFiles.count, 1) : 1
+            Label(count == 1 ? (file.path as NSString).lastPathComponent : "\(count) files", systemImage: "doc")
+                .font(.control)
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .background(Theme.surface, in: .capsule)
+        }
     }
 
     /// ⌘-click toggles the file in the selection, ⇧-click selects the range up to it.
